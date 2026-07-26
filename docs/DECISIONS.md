@@ -1,6 +1,6 @@
 # Decisions
 
-**Current phase: 6**
+**Current phase: 7**
 
 Append after every phase: what changed, and why.
 
@@ -1650,3 +1650,246 @@ Shortcut was considered and set aside: it requires the link to be created
 outside this repo and the token would still need pasting by hand, so it saves
 setup steps rather than eliminating them — the Settings section built here is
 where it would drop in later if that changes.
+
+---
+
+## Phase 7 — PWA polish: icons, install prompt, offline shell
+
+**No schema change.** Everything this phase touches is static assets, client
+components and the proxy's exemption list.
+
+```
+public/icon-192.png, icon-512.png          regenerated, "any" purpose
+public/icon-maskable-192.png, -512.png     new, "maskable" purpose
+public/icon-monochrome.png                 new, "monochrome" purpose
+public/apple-touch-icon.png                new, 180x180, opaque
+public/manifest.webmanifest                purpose fields added
+app/layout.tsx                             icons.apple, appleWebApp, viewport.themeColor
+components/install-prompt.tsx              beforeinstallprompt + iOS fallback banner
+components/register-service-worker.tsx     registers /sw.js
+public/sw.js                               navigation-only offline fallback
+app/offline/page.tsx                       static fallback shell
+lib/supabase/proxy.ts                      PUBLIC_PATHS: + /sw.js, /offline
+next.config.ts                             Cache-Control: no-cache on /sw.js
+```
+
+### Icons regenerated the same way phase 6 built them, this time meant to last
+
+Phase 6's `icon-192`/`icon-512` were a stated placeholder ("phase 7's icon
+pass supersedes these"), built by a throwaway PIL script never committed. This
+phase used the same tool for the same reason — not a project dependency, just
+a local generator — and regenerated all six files from `VennMark`'s own
+geometry (`circle = size × 0.62`, vertical `offset = size × 0.19`) rather than
+new artwork, so the icon and the in-app wordmark stay the same shape.
+
+- **Maskable (`icon-maskable-192/512.png`).** The full-bleed mark (phase 6's
+  original) already touches all four edges — `circle-b`'s right edge sits at
+  `x = size`, `circle-a`'s left edge at `x = 0` — which is exactly what a
+  maskable icon must *not* do, since an OS mask can crop up to ~20% from any
+  edge. Fixed by rendering the mark at 0.7× into a virtual canvas and
+  compositing it centered onto a full background-color square, landing the
+  whole mark inside the ~80% safe zone with margin to spare.
+- **Monochrome (`icon-monochrome.png`).** Android's themed-icon system reads
+  only the alpha channel and retints with its own color, so the fill value in
+  the file is irrelevant — rendered as a white silhouette on transparent,
+  same 0.7× safe-zone scale as the maskable pair, single size (192) since
+  nothing consumes a larger monochrome variant today.
+- **`apple-touch-icon.png`.** iOS applies its own corner rounding at display
+  time rather than reading a `purpose`, so this is the same 100%-scale
+  full-bleed render as the plain icons, just at 180px with no alpha (iOS
+  handles transparency poorly in this slot) — wired in via `Metadata.icons.apple`
+  in `app/layout.tsx`, which Next resolves into the `<link rel="apple-touch-icon">`
+  tag itself.
+- **`app/favicon.ico`** is still Next's default icon, unrelated to Venn's
+  branding. Named in phase 6's deferred list only as "icons," but not called
+  out specifically — left alone this phase, confirmed with the user before
+  building rather than folded in silently.
+
+### Splash screens: the auto-generated kind, not the legacy PNG matrix
+
+§9's phase 7 row names "splash screens." The traditional implementation is a
+`<link rel="apple-touch-startup-image">` per device size/orientation — a
+matrix that has to be regenerated per new device. Confirmed with the user
+instead: iOS 16.4+ generates its own splash from the manifest's `icons`,
+`background_color` and `name`, all of which this phase's manifest already
+carries correctly (`#15121c` background, the same icon set). No new files for
+this row; pre-16.4 devices fall back to a plain white flash, accepted rather
+than built around.
+
+### `appleWebApp` and `viewport.themeColor` exist because iOS mostly ignores the manifest
+
+Android reads `display`/`theme_color`/`background_color` from
+`manifest.webmanifest` directly. iOS Safari's PWA support predates broad
+manifest adoption and still wants its own meta tags for the same information:
+`apple-mobile-web-app-capable` (standalone launch) and
+`apple-mobile-web-app-title` — both produced by Next's `Metadata.appleWebApp`
+field, so no hand-written `<meta>` tags. `viewport.themeColor` is the
+`Metadata`/`Viewport` split Next 16 requires — `themeColor` moved out of
+`metadata` and into a separate `viewport` export some versions ago, and
+putting it under `metadata` instead fails silently (no error, the tag just
+never renders) rather than a build-time complaint.
+
+### Install prompt: one banner, two mechanisms, because iOS has no event for this
+
+`components/install-prompt.tsx` is `"use client"`, mounted globally from
+`app/layout.tsx` rather than tucked into Settings — confirmed with the user
+that "install prompt" should read as proactive, not something a user has to
+go looking for.
+
+- **Chrome/Android**: `beforeinstallprompt` fires only when the browser has
+  already decided the site qualifies (valid manifest, HTTPS or localhost, a
+  service worker with a fetch handler registered) — this is why the banner
+  is wired to depend on `sw.js` already existing. `e.preventDefault()` on the
+  event defers Chrome's own mini-infobar so this banner is the only prompt
+  surface; clicking Install calls the saved event's `.prompt()`.
+- **iOS Safari**: no such event exists on any iOS version. Detected instead
+  by user-agent sniff plus `!isStandalone()`, and shown fixed text
+  ("tap Share, then Add to Home Screen") rather than a button, since iOS
+  gives no programmatic install call to wire up.
+- **Dismissal** is a single `localStorage` flag, checked once on mount
+  alongside `display-mode: standalone` / `navigator.standalone` (so an
+  already-installed PWA never shows its own install banner to itself). No
+  snooze schedule, no re-prompt-after-N-days — not asked for, and the
+  simplest version already avoids nagging: one dismiss, gone for good.
+
+**`react-hooks/set-state-in-effect` disabled on one line, not the rule.**
+Whether the banner should render at all depends on `localStorage` and
+`matchMedia`, neither of which exist during SSR — starting `dismissed = true`
+(hidden) and flipping it once mounted is the standard fix for exactly this
+class of client-only state, not the "syncing render with an effect"
+anti-pattern the rule targets. Same precedent as `movie-card.tsx`'s existing
+`eslint-disable` on `@next/next/no-img-element`: the rule's default
+suggestion is the wrong fit here, stated inline rather than silenced globally.
+
+### Offline shell caches exactly one thing, on purpose
+
+`public/sw.js` is deliberately narrow: it intercepts **GET** navigation
+requests only (`event.request.mode === "navigate" && event.request.method ===
+"GET"`), tries the network, and on failure serves a single precached
+`/offline`. It does **not** cache API responses, authenticated pages, or
+anything from Supabase/TMDB.
+
+**The GET half of that check isn't defensive — it fixes a real regression.**
+`/share` (phase 6) launches as a **POST** navigation; phase 6's own DECISIONS
+entry already noted Chrome's share-target docs describe "a service worker
+intercepting the POST." A `mode === "navigate"` check alone would have caught
+every Android share and routed it through this handler's `fetch()`/`.catch()`
+instead of straight to the network — re-issuing a POST from inside a service
+worker is its own risk, and a network hiccup would have served `/offline`
+instead of reaching the ingest route, which is precisely what SPEC §5
+forbids ("never guess... a silent wrong add is worse than a badge," and by
+extension, a silently dropped share is worse still). Caught before merging,
+not after a real share broke — the method check was added once the
+overlap with phase 6's share-target mechanism was pointed out.
+
+This app's entire security model is per-row RLS (phases 0, 3, 4, 5 all pin
+this). A service worker cache is shared storage on the device, outside RLS's
+reach entirely — caching any real page risks the browser replaying one
+account's rendered HTML to whoever uses the device next. Scoping the cache to
+one static, data-free, unauthenticated page sidesteps that risk completely
+rather than managing it.
+
+**Consequence, stated rather than glossed over:** only `/offline`'s HTML is
+precached, not the CSS/JS chunks it references. Verified directly — stopping
+the dev server and navigating served the offline page unstyled (default serif,
+no dark background), because the browser also had no network to fetch the
+Tailwind stylesheet chunk. Restarting the server and reloading rendered it
+fully styled. In production this gap mostly closes itself: Next serves
+`/_next/static/*` with long-lived immutable cache headers, so any device that
+has loaded the app at least once while online almost certainly already has
+those chunks in its ordinary HTTP cache. Precaching them properly would mean
+a build-time asset manifest — a bundler plugin, i.e. a new dependency — which
+is out of scope for what "offline shell" asked for here.
+
+### `/sw.js` and `/offline` had to join `/manifest.webmanifest` in `PUBLIC_PATHS`
+
+Same bug class phase 6 documented for the manifest, arriving twice more:
+
+- The browser's own fetch of `/sw.js` carries no meaningful cookie context by
+  the time it matters. Left off the exemption list, a signed-out visitor's
+  first registration attempt would 307 to `/login`, and the browser would try
+  to parse the login page's HTML as a script — registration fails silently,
+  and offline support never activates for anyone who hasn't logged in yet.
+- `/offline` is fetched once by the service worker's own `install` handler, in
+  whatever auth state happens to be current at that moment. If that fetch
+  redirects to `/login` instead of landing on the real page, the *login
+  screen* gets precached under the `/offline` key — every subsequent offline
+  navigation on that device would show a stale login form instead of the
+  offline shell, and nothing would ever refresh it without a service worker
+  update.
+
+Verified as a pair against the running dev server, `curl -s -o /dev/null -w
+"%{http_code}"`: `/manifest.webmanifest`, `/sw.js` and `/offline` all answer
+`200` signed out; `/` still answers `307 → /login`, confirming the exemption
+is scoped to these three paths and not a hole that swallows the redirect
+generally.
+
+### `Cache-Control: no-cache` on `/sw.js`, not on anything else
+
+Without it, Vercel/the browser could hold onto a stale service worker
+indefinitely, freezing every future deploy's offline behavior to whatever
+`sw.js` a client fetched first. Scoped to exactly this one path in
+`next.config.ts`'s `headers()` — nothing else in this phase needed a header
+change.
+
+### Verification
+
+1. `pnpm typecheck`, `pnpm lint`, `pnpm build` — all clean. `/offline` builds
+   as `○` (static, prerendered), the first fully static route since `/login`.
+2. `curl` against the local dev server: `/manifest.webmanifest`, `/sw.js`,
+   `/offline` → `200` signed out; `/` → `307 → /login` (the `PUBLIC_PATHS`
+   pairing above). `/sw.js` response header confirmed `Cache-Control:
+   no-cache`, `Content-Type: application/javascript`. All six icon files and
+   the updated manifest JSON fetched and inspected directly.
+3. **Live browser (Claude-in-Chrome), real interaction throughout:**
+   - `/login` in Chrome: the install banner rendered as designed
+     ("Install Venn for quicker access" + Install button). Clicking Install
+     triggered Chrome's real native install-confirmation dialog — not
+     simulated — which is itself a positive signal, since Chrome only offers
+     that dialog to a site it has independently judged installable (valid
+     manifest, HTTPS-or-localhost, a registered service worker with a fetch
+     handler).
+   - Dismiss (`×`) tested separately from Install, since the native dialog
+     above blocks screenshot capture for its duration. Clicking dismiss, then
+     reloading `/login`, confirmed the banner does not reappear — the
+     `localStorage` flag persists across a real navigation, not just within
+     one render.
+   - Service worker state inspected directly in the page context:
+     `navigator.serviceWorker.getRegistration()` →  registered at scope
+     `http://localhost:3000/`; `navigator.serviceWorker.ready` → `active`;
+     `caches.open("venn-offline-v1")` → `/offline` present.
+   - **Offline fallback, forced for real rather than assumed:** the dev
+     server was stopped outright (`curl` to it timed out, connection
+     refused), then the browser was navigated to `/groups`. It rendered the
+     offline shell's actual text ("You're offline. Reconnect to keep browsing
+     your lists."), not Chrome's default dinosaur page — confirming the
+     service worker's `fetch` handler catches a real network failure, not
+     just a DevTools-simulated one. Unstyled, as the precaching-scope
+     decision above predicts. Restarting the server and reloading `/offline`
+     rendered it fully styled (dark background, `VennMark`, correct copy) —
+     the online case works exactly as designed.
+   - **Signed-out redirect re-confirmed with the service worker actually
+     controlling the page**, not just over `curl`. Every navigation in the
+     app now passes through this `sw.js`'s `fetch` handler, including the
+     redirect response itself (navigation requests use `redirect: "manual"`,
+     so a `307` arrives as an opaque-redirect response `respondWith` has to
+     hand back correctly). With the SW active and no session, navigating to
+     `/groups` in the browser landed on `/login`, not a blank tab or a
+     swallowed redirect — the item 2 `curl` control and this one now cover
+     the same guarantee from two different layers.
+4. No migration this phase, so nothing was applied to `vfkkpflenfpfrrygxmto`.
+
+### Not in this phase
+
+`app/favicon.ico` (see above — asked, left alone). Push notifications, the
+notification matrix, and any server-driven re-engagement are phase 11's row,
+untouched here. No workbox/precache-manifest tooling was added — the
+single-purpose hand-written `sw.js` above is deliberately the whole surface
+area, not a first slice of a bigger caching system.
+
+`appleWebApp.statusBarStyle` is `"default"`, which renders a light iOS status
+bar over the app's near-black (`#15121c`) header — visible but not matched to
+the theme. `"black-translucent"` would look better but needs
+`viewport-fit=cover` plus manual safe-area-inset padding so the header content
+doesn't sit under the notch/status bar; neither was asked for, so left as the
+safe default rather than half-built.

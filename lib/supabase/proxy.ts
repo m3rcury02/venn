@@ -16,7 +16,24 @@ import { NextResponse, type NextRequest } from "next/server";
 // very first request for it would 307 to /login, the manifest would never
 // parse, and the app would never be installable -- silently, with nothing in
 // the console naming why.
-const PUBLIC_PATHS = ["/login", "/auth", "/api/ingest", "/share", "/manifest.webmanifest"];
+//
+// /sw.js and /offline (phase 7) need the same exemption as the manifest, for
+// the same reason. The service worker's own fetch of /sw.js has no cookie
+// context to rely on, so a 307 would hand the browser the /login HTML to
+// parse as a script, and registration would fail silently. /offline is
+// precached at install time by a fetch that runs in whatever auth state
+// happens to be current -- if that fetch gets redirected to /login instead of
+// the real offline page, every future offline navigation on this device would
+// render the login screen from cache rather than the offline shell.
+const PUBLIC_PATHS = [
+  "/login",
+  "/auth",
+  "/api/ingest",
+  "/share",
+  "/manifest.webmanifest",
+  "/sw.js",
+  "/offline",
+];
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
