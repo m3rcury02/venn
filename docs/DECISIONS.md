@@ -1066,28 +1066,36 @@ three `service_role` revokes. Re-add them if that ever happens.
 
 Verified by a per-category fingerprint over columns, policies, table
 grants, function bodies, function ACLs, constraints, indexes and RLS flags —
-**7 of 8 categories are byte-identical across local and hosted** (200 objects
-each).
+**all 8 categories are byte-identical across local and hosted**
+(`74cc79bc708a187a10cd3e5d435b9946`, 200 objects each).
 
-The one that still differs is `fnacl`, and the delta is exactly phase 0's and
-phase 3's four functions — `handle_new_user`, `handle_new_group`,
-`is_group_member`, `join_group_by_code` — which carry `service_role=X` on hosted
-and nothing locally. **Left as-is, not silently fixed:** it predates this phase
-and rewriting applied migrations is worse than recording it. It grants
-`service_role` nothing it lacks — that key bypasses RLS by design — and the
-pgTAP suite exercises `anon` and `authenticated` only, so no test outcome
-depends on it. The fix, when someone wants it, is three lines:
+`fnacl` needed a second pass to get there. The first fingerprint after this
+phase's migration showed it as the sole delta: phase 0's and phase 3's four
+functions — `handle_new_user`, `handle_new_group`, `is_group_member`,
+`join_group_by_code` — carried `service_role=X` on hosted and nothing locally,
+for the same reason phase 4's own three functions initially did. It predates
+this phase (their migrations never named `service_role` in a REVOKE, since
+default-privilege behaviour for *functions* wasn't documented until this
+phase's own discovery), so it was left recorded rather than silently
+patched over. Once flagged, the user asked for it closed, and applying
 
 ```sql
-revoke execute on function public.handle_new_user()          from service_role;
-revoke execute on function public.handle_new_group()         from service_role;
-revoke execute on function public.is_group_member(uuid)      from service_role;
-revoke execute on function public.join_group_by_code(text)   from service_role;
+revoke execute on function public.handle_new_user()        from service_role;
+revoke execute on function public.handle_new_group()       from service_role;
+revoke execute on function public.is_group_member(uuid)    from service_role;
+revoke execute on function public.join_group_by_code(text) from service_role;
 ```
 
-Worth noting for the record: phases 0 and 3 both claimed matching fingerprints.
-Those claims were true for what they measured — function ACLs were not in either
-fingerprint. This is a gap in the earlier verification, not a regression.
+directly to `vfkkpflenfpfrrygxmto` (not a new migration file — these four
+functions' migrations are already applied, and this only tightens a grant they
+already govern) brought the fingerprint to a full match. It grants
+`service_role` nothing it lacks — that key bypasses RLS by design — so this was
+a tidiness fix, not a correctness one.
+
+Worth noting for the record: phases 0 and 3 both claimed matching fingerprints
+at the time. Those claims were true for what they measured — function ACLs
+were not in either fingerprint. That was a gap in the earlier verification, now
+closed, not a regression.
 
 ### Tests
 
