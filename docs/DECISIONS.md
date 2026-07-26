@@ -1057,7 +1057,14 @@ on new functions to `service_role`, and because that is a *direct* grant,
 
 Phase 4's three functions now name `service_role` in their REVOKE, and the
 revoke was applied to the remote separately (it postdates the applied
-migration). Verified by a per-category fingerprint over columns, policies, table
+migration). That leaves the remote's stored migration text older than the file
+in this repo — **exactly the divergence phase 0 documented for its own
+revoke/grant block**, and it matters for the same reason: `db push` compares
+versions rather than contents, so this is cosmetic, but a `supabase db pull`
+after linking would re-baseline from the *stored* text and silently drop the
+three `service_role` revokes. Re-add them if that ever happens.
+
+Verified by a per-category fingerprint over columns, policies, table
 grants, function bodies, function ACLs, constraints, indexes and RLS flags —
 **7 of 8 categories are byte-identical across local and hosted** (200 objects
 each).
