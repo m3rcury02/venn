@@ -1,4 +1,4 @@
-# Venn — Requirements Spec v2 (locked)
+# Venn — Requirements Spec
 
 Shared movie lists and group recommendations. Personal libraries, friend groups, and a picker that suggests what everyone present actually wants to watch.
 
@@ -11,101 +11,143 @@ Shared movie lists and group recommendations. Personal libraries, friend groups,
 | Area | Choice | Notes |
 |---|---|---|
 | Distribution | PWA, installable | No dev account. Native iOS wrapper later via Capacitor if the data justifies it |
-| Frontend | Next.js on Vercel free tier | API routes co-located, needed for the ingest endpoint |
-| Backend | Supabase free tier | Postgres, magic-link auth, RLS, pgvector |
+| Frontend | Next.js on Vercel | Hobby tier during development — see §2 |
+| Backend | Supabase free tier | Postgres, magic-link auth, RLS |
 | Movie data | TMDB, behind a swappable provider interface | See §2 |
-| Vectors | pgvector extension | Taste vectors computed in-database |
+| Scoring | Plain SQL over normalized tag tables | **Not pgvector.** See §4 |
 | Push | Web Push | Works on Android PWA and iOS PWA when installed to home screen |
 | Email | Resend or similar free tier | Supabase's built-in email is not production-grade |
 | Analytics | PostHog free tier | From day one |
-| Ads | AdMob, **test mode only until §2 threshold** | List views only, never in the picker |
+| Ads | Deferred — see §2 | If ever added: list views only, never in the picker |
 
 ---
 
-## 2. The Money Constraint
+## 2. Cost and Licensing Constraints
 
-TMDB's developer key is for applications generating **no revenue**. A commercial key is $149/month (~₹13,000), a fixed cost from the first live ad.
+**Verify these numbers with the vendors directly before they drive a decision.** They come from secondary sources and vendor pages that were internally inconsistent.
 
-**Sequence:**
-1. **Dev:** AdMob in test mode. Test ads generate no revenue → developer key stays legitimate.
-2. **Public launch:** ship free, no live ads.
-3. **Flip ads on** only past roughly 10,000 MAU, where ₹13,000/mo is a rounding error.
+- **TMDB:** developer key is for applications generating no revenue. Commercial key reportedly $149/month.
+- **TheTVDB:** reportedly free under $50k/year revenue with attribution, rising in tiers above that. Their own licensing text was ambiguous on whether a negotiated key is still required — ask.
+- **Vercel:** the Hobby tier prohibits commercial use. Revenue means Pro at ~$20/month.
 
-**Action item before public launch:** email TMDB and confirm in writing that a free, zero-revenue public app is acceptable on a developer key. Their wording says "personal applications," which is ambiguous at scale. Get it in writing.
+**The sequence:**
+1. **Dev and early public:** free, no revenue. TMDB developer key, Vercel Hobby — both legitimate.
+2. **Monetize only when scale justifies it.** Turning on revenue triggers TMDB commercial *and* Vercel Pro on the same day. Both are fixed costs owed from your first rupee.
 
-**Attribution is mandatory:** TMDB logo plus the notice "This product uses the TMDB API but is not endorsed or certified by TMDB" in an About/Credits section. On termination you must purge all cached TMDB content — which our design caches, so this is a real obligation.
+**Action before public launch:** email TMDB to confirm a free, zero-revenue *public* app is acceptable on a developer key — their wording says "personal applications," which is ambiguous at scale. Ask about their clause restricting use with machine-learning or AI-based applications in the same email; the recommender here is algorithmic, not ML-trained, but it's worth having in writing.
 
-### Provider interface (build this from day one)
+**Attribution is a licence condition:** TMDB logo plus "This product uses the TMDB API but is not endorsed or certified by TMDB" in an About/Credits section. On termination you must purge cached TMDB content — this design caches, so it's a real obligation.
+
+### Provider interface
 
 ```ts
 interface MovieDataProvider {
   search(query: string, region: string): Promise<MovieSummary[]>
-  getMovie(id: string): Promise<Movie>
-  getTags(id: string): Promise<Tag[]>          // genres, keywords, cast, director
-  getWatchProviders(id: string, region: string): Promise<Provider[]>
+  getMovie(externalId: string): Promise<Movie>
+  getTags(externalId: string): Promise<Tag[]>          // genres, keywords, cast, director
+  getWatchProviders(externalId: string, region: string): Promise<Provider[]>
   getImageUrl(path: string, size: ImageSize): string
-  findByExternalId(imdbId: string): Promise<Movie | null>
+  findByImdbId(imdbId: string): Promise<Movie | null>
   nowPlaying(region: string): Promise<MovieSummary[]>
   upcoming(region: string): Promise<MovieSummary[]>
 }
 ```
 
-Escape hatches: OMDb paid tier, Watchmode. Note that **metadata is easy to replace (Wikidata is CC0), posters are not** — images are copyrighted regardless of provider.
+**Escape hatches, in order of viability:** TheTVDB (revenue-tiered, has movies), Watchmode or the Streaming Availability API (availability data only, both have free tiers).
+
+**OMDb is not an option** — its data licence is CC BY-NC 4.0, non-commercial on every tier including paid.
+
+**Untested assumption:** the recommender leans on TMDB *keywords*. TheTVDB is TV-first and may not have an equivalent. Test movie coverage and tag richness on ten films during phase 1a, before treating it as a real escape hatch. Fallback if keywords are absent: genres + cast + director only, which is weaker but functional.
 
 ---
 
 ## 3. Data Model
 
+Movie identity is **provider-agnostic**. Internal IDs never change when you swap providers; only the external-ID mapping does.
+
 ```
-profiles            id → auth.users, username UNIQUE, display_name, avatar_url,
-                    region, list_visibility_default, created_at
+-- Identity
+profiles              id PK → auth.users, username UNIQUE, display_name,
+                      avatar_url, region, default_list_visibility, created_at
 
-follows             follower_id, followee_id, created_at
-blocks              blocker_id, blocked_id, created_at
+follows               follower_id, followee_id, created_at
+                      PK (follower_id, followee_id)
+                      CHECK (follower_id <> followee_id)
 
-groups              id, name, invite_code, visibility (invite|public), created_by
-group_members       group_id, user_id, role, joined_at
+blocks                blocker_id, blocked_id, created_at
+                      PK (blocker_id, blocked_id)
+                      CHECK (blocker_id <> blocked_id)
 
-movies              provider_id PK, provider (tmdb|omdb|…), title, original_title,
-                    year, poster_path, backdrop_path, runtime, overview,
-                    rating_external, release_date, fetched_at
-movie_tags          provider_id, tag_type (genre|keyword|person), tag_value, weight
-movie_releases      provider_id, region, release_date, release_type   -- theatre mode
+-- Groups
+groups                id PK, name, invite_code UNIQUE, visibility (invite|public),
+                      created_by, created_at
+group_members         group_id, user_id, role, joined_at
+                      PK (group_id, user_id)
 
-lists               id, name, owner_type (user|group), owner_id,
-                    visibility (public|followers|private), is_default
-list_items          list_id, provider_id, added_by, note, added_at
-list_hidden_from    list_id, user_id            -- per-user hiding
+-- Catalog
+movies                id PK (uuid), title, original_title, year, poster_path,
+                      backdrop_path, runtime, overview, rating_external,
+                      release_date, fetched_at
+movie_external_ids    movie_id, provider, external_id
+                      PK (provider, external_id)
+                      UNIQUE (movie_id, provider)
+tags                  id PK (serial), tag_type (genre|keyword|person), tag_value
+                      UNIQUE (tag_type, tag_value)
+movie_tags            movie_id, tag_id, weight
+                      PK (movie_id, tag_id)
+movie_releases        movie_id, region, release_date, release_type
+                      PK (movie_id, region, release_type)
 
-user_movie_status   user_id, provider_id,
-                    watched bool,
-                    rating enum(hate|like|love)          NULL,  -- iff watched
-                    hype  enum(dont_care|hyped|superhyped) NULL, -- iff NOT watched
-                    watched_at, updated_at
-                    CHECK (watched AND hype IS NULL) OR (NOT watched AND rating IS NULL)
+-- Lists
+lists                 id PK, name, owner_user_id NULL, owner_group_id NULL,
+                      visibility (public|followers|private), is_default, created_at
+                      CHECK (num_nonnulls(owner_user_id, owner_group_id) = 1)
+list_items            list_id, movie_id, added_by, note, added_at
+                      PK (list_id, movie_id)
+list_hidden_from      list_id, user_id
+                      PK (list_id, user_id)
 
-hype_history        user_id, provider_id, hype, recorded_at, resolved_rating
-                    -- preserves pre-watch hype so hype-vs-reality stays computable
+-- Status and taste
+user_movie_status     user_id, movie_id, watched, rating (hate|like|love) NULL,
+                      hype (dont_care|hyped|superhyped) NULL, watched_at, updated_at
+                      PK (user_id, movie_id)
+                      CHECK ((watched AND hype IS NULL)
+                          OR ((NOT watched) AND rating IS NULL))
+hype_history          id PK, user_id, movie_id, hype, recorded_at, resolved_rating
+user_tag_weights      user_id, tag_id, weight
+                      PK (user_id, tag_id)
 
-taste_vectors       user_id, vector vector(N), updated_at   -- pgvector
+-- Ingest
+ingest_inbox          id PK, user_id, raw_text, source (android_share|ios_shortcut|paste),
+                      status (pending|resolved|rejected), candidate_movie_ids,
+                      resolved_movie_id, created_at
+ingest_tokens         id PK, user_id, token_hash, label, last_used_at, revoked_at
 
-ingest_inbox        id, user_id, raw_text, source (android_share|ios_shortcut|paste),
-                    status (pending|resolved|rejected), candidate_ids,
-                    resolved_id, created_at
-ingest_tokens       id, user_id, token_hash, label, last_used_at, revoked_at
+-- Movie nights
+movie_nights          id PK, group_id, mode (home|theatre), held_at,
+                      picked_movie_id, created_by
+movie_night_attendees movie_night_id, user_id
+                      PK (movie_night_id, user_id)
+watch_confirmations   movie_night_id, user_id, status (pending|confirmed|declined)
+                      PK (movie_night_id, user_id)
 
-movie_nights        id, group_id, mode (home|theatre), held_at, member_ids[],
-                    candidates[], picked_id
-watch_confirmations movie_night_id, user_id, status (pending|confirmed|declined)
-
-imports             id, user_id, source (imdb|letterboxd), status, total, matched,
-                    unmatched_rows jsonb, created_at
-reports             id, reporter_id, target_type, target_id, reason, status, created_at
-
-notification_prefs  user_id, category, push bool, email bool
+-- Ops
+imports               id PK, user_id, source (imdb|letterboxd), status, total,
+                      matched, unmatched_rows jsonb, created_at
+reports               id PK, reporter_id, target_type, target_id, reason,
+                      status, created_at
+notification_prefs    user_id, category, push, email
+                      PK (user_id, category)
 ```
 
-**RLS on every table.** A user reads their own rows, plus lists that are public, or owned by a group they belong to, or owned by someone they follow where visibility = followers — minus anything in `list_hidden_from` or `blocks`.
+**Notes on the design:**
+- `movies.id` is a surrogate UUID. Provider IDs live in `movie_external_ids`, so migrating providers remaps one table instead of breaking every foreign key.
+- `tags` is normalized to integers. A user with 500 imported films generates thousands of tag rows; storing tag strings on every row would blow past the 500 MB free tier far sooner.
+- `lists` uses two nullable owner columns with a check constraint rather than a polymorphic `owner_type`/`owner_id` pair, so foreign keys are actually enforced.
+- `user_movie_status` allows `rating IS NULL` while watched — the vote is prompted, not blocking (§8).
+- `movies` and `movie_tags` are a **local cache**. Fetch once on first sighting, never per read.
+
+**RLS on every table.** A user reads their own rows, plus lists that are public, or owned by a group they belong to, or owned by someone they follow where visibility = `followers` — minus anything in `list_hidden_from` or `blocks`.
 
 ---
 
@@ -113,34 +155,53 @@ notification_prefs  user_id, category, push bool, email bool
 
 Runs on **members marked present**, in either `home` or `theatre` mode.
 
-### 4.1 Taste vector (per user, stored in pgvector)
-Built from rated movies' tags — genre ×3, person ×2, keyword ×1:
+### 4.1 Tag weights per user
 
-| Rating | Weight |
-|---|---|
-| love | +3 |
-| like | +1 |
-| hate | **−2** |
+Rebuilt when a user's rating changes. For each rated movie and each of its tags:
 
-The negative weight is the important one. It's what stops the picker repeating a mistake the group already rejected. Normalize so a user with 500 imported films doesn't drown out one with 12. Recompute on rating change.
+```
+contribution = rating_weight × tag_type_weight
+
+rating_weight:    love +3 · like +1 · hate −2
+tag_type_weight:  genre ×3 · person ×2 · keyword ×1
+```
+
+Sum per tag into `user_tag_weights`, then divide by the user's rated-movie count so someone with 500 imported films doesn't drown out someone with 12.
+
+The negative weight on `hate` is the important one — it's what stops the picker repeating a mistake the group already rejected.
 
 ### 4.2 Candidate pool
 - **home mode:** movies on any list in the group
 - **theatre mode:** `nowPlaying(region)` ∪ upcoming within N weeks, for the region shared by present members
 - Excluded: anything **any present member has watched**
-- **Widen:** if fewer than ~10 candidates, pull provider recommendations seeded by the group's top-rated films and flag them "not on your lists yet." (This is the "most of the list is watched" case.)
+- **Widen:** if fewer than ~10 candidates, pull provider recommendations seeded by the group's top-rated films and flag them "not on your lists yet." This is the "most of the list is watched" case.
 
-### 4.3 Scoring — hype overrides taste
-For each candidate `c` and present member `m`:
+### 4.3 Scoring
 
-```
-if m has a hype vote on c:
-    score(m,c) = { superhyped: 1.0, hyped: 0.7, dont_care: 0.25 }
-else:
-    score(m,c) = cosine(taste_vector[m], tag_vector[c])
+**Step 1 — raw taste score.** A join and sum:
+
+```sql
+raw(m,c) = Σ over tags t of c:  user_tag_weights[m,t] × movie_tags[c,t]
 ```
 
-> An explicit vote is stronger evidence than an inferred one. Taste similarity is the prior; the hype vote is the observation. Note `dont_care` is 0.25, not 0 — indifference shouldn't be fatal, only hatred should.
+**Step 2 — normalize per member across the candidate set.** This step is not optional: raw scores can be negative (because `hate` is −2), while hype values sit in [0.25, 1]. Blending them unnormalized systematically punishes taste-scored candidates against hype-scored ones.
+
+```
+taste(m,c) = (raw(m,c) − min) / (max − min)     across all candidates for member m
+```
+
+If `max == min`, set `taste(m,c) = 0.5` for all candidates.
+
+**Step 3 — hype overrides taste.**
+
+```
+score(m,c) = { superhyped: 1.0, hyped: 0.7, dont_care: 0.25 }  if m voted on c
+             taste(m,c)                                         otherwise
+```
+
+> An explicit vote is stronger evidence than an inferred one. Taste similarity is the prior; the hype vote is the observation. `dont_care` is 0.25, not 0 — indifference shouldn't be fatal, only hatred should.
+
+**Step 4 — aggregate.**
 
 ```
 group_score(c) = 0.7 × min(scores) + 0.3 × mean(scores)
@@ -154,16 +215,16 @@ All weights live in one config file. You will tune them.
 
 ### 4.4 Explanations
 Generated from scoring components, no LLM:
-- "All 4 of you are hyped for this" (strongest — lead with hype when present)
+- "All 4 of you are hyped for this" — strongest, lead with hype when present
 - "3 of 4 love Christopher Nolan"
 - "Matches: sci-fi, heist, mind-bending"
 - "Nobody here has seen it"
 
 ### 4.5 Edge cases
-- **Cold start:** signup requires rating 10 popular movies. A member with no signal is excluded from the `min` term.
+- **Cold start:** signup requires rating 10 popular movies. A member with no tag weights is excluded from the `min` term.
 - **Reroll:** exclude the previous three, recompute.
 - **None of these:** log it — useful signal.
-- **Remote nights:** a lobby with a join link; present-members list fills as people join.
+- **Remote nights:** a lobby with a join link; `movie_night_attendees` fills as people join.
 
 ---
 
@@ -187,15 +248,15 @@ Generated from scoring components, no LLM:
 
 **Android:** Web Share Target in `manifest.json` (`action: /share`, POST, multipart, params `title`/`text`/`url`). Requires home-screen install.
 
-**iOS:** PWAs cannot be share targets. Ship a Shortcut — receive text → POST to `/api/ingest` → notification. User pastes their ingest token once, from Settings. Treat the token as low-trust: ingest scope only, revocable.
+**iOS:** PWAs cannot be share targets. Ship a Shortcut — receive text → POST to `/api/ingest` → notification. User pastes their ingest token once, from Settings. Treat the token as low-trust: ingest scope only, revocable, rate-limited.
 
-**Instrument every ingest with its source.** That number is what decides whether the $99/yr Apple account is worth it.
+**Instrument every ingest with its source.** That number decides whether the Apple developer account is worth it.
 
 ---
 
 ## 6. Imports
 
-**Build IMDb first** — its export contains the IMDb ID, which resolves directly via `findByExternalId`. Letterboxd exports only title + year, requiring fuzzy matching and an unmatched-review queue.
+**Build IMDb first** — its export contains the IMDb ID, which resolves directly via `findByImdbId`. Letterboxd exports only title and year, requiring fuzzy matching and an unmatched-review queue.
 
 | Source | hate | like | love |
 |---|---|---|---|
@@ -203,9 +264,10 @@ Generated from scoring components, no LLM:
 | IMDb (1–10) | ≤ 4 | 5–7 | ≥ 8 |
 
 - Letterboxd's separate "liked" file → **love**, regardless of stars.
-- Filter IMDb export by title type — it includes TV, and we're movies-only.
-- Watchlist entries import as **unwatched, no hype vote** (neutral).
-- Run as a background job with progress. Unmatched rows go to a review queue.
+- Filter IMDb's export by title type — it includes TV, and this is movies-only.
+- Watchlist entries import as **unwatched, no hype vote**.
+- Background job with progress. Unmatched rows go to a review queue.
+- **Rebuild `user_tag_weights` once at the end**, not per row.
 
 ---
 
@@ -227,8 +289,6 @@ Generated from scoring components, no LLM:
 
 ## 8. Notifications
 
-Per-category, per-channel toggles:
-
 | Category | Push default | Email default |
 |---|---|---|
 | Watch confirmation request | ✅ | — |
@@ -239,26 +299,38 @@ Per-category, per-channel toggles:
 
 "Friend added a movie" is fine at 5 follows and unusable at 200. Do not default it to push.
 
-**Watch confirmation flow:** person A marks watched + rates → others in that `movie_nights.member_ids` get a confirmation prompt → each confirms and rates independently. Scoped to the night; a solo watch notifies nobody.
+**Watch confirmation flow:** person A marks watched and rates → everyone in `movie_night_attendees` for that night gets a confirmation prompt → each confirms and rates independently. Scoped to the night; a solo watch notifies nobody.
+
+**Rating is prompted, never blocking.** Badge it, nag it gently, allow snooze. Mandatory modals get apps deleted.
 
 ---
 
 ## 9. Build Order
 
-**v1 — friends, core loop**
-Auth · personal list · search + add · unified vote (rating/hype) · invite-code groups · group list · Top-3 picker (home mode) · Android share target · iOS shortcut · Inbox
+Phases are built in order. **Do not build ahead of the current phase.** The current phase is recorded at the top of `docs/DECISIONS.md`.
 
-**v2 — pre-launch hardening**
-10-movie onboarding · IMDb import · Letterboxd import · **theatre mode** (same picker, release filter) · public profiles, follows, visibility toggles, blocks · notification matrix · moderation basics · analytics · account deletion + export · privacy policy + terms
-
-**v3 — post-launch**
-Hype-vs-reality stats · live ads · publicly joinable groups · subscription tier
+| Phase | Deliverable | Release |
+|---|---|---|
+| 0 | Supabase schema, RLS policies, magic-link auth | v1 |
+| 1a | `MovieDataProvider` interface + TMDB adapter, movie cache write-through | v1 |
+| 1b | Search UI, add to list, list views | v1 |
+| 2 | Unified vote — rating if watched, hype if not — and watched status | v1 |
+| 3 | Groups, invite codes, group lists, multi-user RLS | v1 |
+| 4 | Tag weights, Top-3 recommender, explanations, reroll | v1 |
+| 5 | `/api/ingest`, ingest tokens, Inbox resolution UI | v1 |
+| 6 | Android Web Share Target, iOS Shortcut | v1 |
+| 7 | PWA polish — icons, install prompt, offline shell | v1 |
+| 8 | 10-movie onboarding, IMDb import, Letterboxd import | v2 |
+| 9 | Theatre mode — same picker, release-status filter | v2 |
+| 10 | Public profiles, follows, visibility toggles, blocks | v2 |
+| 11 | Notification matrix, moderation, analytics, deletion + export, legal pages | v2 |
+| 12 | Hype-vs-reality stats, joinable groups, monetization | v3 |
 
 ---
 
 ## 10. Non-Goals
 
-State these in agent prompts or they will get built unasked: no TV shows, no native app in v1, no comments or DMs, no LLM calls at runtime, no admin dashboard beyond a moderation view, no payments before v3.
+State these in agent prompts or they will get built unasked: no TV shows, no native app in v1, no comments or DMs, no LLM calls at runtime, no admin dashboard beyond a moderation view, no payments before phase 12, **no pgvector** — §4 is plain SQL by design.
 
 ---
 
@@ -274,7 +346,7 @@ INGEST_TOKEN_PEPPER
 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY
 ```
 
-- **Public repo:** any `NEXT_PUBLIC_` var ships to the browser. Agents will put the TMDB key there by default. All provider calls server-side. Add `gitleaks` as a pre-commit hook.
+- **Public repo:** any `NEXT_PUBLIC_` var ships to the browser. Agents will put the TMDB key there by default. All provider calls server-side. `gitleaks` as a pre-commit hook.
 - **Never re-host posters.** Hotlink the provider CDN — keeps Supabase storage and egress near zero.
 - **Tests:** shipping fast is fine, but write ~10 RLS tests. A non-member must not read a group's list; a user must not read another's private ratings. An RLS bug doesn't crash, it silently serves everyone's data to everyone.
 - **Moderation before public launch:** report button, block user, username blocklist, admin delete view. Free-text list names and notes are where abuse appears. Under Indian IT rules you are responsible for what you host.
