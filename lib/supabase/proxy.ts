@@ -1,7 +1,12 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/auth"];
+// /api/ingest is listed one path at a time, never as "/api": it authenticates
+// with a token rather than a cookie (SPEC §5), so without it here the redirect
+// below catches it. That failure is quiet and confusing -- a 307 preserves the
+// POST method, so an iOS Shortcut would receive the /login page instead of JSON
+// and report success.
+const PUBLIC_PATHS = ["/login", "/auth", "/api/ingest"];
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });

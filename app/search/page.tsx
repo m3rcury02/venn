@@ -4,11 +4,13 @@ import { SearchForm } from "@/components/search-form";
 import { createClient } from "@/lib/supabase/server";
 
 type SearchPageProps = {
-  searchParams: Promise<{ list?: string }>;
+  searchParams: Promise<{ list?: string; q?: string }>;
 };
 
 export default async function SearchPage({ searchParams }: SearchPageProps) {
-  const listId = (await searchParams).list;
+  // `q` prefills the box. The Inbox uses it for shares that produced no
+  // candidate to offer, which §5 makes the common case rather than the edge one.
+  const { list: listId, q } = await searchParams;
 
   // Resolve the target only to name it in the header. The add itself does not
   // trust listId either -- list_items_insert_via_list is the enforcement.
@@ -45,7 +47,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
         }
       />
 
-      <SearchForm listId={target?.id} />
+      <SearchForm listId={target?.id} initialQuery={q} />
     </main>
   );
 }

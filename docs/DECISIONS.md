@@ -1,6 +1,6 @@
 # Decisions
 
-**Current phase: 4**
+**Current phase: 5**
 
 Append after every phase: what changed, and why.
 
@@ -1175,3 +1175,276 @@ access-control claim; it runs as `postgres`, the same way the existing
 
 `_rebuild_tag_weights` does **not** appear, which is the check that its REVOKE
 worked: it is the one function here no client can reach.
+
+---
+
+## Phase 5 — `/api/ingest`, ingest tokens, Inbox resolution UI
+
+Migration: `supabase/migrations/20260726185934_phase5_ingest.sql`.
+
+The first phase with a route that is **not authenticated by a cookie**. An iOS
+Shortcut has no session, so the token is the identity — which makes this also
+the first phase where the server writes a *user's* rows rather than the catalog.
+Both of those turn out to be where the real decisions are.
+
+```
+ingest_tokens   id, user_id, token_hash UNIQUE, label,
+                created_at, last_used_at, revoked_at
+ingest_inbox    id, user_id, raw_text, source, status,
+                candidate_movie_ids uuid[], resolved_movie_id, created_at
+
+lib/ingest/tokens.ts        mint / hashToken / verifyToken
+lib/ingest/extract.ts       SPEC §5 step 3, pure
+app/api/ingest/route.ts     POST { text, url?, token, source? }
+app/inbox/                  page + resolve/reject actions
+app/settings/               page + mint/revoke actions (§7 screen 11)
+scripts/ingest-smoke.ts     `pnpm smoke:ingest`
+```
+
+**No functions this phase** — the first since 2 that needs none. The route runs
+as `service_role`; the Inbox and Settings actions run as the authenticated user
+under the policies below.
+
+### The response order is not §5's, and the difference is data loss
+
+§5 step 1 says "Verify token against `ingest_tokens`. **Return 200
+immediately**," then step 2 inserts. Built the other way round:
+
+```
+verify token -> rate-limit -> INSERT pending (synchronously) -> 200
+             -> steps 3-6 in after()
+```
+
+If the insert lived in `after()`, a failure would lose the share with a 200
+already sent, and the user would have no way to know — they watched the share
+sheet say it worked. The durable pending row is the entire basis for trusting
+the Inbox; only *resolution* is safe to defer. `resolveInBackground` is wrapped
+so a thrown resolution error leaves the row `pending`, which is exactly the
+state the Inbox exists to drain.
+
+**The cost of that ordering is a race, and it had to be closed.** The row is
+listed in the Inbox from the moment the 200 lands, while the provider calls are
+still running for seconds. The first version resolved unconditionally, so a user
+could Dismiss a junk share and watch it appear on their list two seconds later —
+§5's silent wrong add, arriving from the one direction the verification could
+not see, because every `curl` was followed by a `sleep` before any UI touched
+the row.
+
+`resolveInBackground` now re-reads the status immediately before acting, and the
+`update` additionally carries `.eq("status", "pending")`. Both are needed and
+the order matters: the WHERE guard alone fires *after* `addToDefaultList`, so a
+dismissal caught there would leave the user holding an item they had just
+rejected. The re-read narrows the window from a provider round trip to a single
+database one; if a dismissal still lands inside it, the row keeps its `rejected`
+status and there is one stray list item — visible and removable, rather than a
+status that lies.
+
+Verified by overlapping rather than sequencing, with the control that makes it
+mean something: the same TMDB-url payload dismissed mid-flight stays `rejected`
+with `list_items` unchanged at 2, and **not** dismissed resolves to The Dark
+Knight and takes the list to 3.
+
+### What counts as "one high-confidence match"
+
+§5 step 5 auto-adds on one; step 6 parks everything else. The bar:
+
+- **A url names one film**, so both id kinds resolve directly. That is why §5
+  puts them first, and why `Candidate` carries no numeric confidence field —
+  `kind` already encodes it, and a second encoding of the same fact would drift.
+- **Free text needs exactly one result whose title *is* the query.** Two films
+  sharing a title — a remake, which is common — fails this and goes to the
+  Inbox. Verified: `Dune` returns 2021, Part Two and 1984, and stays pending.
+  Picking one would be the guess §5 forbids.
+
+`candidate_movie_ids` holds internal `movies.id`, capped at 3 by the route.
+`resolved_movie_id` is a uuid FK, so the picked candidate has to be cached
+regardless; caching the top 3 up front moves 2 TMDB calls each — against phase
+1a's measured ~20% ECONNRESET — out of the user's click path, and the Inbox
+renders posters with **zero** provider calls. `Promise.allSettled`, so one bad
+call costs one candidate rather than the row.
+
+### The Inbox's third state is the common one
+
+Shared Instagram and YouTube text links the *post*, not the film, so the url
+branch misses and a Title Case run fires over a caption. An item with no
+candidates renders its raw text and a link into `/search`.
+
+The first cut prefilled that search with `raw_text.slice(0, 60)`. Driving it in
+a browser showed why that is wrong: the box arrives full of
+`this scene 😭 #cinema @a24 https://…`, searches to "No matches", and has to be
+cleared before the user can type. It now passes the extractor's best `query`
+candidate if there is one and **nothing at all** if there is not — a blank
+autofocused box beats one you have to empty first. This is what `/search?q=`
+and `SearchForm`'s `initialQuery` were added for.
+
+### `service_role` bypassing RLS is not the same as reaching the table
+
+The bug worth recording, because it was **silent in both directions**. Phase 0
+revoked everything from `service_role` and granted back only the catalog tables
+— correct at the time, since nothing server-side touched anything else. §5 step
+5 ("add to default list") is the first thing that does.
+
+An early run therefore resolved a share, marked the row `resolved`, and added
+nothing to any list. postgrest reports permission failures in an `error` the
+caller has to *look at*, and the first version of `addToDefaultList` looked at
+neither. Two fixes, both needed:
+
+- The migration grants `select on lists`, `insert on list_items` and
+  `select on profiles` to `service_role` — scoped to exactly what the route
+  does. No UPDATE or DELETE anywhere, so the endpoint cannot alter or remove
+  anything a user already has.
+- `addToDefaultList` now **throws** instead of returning quietly. The caller
+  marks the row `resolved` only if it returns, so a share that could not be
+  added stays `pending` rather than claiming a list it never reached.
+
+Grants are a second gate, exactly as phase 0 documented. This is that lesson
+arriving from the other side.
+
+### `PUBLIC_PATHS` — one line, and the endpoint is dead without it
+
+`lib/supabase/proxy.ts` redirects any cookie-less request to `/login`, and
+`proxy.ts`'s matcher catches `/api/*`. The failure mode is quiet: a **307
+preserves the POST method**, so a Shortcut would receive the login page as its
+"response" and report success. Listed as `/api/ingest`, never `/api` — that
+would make every future route public.
+
+Verified as a pair, not a single check: `POST /api/ingest` with no token answers
+`401` JSON, and `POST /groups` with no cookie still answers `307 -> /login`. The
+second is what proves the first is the exemption rather than a dead proxy.
+
+### `INGEST_TOKEN_PEPPER` throws at module load, and that is not defensive coding
+
+With the variable unset, `createHmac` does not fail — it keys on the coerced
+value. Every token would mint and verify happily under the same wrong key, with
+no error anywhere, until the day the variable appears and every token in the
+database becomes unverifiable at once. `requirePepper()` runs at import.
+
+`token_hash` is a keyed hash and deliberately deterministic: verification is one
+lookup through a unique index, and a per-row salt would make every ingest a full
+scan. The token is 32 random bytes, so the pepper is not standing in for
+password-hashing work — it is what makes a leaked dump useless without the
+server's environment.
+
+### Column-scoped grants make resolve/reject and revoke the *only* edits
+
+RLS is row-level, so it cannot say "this column". The grants do:
+
+| table | `authenticated` | why |
+|---|---|---|
+| `ingest_inbox` | `select`, `update (status, resolved_movie_id)` | **No INSERT grant, no INSERT policy.** Rows come from the one caller that verified a token — absence is the enforcement, as for phase 0's catalog, phase 3's `group_members`, phase 4's `user_tag_weights`. No DELETE: rejecting sets a status, because §5's point is that a share is never silently lost. |
+| `ingest_tokens` | `select` (**excluding `token_hash`**), `insert`, `update (revoked_at)` | Without the column list the owner's own *browser* could read the hash out of their row. Relabelling and un-revoking are not features, and the grant is what keeps that true rather than the UI merely not offering them. |
+
+Confirmed against the running stack as a real signed-in user, not reasoned
+about: `select token_hash` returns `42501` even on the caller's own token.
+
+`resolved_has_movie` is a check constraint, not a policy: a resolved row must
+name the movie it resolved to, or the Inbox query and the badge count would
+disagree about what "resolved" means.
+
+### Departures and deferrals, stated rather than glossed
+
+- **The rate limit is per user, not per token.** §11 says per token. §3 gives
+  `ingest_inbox` no `token_id` column, and adding one purely to carry a limit is
+  more schema than the constraint justifies at 4-6 users. A user with two tokens
+  shares one budget — the safer direction to be wrong. 20/60s, measured: the
+  18th request in a window returns 429.
+- **The route writes `list_items` as `service_role`**, the third departure from
+  phase 1b's "mutations run as the authenticated user". Forced — there is no
+  session to run as. The `owner_user_id = token's user` scoping is therefore the
+  only enforcement on that write, and `added_by` is the token's user for the
+  same reason phase 3 pinned that column in the policy.
+- **No tag-weight rebuild on resolution.** Adding to a list is not a rating;
+  `rebuild_user_tag_weights` fires on `setRating`/`setWatched` only.
+- **No Web Share Target, no iOS Shortcut** — §9 phase 6. The `source` column and
+  a mintable token are the seams they plug into. Only `paste` is producible from
+  the app today; `android_share` and `ios_shortcut` are accepted from the body.
+- **No push on resolve** (§8, phase 11) and **no "none of these" logging**
+  (phase 11 analytics).
+
+### `extract.ts`, and the one bug the smoke script caught
+
+Regex alternation is ordered, so `(?:of|the|and|a|an|in|on|at|…)` matches `a`
+inside `at` and the Title Case run stops dead: "Everything Everywhere All at
+Once" truncated to "Everything Everywhere All a". The `\b` after the connector
+list is the fix. Worth stating because it is invisible to `typecheck`, `lint`
+and `build`, and produces a *plausible-looking* wrong title rather than an error.
+
+`scripts/ingest-smoke.ts` (`pnpm smoke:ingest`, `tsx`, the `smoke:tmdb`
+precedent) pins all six of §5's patterns plus the two negatives — an Instagram
+caption and pure boilerplate must both extract nothing. 10/10. No test runner
+was added; that is a dependency, and CLAUDE.md says ask first.
+
+### Tests
+
+`supabase/tests/rls.test.sql`, now **73** pgTAP assertions (was 56).
+
+Every phase-5 negative is paired with a positive control on the same table: B's
+inbox unreadable ↔ A's own readable; B's tokens unreadable ↔ A's own readable;
+A cannot INSERT into `ingest_inbox` ↔ A can resolve its own row; A cannot mint a
+token for B ↔ A can mint its own; A cannot relabel ↔ A can revoke.
+
+The controls were re-verified rather than assumed. Blanking
+`request.jwt.claims` now fails **11** of 73 (was 6) — phase 0's six, plus five
+phase-5 ones: A's two "sees exactly its own row" counts, "A's resolve actually
+landed", "A can mint its own token", and the `resolved_has_movie` assertion,
+which fails because an unreachable row means the UPDATE matches nothing and the
+constraint never fires. Nothing passes for the wrong reason.
+
+**The suite still requires a fresh database** — phase 0's fixtures hardcode
+`tags` id 1 and assert exact `movies` counts, so run `supabase db reset` first
+or get the confusing `Bad plan. You planned 73 tests but ran 0`.
+
+### Verification
+
+1. `supabase db reset` → four migrations clean; `supabase test db` → **73/73**,
+   plus the blanked-claims counterfactual above.
+2. `pnpm typecheck`, `pnpm lint`, `pnpm build` — clean. `pnpm smoke:ingest` 10/10.
+3. `/api/ingest` reachability proved as a pair (401 vs the `/groups` 307 control).
+4. **A token minted through the real Settings form in a browser**, then used
+   over `curl` — the full path a Shortcut will take. Three payloads, all as
+   designed: a TMDB url → `resolved`, Inception on the default list with
+   `added_by` = the token's user; `Dune` → `pending` with 3 candidates; an
+   Instagram caption → `pending` with none. A fourth with a junk token → 401.
+   The one-shot reveal was checked by reloading `/settings`: the token is gone.
+5. **Live browser click-through**: badge showing 2 on My List, both Inbox states
+   rendering, picking a candidate resolving it (badge → 1, Dune onto My List),
+   "Search for it" landing on a clean `/search`, Dismiss emptying the Inbox and
+   clearing the badge. No console errors.
+6. Cross-user, over PostgREST with a **real** second user's access token: Alice
+   reads 0 of Bob's 3 inbox rows and 0 of his 1 token, is refused `token_hash`
+   with `42501`, and is refused a forged `ingest_inbox` insert with `42501` —
+   while a `postgres` control confirms those rows genuinely exist.
+7. Applied to `vfkkpflenfpfrrygxmto` through the Supabase MCP, same route and
+   reason as phases 0, 3 and 4. `apply_migration` stamped `20260726185934` and
+   the local file was renamed from `20260726182239` to match, so a later
+   `supabase db push` does not re-run it. Local and hosted then produced the
+   same fingerprint across **all 8 categories** — columns, policies, table
+   grants (column-level included), function bodies, function ACLs, constraints,
+   indexes and RLS flags — `ee42bd209605ca71570243f0f9a72aec`, 503 objects each.
+8. `get_advisors(security)` returns the **same four** WARNs as phase 4 and no
+   new ones, which is the expected result: phase 5 adds no functions.
+
+### Open, for later
+
+- **The migration text stored on the remote matches the repo this time.** Phases
+  0 and 4 both left the hosted `schema_migrations` row older than the local file
+  because a revoke was applied separately afterwards. Nothing was applied
+  out-of-band here, so a `supabase db pull` after linking would re-baseline this
+  one faithfully. The phase 0 and phase 4 divergences are unchanged.
+- **`ingest_inbox` grows without bound.** Resolved and rejected rows are never
+  deleted, by design (§5: a share is never silently lost), and nothing prunes
+  them. Harmless at 4-6 users; worth a retention decision before public launch,
+  alongside §11's other pre-launch items.
+- **The rate limit is still the only abuse control on this endpoint**, and it is
+  per user. Phase 3's note about `join_group_by_code` having no limit at all
+  still stands; both belong to the same pre-launch pass.
+- **`INGEST_TOKEN_PEPPER` is deploy-blocking, not first-use-blocking.** The
+  module-load throw means a Vercel build without the variable set fails while
+  importing `/settings`, not on the first ingest. That is the intended trade —
+  see above for what the alternative silently does — but it means the variable
+  has to exist in Vercel *before* the next deploy. The hosted Supabase project
+  already carries the tables; the deployed app does not yet have a pepper.
+- **The Inbox nav link renders whenever the caller passes a count**, and only
+  the badge is conditional on it being non-zero. The first version tied the link
+  itself to `inboxCount > 0`, which made the Inbox appear and disappear from the
+  nav as items arrived and were cleared — that reads as a bug, not a badge.

@@ -59,6 +59,12 @@ export default async function Home({ searchParams }: HomeProps) {
   const items = rawItems as unknown as ListItemRow[] | null;
   const count = items?.length ?? 0;
 
+  // head: true -- the badge needs the number, never the rows.
+  const { count: pendingCount } = await supabase
+    .from("ingest_inbox")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "pending");
+
   const filter = parseFilter((await searchParams).filter);
   const statuses = items?.map((item) => item.movies.user_movie_status[0] ?? null) ?? [];
   const filteredItems = items?.filter((_, i) => matchesFilter(filter, statuses[i])) ?? [];
@@ -67,6 +73,7 @@ export default async function Home({ searchParams }: HomeProps) {
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-10 px-6 py-10 sm:px-8">
       <AppHeader
         subtitle={count > 0 ? `Your list · ${count} movie${count === 1 ? "" : "s"}` : "Your list"}
+        inboxCount={pendingCount ?? 0}
         actions={
           <>
             <Link href="/groups" className={navLinkClass}>
@@ -74,6 +81,9 @@ export default async function Home({ searchParams }: HomeProps) {
             </Link>
             <Link href="/search" className={navLinkClass}>
               Search
+            </Link>
+            <Link href="/settings" className={navLinkClass}>
+              Settings
             </Link>
             <form action="/auth/signout" method="post">
               <button type="submit" className={navLinkClass}>

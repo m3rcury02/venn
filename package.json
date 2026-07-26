@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "smoke:tmdb": "node --env-file=.env.local --import tsx scripts/tmdb-smoke.ts"
+    "smoke:tmdb": "node --env-file=.env.local --import tsx scripts/tmdb-smoke.ts",
+    "smoke:ingest": "node --import tsx scripts/ingest-smoke.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",

@@ -7,8 +7,14 @@ import { MovieCard } from "@/components/movie-card";
 
 const DEBOUNCE_MS = 300;
 
-export function SearchForm({ listId }: { listId?: string }) {
-  const [query, setQuery] = useState("");
+export function SearchForm({
+  listId,
+  initialQuery,
+}: {
+  listId?: string;
+  initialQuery?: string;
+}) {
+  const [query, setQuery] = useState(initialQuery ?? "");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   // Guards against a slow earlier response overwriting a newer one.

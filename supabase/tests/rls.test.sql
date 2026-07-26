@@ -19,7 +19,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(56);
+select plan(73);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -70,6 +70,27 @@ values ('cccccccc-cccc-cccc-cccc-cccccccccccc',
 
 -- Phase 4. Also exercises the path the migration's backfill uses.
 select public._rebuild_tag_weights('cccccccc-cccc-cccc-cccc-cccccccccccc');
+
+-- Phase 5. Both tables are written here as postgres because that is the only
+-- way an inbox row can exist at all: authenticated holds no INSERT grant on
+-- ingest_inbox, which is the property the assertions below pin. The hashes are
+-- literals -- the real ones are HMACs keyed on INGEST_TOKEN_PEPPER, which is
+-- application-side and has no bearing on who can read the row.
+insert into ingest_tokens (id, user_id, token_hash, label) values
+  ('a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1',
+   '11111111-1111-1111-1111-111111111111', 'hash-a', 'A phone'),
+  ('b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1',
+   '22222222-2222-2222-2222-222222222222', 'hash-b', 'B phone');
+
+-- A's row carries a candidate, so resolving it below is the real two-column
+-- update the Inbox performs rather than a status flip on its own.
+insert into ingest_inbox (id, user_id, raw_text, source, candidate_movie_ids) values
+  ('a2a2a2a2-a2a2-a2a2-a2a2-a2a2a2a2a2a2',
+   '11111111-1111-1111-1111-111111111111', 'Inception (2010)', 'paste',
+   array['33333333-3333-3333-3333-333333333333']::uuid[]),
+  ('b2b2b2b2-b2b2-b2b2-b2b2-b2b2b2b2b2b2',
+   '22222222-2222-2222-2222-222222222222', 'B''s private share', 'ios_shortcut',
+   '{}'::uuid[]);
 
 -- Labelled `weights:` for the same reason one assertion below is labelled
 -- `constraint:` -- this is §4.1's arithmetic, not access control, and it runs
@@ -234,6 +255,134 @@ select throws_ok(
   '42501',
   null,
   'A cannot write to the movie cache'
+);
+
+-- ---------------------------------------------- A: ingest (phase 5)
+-- Still impersonating A. Every negative here is paired with a control on the
+-- same table, so none of them can pass because A sees nothing at all.
+
+select is(
+  (select count(*)::int from ingest_inbox),
+  1,
+  'control: A sees exactly its own inbox row'
+);
+
+select is(
+  (select count(*)::int from ingest_tokens),
+  1,
+  'control: A sees exactly its own token'
+);
+
+select is(
+  (select count(*)::int from ingest_inbox
+   where user_id = '22222222-2222-2222-2222-222222222222'),
+  0,
+  'A cannot read B''s inbox'
+);
+
+select is(
+  (select count(*)::int from ingest_tokens
+   where user_id = '22222222-2222-2222-2222-222222222222'),
+  0,
+  'A cannot read B''s ingest tokens'
+);
+
+-- token_hash is excluded from the SELECT grant, so this fails on the column
+-- privilege rather than returning A's own hash to A's browser. RLS is
+-- row-level and would happily hand it over; the grant is the gate.
+select throws_ok(
+  $$select token_hash from ingest_tokens$$,
+  '42501',
+  null,
+  'A cannot read token_hash even on its own token'
+);
+
+-- No INSERT grant and no INSERT policy on ingest_inbox: rows come from
+-- /api/ingest, which is the only thing that has verified a token. The absence
+-- is the enforcement, exactly as for the catalog tables (phase 0),
+-- group_members (phase 3) and user_tag_weights (phase 4).
+select throws_ok(
+  $$insert into ingest_inbox (user_id, raw_text)
+    values ('11111111-1111-1111-1111-111111111111', 'forged')$$,
+  '42501',
+  null,
+  'A cannot insert an inbox row, even its own'
+);
+
+-- Rejecting sets a status; §5's whole point is that a share is never silently
+-- lost, so there is no DELETE grant to undo that with.
+select throws_ok(
+  $$delete from ingest_inbox$$,
+  '42501',
+  null,
+  'A cannot delete an inbox row'
+);
+
+-- UPDATE is granted on (status, resolved_movie_id) only, so resolve and reject
+-- are structurally the only two edits that exist. What the user shared and what
+-- the endpoint found are not theirs to rewrite afterwards.
+select throws_ok(
+  $$update ingest_inbox set raw_text = 'rewritten'$$,
+  '42501',
+  null,
+  'A cannot rewrite the raw text of its own inbox row'
+);
+
+select lives_ok(
+  $$update ingest_inbox
+    set status = 'resolved',
+        resolved_movie_id = '33333333-3333-3333-3333-333333333333'
+    where id = 'a2a2a2a2-a2a2-a2a2-a2a2-a2a2a2a2a2a2'$$,
+  'control: A can resolve its own inbox row'
+);
+
+select is(
+  (select resolved_movie_id from ingest_inbox
+   where id = 'a2a2a2a2-a2a2-a2a2-a2a2-a2a2a2a2a2a2'),
+  '33333333-3333-3333-3333-333333333333'::uuid,
+  'control: A''s resolve actually landed'
+);
+
+-- The check constraint, not a policy -- labelled the way the composite-key
+-- assertion above is. A resolved row must name the movie it resolved to, or
+-- the Inbox query and the badge count would disagree about what "resolved"
+-- means.
+select throws_ok(
+  $$update ingest_inbox set status = 'resolved', resolved_movie_id = null
+    where id = 'a2a2a2a2-a2a2-a2a2-a2a2-a2a2a2a2a2a2'$$,
+  '23514',
+  null,
+  'constraint: a resolved inbox row cannot have a null movie'
+);
+
+select lives_ok(
+  $$insert into ingest_tokens (user_id, token_hash, label)
+    values ('11111111-1111-1111-1111-111111111111', 'hash-a2', 'A laptop')$$,
+  'control: A can mint its own token'
+);
+
+select throws_ok(
+  $$insert into ingest_tokens (user_id, token_hash, label)
+    values ('22222222-2222-2222-2222-222222222222', 'hash-forged', 'forged')$$,
+  '42501',
+  null,
+  'A cannot mint a token for B'
+);
+
+-- UPDATE is granted on (revoked_at) alone, which makes revoke the only edit a
+-- token can take: relabelling and re-pointing it at another user are not
+-- features, and the grant is what keeps that true.
+select throws_ok(
+  $$update ingest_tokens set label = 'renamed'$$,
+  '42501',
+  null,
+  'A cannot relabel a token'
+);
+
+select lives_ok(
+  $$update ingest_tokens set revoked_at = now()
+    where id = 'a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1'$$,
+  'control: A can revoke its own token'
 );
 
 -- ------------------------------------ negatives: A as a non-member (phase 3)
@@ -567,6 +716,23 @@ select throws_ok(
   '42501',
   null,
   'anon cannot read tag weights'
+);
+
+select throws_ok(
+  $$select count(*) from ingest_inbox$$,
+  '42501',
+  null,
+  'anon cannot read the ingest inbox'
+);
+
+-- /api/ingest is the one route reachable without a cookie (SPEC §5), so this is
+-- the assertion that the token table is still not reachable *through* it: the
+-- route holds the service-role key, and anon holds nothing.
+select throws_ok(
+  $$select count(*) from ingest_tokens$$,
+  '42501',
+  null,
+  'anon cannot read ingest tokens'
 );
 
 reset role;
