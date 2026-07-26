@@ -35,6 +35,10 @@ export async function setWatched(movieId: string, watched: boolean): Promise<voi
     updated_at: now,
   });
 
+  // Flipping watched clears `rating`, so it changes the caller's tag weights
+  // just as setRating does (SPEC §4.1: "rebuilt when a user's rating changes").
+  await supabase.rpc("rebuild_user_tag_weights");
+
   revalidatePath("/");
 }
 
@@ -54,12 +58,21 @@ export async function setRating(movieId: string, rating: Rating | null): Promise
     .eq("user_id", userId)
     .eq("movie_id", movieId);
 
+  // SPEC §4.1: tag weights are rebuilt when a rating changes. The RPC is a
+  // no-argument SECURITY DEFINER function that reads auth.uid() itself, so the
+  // only weights it can touch are the caller's.
+  await supabase.rpc("rebuild_user_tag_weights");
+
   revalidatePath("/");
 }
 
 // Upsert: unwatched-with-no-vote is the implicit default for every movie in
 // the catalog, so a hype vote is what creates the row for a movie nobody has
 // marked watched yet. `hype: null` clears the vote, same reasoning as above.
+//
+// No tag-weight rebuild here, unlike the two above: §4.1 builds weights from
+// ratings only. Hype is not an input to them -- it enters the recommender later
+// and more directly, by overriding taste outright (§4.3 step 3).
 export async function setHype(movieId: string, hype: Hype | null): Promise<void> {
   const userId = await getUserId();
   if (!userId) return;

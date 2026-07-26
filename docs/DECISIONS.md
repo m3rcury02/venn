@@ -1,6 +1,6 @@
 # Decisions
 
-**Current phase: 3**
+**Current phase: 4**
 
 Append after every phase: what changed, and why.
 
@@ -908,3 +908,255 @@ cannot be "fixed" without removing the feature:
   `false`, `true`, `false`.
 - `join_group_by_code` **is** the join endpoint; being callable is the point.
   The open item there is the rate limit noted above, not the grant.
+
+---
+
+## Phase 4 — tag weights, Top-3 recommender, explanations, reroll
+
+Migration: `supabase/migrations/20260726154439_phase4_recommender.sql`.
+
+The first phase that **reads across users**. Phase 3 widened `profiles`, `lists`
+and `list_items` to "my groups too" and deliberately left `user_movie_status`
+alone, noting that "phase 4's recommender reads them server-side; that is phase
+4's problem." This is that answer.
+
+```
+user_tag_weights   user_id, tag_id, weight (real)
+                   PK (user_id, tag_id)          -- §3, verbatim
+
+_rebuild_tag_weights(p_uid)      private worker, §4.1
+rebuild_user_tag_weights()       public wrapper, no args
+recommend_movies(gid, present[], exclude[])   §4.2-§4.4
+```
+
+```
+app/groups/[id]/night/page.tsx   Movie Night (§7 screen 6), home mode
+components/present-picker.tsx    who's here, as a searchParam
+lib/recommend/explain.ts         components -> §4.4 prose
+app/status/actions.ts            rebuild after setRating / setWatched
+```
+
+### The return shape is the privacy boundary
+
+`recommend_movies` is `SECURITY DEFINER` and reads every present member's
+ratings, hype votes and tag weights. It returns **only per-candidate
+aggregates** — counts, one tag name, a score. No per-member row ever leaves it.
+
+That is what let this phase widen **no policy at all**: `user_movie_status` is
+as closed as phase 3 left it, and `user_tag_weights` arrives equally closed.
+Confirmed with real sessions (below): while the recommender was demonstrably
+using Bob's ratings, Alice read 0 of Bob's status rows and 0 of his tag weights.
+
+Two guards, both `42501`: the caller must be a member (`is_group_member`), and
+every uuid in `p_present` must be a member too. Without the second, a caller
+could pass any uuid and read a stranger's taste back off the scores.
+
+`user_tag_weights` gets `SELECT`-own and **no write grant or policy** — the same
+"absence is the enforcement" argument phase 0 made for the catalog tables and
+phase 3 for `group_members`. Nothing but `_rebuild_tag_weights` can write it, so
+a weight is always exactly the derived function of that user's ratings,
+including for the user themselves. pgTAP pins that a user cannot write even
+their own row.
+
+### Applying a weight twice is the failure mode, and it is silent
+
+Both traps are commented in the migration where they happen, not only here:
+
+- **`tag_type_weight` is applied at rebuild and only there.** `lib/movies/cache.ts`
+  carries a phase-1a comment saying the per-type weight applies "at scoring
+  time"; §4.1 is explicit that it applies when weights are built, and the spec
+  wins. Doing both makes a genre count 9x.
+- **`movie_tags.weight` is not a factor in the rebuild.** §4.1's formula omits
+  it; §4.3's includes it. It belongs to scoring only.
+
+A third, less obvious one: `sum()` over integers is `bigint`, and `bigint /
+bigint` is integer division. Without the cast to `numeric` every weight would
+silently truncate.
+
+### Order of operations inside the scoring CTEs
+
+Exclusions (watched-by-any-present, plus the reroll list) happen **before**
+`taste` normalizes. Normalizing over the pre-exclusion set produces different
+numbers and is an easy accident. §4.3 calls the normalize step not optional:
+raw goes negative (`hate` is −2) while hype sits in [0.25, 1].
+
+Two more that fall out of phase 2's behaviour rather than §4's text:
+
+- **`coalesce(hype_score, taste)`, with the join requiring `hype is not null`.**
+  Phase 2 built `setHype(null)`, so rows with `watched = false, hype = null`
+  genuinely exist. They must fall through to taste; a null score there would
+  poison both `min` and `avg`. Verified: a member with a *cleared* hype vote
+  scores identically to a member with no row at all.
+- **`coalesce(raw, 0)`** so a candidate sharing no tag with a member still takes
+  part in that member's min/max window.
+
+### Cold start, and where the min-term exclusion is computed
+
+§4.5: "a member with no tag weights is excluded from the `min` term." That is a
+per-**member** property, so it is resolved once in a CTE over `present`, never
+inside the per-candidate aggregate — a per-candidate predicate would drift
+between candidates and make their scores incomparable, which is the one thing
+the normalize step exists to guarantee. When *no* present member has weights,
+`min` falls back to all of them (verified: every score comes out 0.5).
+
+This matters more now than it will later: onboarding's 10-movie rating gate is
+phase 8, so until then a member with zero ratings is the common case, not the
+edge case. Phase 8 makes empty weights impossible and this branch goes quiet.
+
+### §4.3's "one config file" is unsatisfiable, and the conflict is the spec's
+
+§4.3 asks for one config file; §1 and §10 require that scoring be plain SQL over
+the normalized tag tables. No TypeScript config can reach inside a SQL function,
+and it could not cover the rebuild half regardless. §1 wins: all six weight
+groups sit in one labelled block at the top of the migration, and tuning them is
+a migration.
+
+That block is an **index of where each group lives**, not a copy of the values —
+a comment that repeats a number is a comment that will eventually disagree with
+it. The §4.4 *explanation* thresholds are the part that does live in TypeScript
+(`lib/recommend/explain.ts`), where tuning is free.
+
+### Deferred, deliberately
+
+- **`hype_history`.** Phase 0's note said "→ 4", but §4 scores *current* hype off
+  `user_movie_status` and never reads history. Phase 0's actual rule — defer a
+  table to the phase that first consumes it — puts it in phase 12's
+  hype-vs-reality stats. **The honest cost: history cannot be reconstructed
+  retroactively, so phase 12 starts from empty.** If that matters, the table has
+  to land before then, not when it is first read.
+- **`movie_nights` / `movie_night_attendees` / `watch_confirmations`.** §9's
+  phase-4 row stops at "reroll". §7 screen 6's "pick → logs night, prompts
+  confirmations" *is* §8's watch-confirmation flow, which phase 0 deferred to 11.
+  So who is present is transient UI state, and `user_tag_weights` is this
+  phase's only new write path.
+- **§4.2's widen step.** Asked and decided this session: it needs a new
+  `MovieDataProvider` method (a third departure from §2's interface) plus a
+  `cacheMovie` per pulled title — 2 TMDB calls each, against the ~20%
+  ECONNRESET rate phase 1a measured. The picker returns fewer than 3 instead,
+  which the browser pass confirms renders fine.
+- **Personal lists in the candidate pool.** §4.2 says "movies on any list in the
+  group", which is lists *owned by* the group. Reading members' personal lists
+  is what phase 10's visibility toggles exist to govern.
+- **"None of these" logging** (§4.5) — analytics, phase 11.
+
+### §4.4's explanations are mildly de-anonymising in a small group
+
+"1 of 2 love X", plus your own vote, tells you the other person's. The spec
+mandates these explanations and the group is 4–6 friends who opted in, so this
+is **accepted, not fixed**. `MIN_PERSON_COUNT = 2` in `explain.ts` suppresses
+the sharpest case (a lone member's preference named outright), which is a
+threshold worth revisiting alongside phase 10.
+
+### The two environments disagree about *function* grants too
+
+Phase 0 documented that hosted and local Supabase default in opposite directions
+for **table** privileges. The same is true for **functions**, and no migration
+had accounted for it: hosted carries `ALTER DEFAULT PRIVILEGES` granting EXECUTE
+on new functions to `service_role`, and because that is a *direct* grant,
+`revoke execute ... from public` does not remove it.
+
+Phase 4's three functions now name `service_role` in their REVOKE, and the
+revoke was applied to the remote separately (it postdates the applied
+migration). Verified by a per-category fingerprint over columns, policies, table
+grants, function bodies, function ACLs, constraints, indexes and RLS flags —
+**7 of 8 categories are byte-identical across local and hosted** (200 objects
+each).
+
+The one that still differs is `fnacl`, and the delta is exactly phase 0's and
+phase 3's four functions — `handle_new_user`, `handle_new_group`,
+`is_group_member`, `join_group_by_code` — which carry `service_role=X` on hosted
+and nothing locally. **Left as-is, not silently fixed:** it predates this phase
+and rewriting applied migrations is worse than recording it. It grants
+`service_role` nothing it lacks — that key bypasses RLS by design — and the
+pgTAP suite exercises `anon` and `authenticated` only, so no test outcome
+depends on it. The fix, when someone wants it, is three lines:
+
+```sql
+revoke execute on function public.handle_new_user()          from service_role;
+revoke execute on function public.handle_new_group()         from service_role;
+revoke execute on function public.is_group_member(uuid)      from service_role;
+revoke execute on function public.join_group_by_code(text)   from service_role;
+```
+
+Worth noting for the record: phases 0 and 3 both claimed matching fingerprints.
+Those claims were true for what they measured — function ACLs were not in either
+fingerprint. This is a gap in the earlier verification, not a regression.
+
+### Tests
+
+`supabase/tests/rls.test.sql`, now **56** pgTAP assertions (was 42).
+
+Every phase-4 negative has a paired positive control on the same table: D cannot
+read C's weights ↔ D reads its own; D cannot write the table ↔ D's rebuild
+lands. The two numbers do double duty — C's weight is exactly **−6**
+(`hate` −2 × genre 3 ÷ 1 rated movie) and D's is **+9** (`love` 3 × genre 3 ÷ 1),
+which pins §4.1's arithmetic *and*, because they differ, pins that the rebuild
+is per-caller. Both assume movie `33333333` carries exactly one `movie_tags`
+row; the test says so, because adding another would break them with a confusing
+value rather than a clear failure.
+
+The recommender's assertions compute the expected candidate set deliberately
+rather than asserting "non-empty": phase 3's block deletes C's item, so the
+group list holds only `55555555` by then.
+
+The controls remain load-bearing, re-verified rather than assumed. Blanking
+`request.jwt.claims` fails exactly 6 of A's controls, and D's entire block —
+which is where every phase-4 control lives — aborts outright at
+`join_group_by_code`. One assertion is labelled `weights:` rather than being an
+access-control claim; it runs as `postgres`, the same way the existing
+`constraint:` one does.
+
+### Verification
+
+1. `supabase db reset` → three migrations apply clean; `supabase test db` →
+   **56/56**.
+2. `pnpm typecheck`, `pnpm lint`, `pnpm build` — all clean. `/groups/[id]/night`
+   builds as `ƒ`, server-rendered on demand.
+3. **Hand-checked scoring**, not just plausible-looking numbers. A 3-candidate,
+   3-member fixture computed by hand from §4.3 and compared to six decimals:
+   two present → 1.0 / 0.234286 / 0.105; three present with a weightless member
+   → 0.95 / 0.252857 / 0.12; that member alone → 0.5 across the board. All
+   matched exactly. This is what pins the normalize, hype-override, min-term and
+   cold-start branches simultaneously.
+4. Real magic-link sessions against the local stack + Mailpit, every statement
+   issued over PostgREST with that user's **real** access token, so all of it
+   ran under RLS as a genuine `authenticated` user, over real TMDB titles:
+   - `match_tags` deserializes as a real JS `Array`, not a string. This repo has
+     two documented embed-shape surprises, so it was checked rather than assumed.
+   - **A peer's rating moves the score**: Bob rated a comedy that was *not* on
+     the group list, and Superbad went 0.0000 → 0.1500 on a call Alice made.
+     (Rating Superbad itself would have marked it watched and dropped it from
+     the pool — that tests §4.2's exclusion, not the cross-user read.)
+   - Alice read 0 of Bob's status rows and 0 of his tag weights throughout.
+5. **Live browser click-through** (Claude-in-Chrome): magic-link sign-in typed
+   and clicked through Mailpit; Movie Night reached from the group header; top 3
+   with §4.4 reasons rendering ("2 of 2 love Christopher Nolan", "Matches:
+   Adventure, Science Fiction", "Nobody here has seen it"); Reroll exhausting
+   the pool into the "That's everything" state and Start over clearing it;
+   toggling a member off **changing the ranking** (The Prestige overtook
+   Superbad once Bob's comedy taste left the room); the nobody-present empty
+   state. No console errors.
+6. The vote → rebuild loop driven by real clicks, not by calling the action:
+   marking Superbad watched and clicking "Loved" on the group page took Alice's
+   weights from 28 rows to 53, added Comedy 4.5 and Jonah Hill 3, and **halved
+   Science Fiction from 9 to 4.5** as §4.1's denominator went from 1 rated movie
+   to 2. Superbad then correctly vanished from her recommendations.
+7. Applied to `vfkkpflenfpfrrygxmto` through the Supabase MCP, same route and
+   reason as phases 0 and 3. `apply_migration` stamped `20260726154439` and the
+   local file was renamed from `20260726144547` to match, so a later
+   `supabase db push` does not re-run it.
+
+### Supabase advisors: two new WARNs, both intentional
+
+`get_advisors(security)` returns four
+`authenticated_security_definer_function_executable` WARNs — phase 3's two, plus:
+
+- **`rebuild_user_tag_weights`** must be callable by `authenticated`; it is what
+  every vote triggers. Its **zero-argument** signature is what makes the RPC
+  exposure harmless, the same reasoning phase 3 recorded for `is_group_member`:
+  the only user it can rebuild is the caller.
+- **`recommend_movies`** being callable is the entire feature. Its exposure is
+  bounded by its two guards and by returning aggregates only.
+
+`_rebuild_tag_weights` does **not** appear, which is the check that its REVOKE
+worked: it is the one function here no client can reach.

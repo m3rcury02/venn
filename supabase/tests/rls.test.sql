@@ -1,5 +1,5 @@
--- RLS tests for the phase 0 tables, plus phase 3's groups and the policies it
--- widened.
+-- RLS tests for the phase 0 tables, phase 3's groups and the policies it
+-- widened, and phase 4's tag weights and recommender.
 --
 -- The positive controls are load-bearing. Every negative assertion here is of
 -- the form "A cannot see B's row" -- and if request.jwt.claims were missing or
@@ -19,7 +19,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(42);
+select plan(56);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -67,6 +67,24 @@ from lists where owner_group_id = '99999999-9999-9999-9999-999999999999';
 insert into user_movie_status (user_id, movie_id, watched, rating)
 values ('cccccccc-cccc-cccc-cccc-cccccccccccc',
         '33333333-3333-3333-3333-333333333333', true, 'hate');
+
+-- Phase 4. Also exercises the path the migration's backfill uses.
+select public._rebuild_tag_weights('cccccccc-cccc-cccc-cccc-cccccccccccc');
+
+-- Labelled `weights:` for the same reason one assertion below is labelled
+-- `constraint:` -- this is §4.1's arithmetic, not access control, and it runs
+-- as postgres. C rated exactly one movie, `hate`; that movie carries exactly
+-- one tag, genre. So: -2 (hate) x 3 (genre) / 1 rated movie.
+--
+-- Both this number and D's +9 below depend on movie 33333333 having exactly
+-- one movie_tags row. Add another and they break with a confusing value rather
+-- than a clear failure.
+select is(
+  (select weight::numeric from user_tag_weights
+   where user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
+  -6::numeric,
+  'weights: hate -2 x genre 3 / 1 rated movie'
+);
 
 -- --------------------------------------------------- controls: A as itself
 
@@ -268,6 +286,18 @@ select is(
   'A cannot read the profile of a group member it shares no group with'
 );
 
+-- recommend_movies is SECURITY DEFINER and reads every present member's
+-- ratings and tag weights, so is_group_member is the only thing standing
+-- between a non-member and the group's private data.
+select throws_ok(
+  $$select * from public.recommend_movies(
+      '99999999-9999-9999-9999-999999999999',
+      array['11111111-1111-1111-1111-111111111111']::uuid[])$$,
+  '42501',
+  null,
+  'non-member A cannot run the recommender for the group'
+);
+
 -- ------------------------------------------- D: joining, and member access
 -- Every assertion in this block is a positive that only passes as a real,
 -- impersonated D, so the block controls itself: with claims unset the join
@@ -400,6 +430,116 @@ select is(
   'control: D''s delete of C''s item actually landed'
 );
 
+-- ------------------------------------------ D: tag weights (phase 4)
+-- Tag weights are ratings in another shape, so SPEC §11 applies to them
+-- unchanged: sharing a group must not expose them either. C has weights by now
+-- (see fixtures), so the zero below is a real denial rather than an empty table.
+
+select is(
+  (select count(*)::int from user_tag_weights
+   where user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
+  0,
+  'D cannot read group peer C''s tag weights'
+);
+
+-- No INSERT/UPDATE/DELETE grant and no such policy: the absence is the
+-- enforcement, exactly as for the catalog tables and group_members. Nothing but
+-- _rebuild_tag_weights can write here, so a weight is always the derived
+-- function of that user's ratings -- including for the user themselves.
+select throws_ok(
+  $$insert into user_tag_weights (user_id, tag_id, weight)
+    values ('dddddddd-dddd-dddd-dddd-dddddddddddd', 1, 99)$$,
+  '42501',
+  null,
+  'D cannot write even its own tag weights directly'
+);
+
+select throws_ok(
+  $$delete from user_tag_weights$$,
+  '42501',
+  null,
+  'D cannot delete tag weights directly'
+);
+
+select lives_ok(
+  $$insert into user_movie_status (user_id, movie_id, watched, rating)
+    values ('dddddddd-dddd-dddd-dddd-dddddddddddd',
+            '33333333-3333-3333-3333-333333333333', true, 'love')$$,
+  'control: D rates a movie'
+);
+
+-- The zero-argument wrapper, which is what app/status/actions.ts calls. It
+-- reads auth.uid() internally: the only user it can rebuild is the caller.
+select lives_ok(
+  $$select public.rebuild_user_tag_weights()$$,
+  'control: D rebuilds its own tag weights'
+);
+
+-- love +3 x genre 3 / 1 rated movie. A different number from C's -6 above, so
+-- this also pins that the rebuild is per-caller rather than global.
+select results_eq(
+  $$select tag_id, weight::numeric from user_tag_weights
+    where user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'$$,
+  $$values (1, 9::numeric)$$,
+  'control: D''s own weights are exactly love 3 x genre 3 / 1 rated movie'
+);
+
+-- ------------------------------------- D: the recommender (phase 4)
+
+-- Without this guard a member could pass any uuid as "present" and read a
+-- stranger's taste back off the scores.
+select throws_ok(
+  $$select * from public.recommend_movies(
+      '99999999-9999-9999-9999-999999999999',
+      array['11111111-1111-1111-1111-111111111111']::uuid[])$$,
+  '42501',
+  null,
+  'D cannot blend a non-member''s taste into the group''s picks'
+);
+
+-- The group list holds only 55555555 by now: C's 33333333 was added in the
+-- fixtures and deleted a few assertions ago. Neither present member has watched
+-- 55555555, so it is the one eligible candidate, and no group member has seen
+-- it -- which is what §4.4's "Nobody here has seen it" reads.
+select results_eq(
+  $$select movie_id, seen_count from public.recommend_movies(
+      '99999999-9999-9999-9999-999999999999',
+      array['cccccccc-cccc-cccc-cccc-cccccccccccc',
+            'dddddddd-dddd-dddd-dddd-dddddddddddd']::uuid[])$$,
+  $$values ('55555555-5555-5555-5555-555555555555'::uuid, 0)$$,
+  'control: D gets the group''s one eligible candidate, unseen by the group'
+);
+
+select lives_ok(
+  $$insert into list_items (list_id, movie_id, added_by)
+    select id, '33333333-3333-3333-3333-333333333333',
+           'dddddddd-dddd-dddd-dddd-dddddddddddd'
+    from lists where owner_group_id = '99999999-9999-9999-9999-999999999999'$$,
+  'control: D puts a movie it has watched back on the group list'
+);
+
+-- §4.2: excluded is anything ANY present member has watched. D watched
+-- 33333333 in the control above, so re-listing it must not make it a candidate.
+select results_eq(
+  $$select movie_id from public.recommend_movies(
+      '99999999-9999-9999-9999-999999999999',
+      array['cccccccc-cccc-cccc-cccc-cccccccccccc',
+            'dddddddd-dddd-dddd-dddd-dddddddddddd']::uuid[])$$,
+  $$values ('55555555-5555-5555-5555-555555555555'::uuid)$$,
+  'a movie a present member has watched is not a candidate'
+);
+
+-- §4.5's reroll: exclude the previous picks and recompute.
+select is(
+  (select count(*)::int from public.recommend_movies(
+     '99999999-9999-9999-9999-999999999999',
+     array['cccccccc-cccc-cccc-cccc-cccccccccccc',
+           'dddddddd-dddd-dddd-dddd-dddddddddddd']::uuid[],
+     array['55555555-5555-5555-5555-555555555555']::uuid[])),
+  0,
+  'reroll: an excluded movie is not returned again'
+);
+
 -- ------------------------------------------------------------ anon access
 
 -- anon holds no grant on these tables, so it is stopped one layer earlier than
@@ -420,6 +560,13 @@ select throws_ok(
   '42501',
   null,
   'anon cannot read lists'
+);
+
+select throws_ok(
+  $$select count(*) from user_tag_weights$$,
+  '42501',
+  null,
+  'anon cannot read tag weights'
 );
 
 reset role;
