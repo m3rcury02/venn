@@ -1,26 +1,104 @@
 @import "tailwindcss";
 
+/*
+ * Venn's palette: two identity hues (circle-a, circle-b) plus `overlap`,
+ * literally the RGB midpoint of the two -- the one color the app treats as
+ * "yours" -- reused wherever the product asks the user to act (primary
+ * buttons, focus rings), never as decoration.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+  --bg: #faf7f3;
+  --surface: #f0eae2;
+  --surface-strong: #e4dbd0;
+  --fg: #1c1922;
+  --fg-muted: #6b6478;
+  --fg-faint: #9a93a6;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --circle-a: #f2545b;
+  --circle-b: #4c6fff;
+  --overlap: #9f61ad;
+  --overlap-fg: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --bg: #15121c;
+    --surface: #201c29;
+    --surface-strong: #2b2635;
+    --fg: #f3efea;
+    --fg-muted: #a79fb3;
+    --fg-faint: #6e6680;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-strong: var(--surface-strong);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-faint: var(--fg-faint);
+  --color-circle-a: var(--circle-a);
+  --color-circle-b: var(--circle-b);
+  --color-overlap: var(--overlap);
+  --color-overlap-fg: var(--overlap-fg);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  --animate-rise-in: rise-in 0.4s ease-out both;
+  --animate-venn-slide-a: venn-slide-a 0.45s cubic-bezier(0.22, 1.4, 0.36, 1) both;
+  --animate-venn-slide-b: venn-slide-b 0.45s cubic-bezier(0.22, 1.4, 0.36, 1) both;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* The signature moment: two circles arriving from opposite sides to settle
+   into the overlap, played once when a movie lands on the list. */
+@keyframes venn-slide-a {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes venn-slide-b {
+  from {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
   }
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--overlap);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--overlap);
+    color: var(--overlap-fg);
+  }
 }
