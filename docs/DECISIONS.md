@@ -242,6 +242,33 @@ This is the one place phase 1a exceeded its plan, which had scoped retries out.
 The 20% measurement is what changed the decision — it is a demonstrated failure
 mode, not defensive coding against a hypothetical one.
 
+### JustWatch attribution, and why `getWatchProviders` returns an object
+
+Confirmed against TMDB's own reference for the watch-providers endpoint:
+
+> "In order to use this data you must attribute the source of the data as
+> **JustWatch**. If we find any usage not complying with these terms we will
+> revoke access to the API."
+
+This is stricter than §2's TMDB-logo condition — the penalty is losing the API,
+and it attaches to the data itself, so it binds the moment anything is
+displayed. TMDB's guidance is to attribute **both** JustWatch and TMDB, with a
+reference or logo on each item showing providers.
+
+The endpoint also returns a per-region `link`. It is a **TMDB** watch-page url
+(`themoviedb.org/movie/27205-inception/watch?locale=IN`), *not* a JustWatch deep
+link — TMDB does not hand those out. So the attribution and the link are two
+separate obligations, and satisfying one does not satisfy the other.
+
+`getWatchProviders` therefore returns `WatchAvailability`
+(`{ link, providers }`) rather than §2's bare `Provider[]`: `link` is
+per-region, not per-provider, and dropping it would leave phase 1b unable to
+link out at all. This is the second documented departure from §2's signature,
+after the `Provider` → `WatchProvider` rename.
+
+Nothing renders yet, so nothing is out of compliance today. **Phase 1b/7 owes
+the attribution UI before any watch-provider data reaches a screen.**
+
 ### Field mapping, where TMDB and the column disagree
 
 - **`release_date: ""`.** TMDB sends an empty string, not null, for an unknown
@@ -324,10 +351,10 @@ secret to the browser.
 
 ### Open, for later
 
-- **JustWatch attribution is unconfirmed.** TMDB sources `/watch/providers` from
-  JustWatch and attaches its own attribution condition, separate from §2's TMDB
-  logo requirement. This phase starts fetching that data; the UI that displays
-  it is phase 1b/7. Confirm the wording before that ships.
+- **JustWatch attribution — confirmed, and it is a hard licence condition.**
+  Resolved; see the section above. What remains is the *rendering*, which is
+  phase 1b/7: attribute JustWatch next to any watch-provider display, and link
+  out via `WatchAvailability.link`.
 - **§2's ten-film test is half done.** The untested assumption is about
   *TheTVDB* keyword parity, which needs a TheTVDB key and adapter — beyond this
   phase's "interface + TMDB adapter". `scripts/tmdb-smoke.ts` establishes the

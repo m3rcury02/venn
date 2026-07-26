@@ -42,6 +42,21 @@ export type WatchProvider = {
   type: WatchProviderType;
 };
 
+/**
+ * Availability for one title in one region.
+ *
+ * `link` is per-region, not per-provider, which is why this is an object rather
+ * than SPEC §2's bare array. It is a *TMDB* watch-page url, not a JustWatch
+ * one — TMDB does not hand out JustWatch deep links.
+ *
+ * Displaying any of this obliges you to attribute JustWatch as the source of
+ * the data; TMDB revokes API access over it. See docs/DECISIONS.md.
+ */
+export type WatchAvailability = {
+  link: string | null;
+  providers: WatchProvider[];
+};
+
 export type ImageSize =
   | "w92"
   | "w154"
@@ -57,7 +72,10 @@ export interface MovieDataProvider {
   search(query: string, region: string): Promise<MovieSummary[]>;
   getMovie(externalId: string): Promise<Movie>;
   getTags(externalId: string): Promise<Tag[]>;
-  getWatchProviders(externalId: string, region: string): Promise<WatchProvider[]>;
+  getWatchProviders(
+    externalId: string,
+    region: string,
+  ): Promise<WatchAvailability>;
   getImageUrl(path: string, size: ImageSize): string;
   findByImdbId(imdbId: string): Promise<Movie | null>;
   nowPlaying(region: string): Promise<MovieSummary[]>;

@@ -192,21 +192,27 @@ export const tmdb: MovieDataProvider = {
 
   async getWatchProviders(externalId, region) {
     const { results } = await get<{
-      results: Record<string, Partial<Record<WatchProviderType, TmdbCompany[]>>>;
+      results: Record<
+        string,
+        { link?: string } & Partial<Record<WatchProviderType, TmdbCompany[]>>
+      >;
     }>(`/movie/${externalId}/watch/providers`);
 
     const forRegion = results[region];
-    if (!forRegion) return [];
+    if (!forRegion) return { link: null, providers: [] };
 
     const types: WatchProviderType[] = ["flatrate", "rent", "buy"];
 
-    return types.flatMap((type) =>
-      (forRegion[type] ?? []).map((company) => ({
-        name: company.provider_name,
-        logoPath: company.logo_path,
-        type,
-      })),
-    );
+    return {
+      link: forRegion.link ?? null,
+      providers: types.flatMap((type) =>
+        (forRegion[type] ?? []).map((company) => ({
+          name: company.provider_name,
+          logoPath: company.logo_path,
+          type,
+        })),
+      ),
+    };
   },
 
   getImageUrl(path: string, size: ImageSize) {

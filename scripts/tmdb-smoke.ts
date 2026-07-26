@@ -154,7 +154,18 @@ async function main() {
 
   section("6. getWatchProviders");
   const watch = await provider.getWatchProviders("27205", REGION);
-  check(Array.isArray(watch), `returns an array for ${REGION}`, `${watch.length} entries`);
+  check(
+    watch.providers.length > 0,
+    `returns providers for ${REGION}`,
+    `${watch.providers.length} entries`,
+  );
+  // Without this the UI cannot link out, and displaying the data at all obliges
+  // us to attribute JustWatch — see docs/DECISIONS.md.
+  check(
+    typeof watch.link === "string" && watch.link.length > 0,
+    "carries the per-region watch link",
+    watch.link ?? "null",
+  );
 
   section("7. getImageUrl");
   const url = provider.getImageUrl("/abc.jpg", "w342");
