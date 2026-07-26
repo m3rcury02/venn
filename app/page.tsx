@@ -1,22 +1,36 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppHeader, navLinkClass } from "@/components/app-header";
+import { ListFilter, matchesFilter, parseFilter, type Status } from "@/components/list-filter";
 import { MovieCard } from "@/components/movie-card";
 import { RemoveFromListButton } from "@/components/remove-from-list-button";
 import { VennMark } from "@/components/venn-mark";
+import { VoteControl } from "@/components/vote-control";
+import { WatchedToggle } from "@/components/watched-toggle";
 import { provider } from "@/lib/providers";
 import { createClient } from "@/lib/supabase/server";
 
 // No generated database.types.ts (see docs/DECISIONS.md phase 1a) -- postgrest-js
 // can't infer that movies is a to-one embed without it, and types it as an array.
 // It is a single object at runtime because list_items.movie_id -> movies.id is
-// many-to-one from list_items' side.
+// many-to-one from list_items' side. user_movie_status is genuinely to-many
+// from movies' side (0 or 1 row per caller, RLS-scoped), so that embed's array
+// type is correct as-is.
 type ListItemRow = {
   movie_id: string;
-  movies: { title: string; year: number | null; poster_path: string | null };
+  movies: {
+    title: string;
+    year: number | null;
+    poster_path: string | null;
+    user_movie_status: Status[];
+  };
 };
 
-export default async function Home() {
+type HomeProps = {
+  searchParams: Promise<{ filter?: string }>;
+};
+
+export default async function Home({ searchParams }: HomeProps) {
   const supabase = await createClient();
 
   // getClaims() verifies the JWT signature; never trust getSession() here.
@@ -32,13 +46,19 @@ export default async function Home() {
   const { data: rawItems } = list
     ? await supabase
         .from("list_items")
-        .select("movie_id, added_at, movies(title, year, poster_path)")
+        .select(
+          "movie_id, added_at, movies(title, year, poster_path, user_movie_status(watched, rating, hype))",
+        )
         .eq("list_id", list.id)
         .order("added_at", { ascending: false })
     : { data: null };
 
   const items = rawItems as unknown as ListItemRow[] | null;
   const count = items?.length ?? 0;
+
+  const filter = parseFilter((await searchParams).filter);
+  const statuses = items?.map((item) => item.movies.user_movie_status[0] ?? null) ?? [];
+  const filteredItems = items?.filter((_, i) => matchesFilter(filter, statuses[i])) ?? [];
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-10 px-6 py-10 sm:px-8">
@@ -59,27 +79,52 @@ export default async function Home() {
       />
 
       {items && items.length > 0 ? (
-        <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-          {items.map((item, i) => (
-            <div
-              key={item.movie_id}
-              className="motion-safe:animate-rise-in"
-              style={{ animationDelay: `${Math.min(i, 10) * 40}ms` }}
-            >
-              <MovieCard
-                title={item.movies.title}
-                year={item.movies.year}
-                posterUrl={
-                  item.movies.poster_path
-                    ? provider.getImageUrl(item.movies.poster_path, "w185")
-                    : null
-                }
-              >
-                <RemoveFromListButton movieId={item.movie_id} />
-              </MovieCard>
+        <>
+          <ListFilter active={filter} statuses={statuses} />
+
+          {filteredItems.length > 0 ? (
+            <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+              {filteredItems.map((item, i) => {
+                const status = item.movies.user_movie_status[0] ?? null;
+                const watched = status?.watched ?? false;
+                return (
+                  <div
+                    key={item.movie_id}
+                    className="motion-safe:animate-rise-in"
+                    style={{ animationDelay: `${Math.min(i, 10) * 40}ms` }}
+                  >
+                    <MovieCard
+                      title={item.movies.title}
+                      year={item.movies.year}
+                      posterUrl={
+                        item.movies.poster_path
+                          ? provider.getImageUrl(item.movies.poster_path, "w185")
+                          : null
+                      }
+                      footer={
+                        <VoteControl
+                          movieId={item.movie_id}
+                          watched={watched}
+                          rating={status?.rating ?? null}
+                          hype={status?.hype ?? null}
+                        />
+                      }
+                    >
+                      <div className="flex gap-1">
+                        <WatchedToggle movieId={item.movie_id} watched={watched} />
+                        <RemoveFromListButton movieId={item.movie_id} />
+                      </div>
+                    </MovieCard>
+                  </div>
+                );
+              })}
             </div>
-          ))}
-        </div>
+          ) : (
+            <p className="py-16 text-center text-sm text-fg-muted">
+              No movies match this filter.
+            </p>
+          )}
+        </>
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 py-24 text-center">
           <VennMark size={40} />

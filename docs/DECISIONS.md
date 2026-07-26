@@ -1,6 +1,6 @@
 # Decisions
 
-**Current phase: 1b**
+**Current phase: 2**
 
 Append after every phase: what changed, and why.
 
@@ -549,3 +549,111 @@ as designed. **Not confirmed:** hover states, the add-button merge animation,
 and focus-ring appearance — headless screenshot mode doesn't simulate mouse
 or keyboard input. Worth checking in a real browser alongside the phase 1b
 click-through already owed above.
+
+---
+
+## Phase 2 — unified vote + watched status
+
+**No schema change.** `user_movie_status` was built whole in phase 0 — table,
+`vote_matches_watched_state` check, grants, all four RLS policies, pgTAP
+coverage. Nothing had ever written a row until this phase.
+
+```
+app/status/actions.ts        setWatched, setRating, setHype
+components/vote-control.tsx  the rating/hype segmented row
+components/watched-toggle.tsx  corner pill, mirrors RemoveFromListButton
+components/list-filter.tsx   chip strip, reads/writes the `filter` searchParam
+```
+
+`components/movie-card.tsx` gained one optional `footer` slot for the vote
+row; the existing `children` slot still renders the corner overlay, now
+`WatchedToggle` + `RemoveFromListButton` together. `app/page.tsx` reads
+`searchParams.filter`, extends the existing list-items query with a nested
+`user_movie_status(...)` embed, and filters in TypeScript.
+
+### Why no `updated_at` trigger
+
+`updated_at` is `default now()` with nothing bumping it on update — the
+textbook fix is a `BEFORE UPDATE` trigger. Not added: nothing reads that
+column yet (`hype_history.recorded_at` and phase 12's hype-vs-reality stats
+are the eventual readers), and all three actions set it explicitly, so it's
+already correct everywhere it can currently be written. Revisit when phase 8's
+import becomes a second writer to this table.
+
+### `setWatched` clears both vote columns
+
+The check constraint requires clearing one of `rating`/`hype` on every write
+(whichever the new `watched` value doesn't allow); the only real choice was
+whether to preserve the *other* one across a flip. It doesn't: keeping a stale
+`love` on a row the user just un-watched would show a rating for a film they
+just said they haven't seen. Flipping watched resets the vote.
+
+### `setRating` updates; `setHype` upserts
+
+Not an inconsistency — it falls out of which states can exist without a row
+already present. *Unwatched, no vote* is the implicit default for every movie
+in the catalog, so a hype vote is what has to create the row. `watched = true`
+only ever exists because `setWatched` already created it, so `setRating` only
+ever updates. Passing `rating: null` / `hype: null` clears the vote — clicking
+an already-selected choice deselects it, per §8's "the vote is prompted, never
+blocking."
+
+### Filtering runs in TypeScript, not SQL
+
+`unwatched` means *no status row at all, or `watched = false`* — PostgREST's
+embedded-filter syntax (`!inner`) can't express "no row," since an inner join
+drops exactly the rows that have none. The page also has no pagination and
+already fetches the list whole, so there's nothing to save by pushing the
+filter into the query. This is a documented scale limit, not a general claim —
+it stops being adequate the day this list paginates.
+
+### The `user_movie_status` embed actually is an array
+
+Phase 1b's `movies` embed needed a cast (`as unknown as ListItemRow[]`)
+because `list_items → movies` is many-to-one and postgrest-js can't infer
+that without generated types. `movies → user_movie_status` is genuinely
+to-many (0 or 1 row per caller, RLS-scoped) — verified directly (see below)
+before relying on it — so the array here is the correct shape, not a types
+artifact. `ListItemRow` takes `user_movie_status[0] ?? null`.
+
+### Verification
+
+1. `pnpm typecheck`, `pnpm lint`, `pnpm build` — all clean. Unlike phase 1a's
+   files, `pnpm build` does exercise these: `app/page.tsx` imports all of them.
+2. Real magic-link round trip against the local stack + Mailpit, twice (a
+   second user, needed for the RLS-denial check below).
+3. A throwaway script (not committed), authenticated with each session's real
+   access token so every statement ran as a real `authenticated` user under
+   RLS: `setHype` creating a row from nothing, `setWatched(true)` clearing hype
+   and stamping `watched_at`, `setRating("love")` leaving `watched_at`
+   untouched (the assertion that pins the update-vs-upsert split above),
+   `setWatched(false)` clearing rating and nulling `watched_at`,
+   `setRating(null)` clearing the vote without deleting the row, a
+   hand-crafted `(watched: true, hype: set)` write confirmed rejected with
+   `23514`, the joined `list_items` select confirmed `movies` as an object and
+   `user_movie_status` as an array, and — with a second real user's session —
+   confirmed that user cannot read the first user's status row by `user_id`.
+   All passed.
+4. No Claude-in-Chrome extension connected at first in this session (same
+   constraint as phase 1b). Fell back to headless `google-chrome` against a
+   real signed-in session: seeded one user's list with movies across every
+   vote state (three ratings, one unvoted-watched, three hype levels) through
+   the same RLS-scoped path as (3), then screenshotted `/`, `/?filter=love`,
+   and `/?filter=unwatched`. Confirmed: correct chip counts, correct
+   rating/hype button selected per movie (including `hate` rendering in
+   `circle-a` rather than `overlap`), the watched toggle filled for watched
+   movies, and the section+value chip hierarchy narrowing the grid correctly.
+
+   The extension reconnected later in the same session, closing the gap
+   phase 1b left open. Driven with real clicks (not scripted requests): a
+   full magic-link sign-in (typed email, clicked send, clicked the actual
+   link in Mailpit), live TMDB search including one real ECONNRESET recovered
+   by the documented retry, add-to-list settling into the Venn-mark success
+   state, the watched toggle flipping and clearing the opposite vote column,
+   `hate` selecting/deselecting in `circle-a`, and a filter chip click
+   navigating to `?filter=watched` with correct sub-chip counts. Separately
+   confirmed: the movie-card hover glow, the remove-button's hover
+   scale/color change, and a real `:focus-visible` ring (tab-order landed on
+   it, `overlap`-colored outline, 2px, correct offset) — closing phase 1b's
+   last open item (hover states, focus-ring appearance) as well as this
+   phase's live-interaction gap.

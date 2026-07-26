@@ -6,9 +6,10 @@ type MovieCardProps = {
   year: number | null;
   posterUrl: string | null;
   children?: ReactNode;
+  footer?: ReactNode;
 };
 
-export function MovieCard({ title, year, posterUrl, children }: MovieCardProps) {
+export function MovieCard({ title, year, posterUrl, children, footer }: MovieCardProps) {
   return (
     <div className="group flex flex-col gap-2">
       <div className="relative">
@@ -43,6 +44,8 @@ export function MovieCard({ title, year, posterUrl, children }: MovieCardProps) 
         <p className="truncate text-sm font-medium text-fg">{title}</p>
         <p className="font-mono text-xs text-fg-faint">{year ?? "—"}</p>
       </div>
+
+      {footer ? <div>{footer}</div> : null}
     </div>
   );
 }
