@@ -9,14 +9,20 @@ type Status = "idle" | "added" | "already-in-list" | "error";
 const badgeBase =
   "flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white shadow-sm backdrop-blur-sm transition-transform hover:scale-110 focus-visible:scale-110";
 
-export function AddToListButton({ externalId }: { externalId: string }) {
+export function AddToListButton({
+  externalId,
+  listId,
+}: {
+  externalId: string;
+  listId?: string;
+}) {
   const [status, setStatus] = useState<Status>("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   function handleClick() {
     startTransition(async () => {
-      const result = await addToList(externalId);
+      const result = await addToList(externalId, listId);
       setStatus(result.status);
       setMessage(result.status === "error" ? result.message : null);
     });
@@ -26,7 +32,15 @@ export function AddToListButton({ externalId }: { externalId: string }) {
     return (
       <span
         className={`${badgeBase} cursor-default bg-overlap hover:scale-100`}
-        title={status === "added" ? "Added to your list" : "Already on your list"}
+        title={
+          status === "added"
+            ? listId
+              ? "Added to the group list"
+              : "Added to your list"
+            : listId
+              ? "Already on the group list"
+              : "Already on your list"
+        }
       >
         <VennMark size={16} animated={status === "added"} />
       </span>

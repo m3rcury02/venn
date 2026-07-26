@@ -7,7 +7,7 @@ import { MovieCard } from "@/components/movie-card";
 
 const DEBOUNCE_MS = 300;
 
-export function SearchForm() {
+export function SearchForm({ listId }: { listId?: string }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -70,7 +70,7 @@ export function SearchForm() {
             style={{ animationDelay: `${Math.min(i, 10) * 30}ms` }}
           >
             <MovieCard title={movie.title} year={movie.year} posterUrl={movie.posterUrl}>
-              <AddToListButton externalId={movie.externalId} />
+              <AddToListButton externalId={movie.externalId} listId={listId} />
             </MovieCard>
           </div>
         ))}

@@ -1,4 +1,5 @@
--- RLS tests for the phase 0 tables.
+-- RLS tests for the phase 0 tables, plus phase 3's groups and the policies it
+-- widened.
 --
 -- The positive controls are load-bearing. Every negative assertion here is of
 -- the form "A cannot see B's row" -- and if request.jwt.claims were missing or
@@ -9,12 +10,16 @@
 --
 -- Note that "authenticated can read movies" is NOT a control: that policy is
 -- `using (true)`, so it passes with a NULL uid too.
+--
+-- Four actors. A and B are phase 0's pair and share nothing; phase 3 adds C and
+-- D, who share a group. A is therefore the non-member for every group negative,
+-- and it stays true that A sees exactly one profile and one default list.
 
 begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(20);
+select plan(42);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -23,10 +28,16 @@ select plan(20);
 
 insert into auth.users (id, email) values
   ('11111111-1111-1111-1111-111111111111', 'a@test.dev'),
-  ('22222222-2222-2222-2222-222222222222', 'b@test.dev');
+  ('22222222-2222-2222-2222-222222222222', 'b@test.dev'),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'c@test.dev'),
+  ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'd@test.dev');
 
+-- Three movies: list_items' primary key is (list_id, movie_id), so the group
+-- assertions below need distinct films to test the policy rather than the key.
 insert into movies (id, title, year) values
-  ('33333333-3333-3333-3333-333333333333', 'Test Movie', 2020);
+  ('33333333-3333-3333-3333-333333333333', 'Test Movie', 2020),
+  ('55555555-5555-5555-5555-555555555555', 'Second Movie', 2021),
+  ('66666666-6666-6666-6666-666666666666', 'Third Movie', 2022);
 
 insert into tags (id, tag_type, tag_value) values (1, 'genre', 'sci-fi');
 insert into movie_tags (movie_id, tag_id) values
@@ -40,6 +51,22 @@ from lists where owner_user_id = '22222222-2222-2222-2222-222222222222';
 insert into user_movie_status (user_id, movie_id, watched, rating)
 values ('22222222-2222-2222-2222-222222222222',
         '33333333-3333-3333-3333-333333333333', true, 'love');
+
+-- C's group. handle_new_group fires here, so C arrives as owner and the
+-- group's one list already exists. invite_code is set explicitly rather than
+-- defaulted so D can join with a known value below.
+insert into groups (id, name, invite_code, created_by) values
+  ('99999999-9999-9999-9999-999999999999', 'Test Group', 'TESTCODE',
+   'cccccccc-cccc-cccc-cccc-cccccccccccc');
+
+insert into list_items (list_id, movie_id, added_by)
+select id, '33333333-3333-3333-3333-333333333333', 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+from lists where owner_group_id = '99999999-9999-9999-9999-999999999999';
+
+-- C's private rating. Group membership must not expose it to D (SPEC §11).
+insert into user_movie_status (user_id, movie_id, watched, rating)
+values ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+        '33333333-3333-3333-3333-333333333333', true, 'hate');
 
 -- --------------------------------------------------- controls: A as itself
 
@@ -89,7 +116,7 @@ select is(
 -- The shared catalog cache is readable by any signed-in user.
 select is(
   (select count(*)::int from movies),
-  1,
+  3,
   'A can read the movie cache'
 );
 
@@ -189,6 +216,188 @@ select throws_ok(
   '42501',
   null,
   'A cannot write to the movie cache'
+);
+
+-- ------------------------------------ negatives: A as a non-member (phase 3)
+-- SPEC §11's named test: "a non-member must not read a group's list". A is
+-- still impersonated here, so the controls at the top of this block cover these
+-- too.
+
+select is(
+  (select count(*)::int from groups),
+  0,
+  'non-member A cannot read the group (nor therefore its invite code)'
+);
+
+select is(
+  (select count(*)::int from group_members),
+  0,
+  'non-member A cannot read the group''s membership'
+);
+
+select is(
+  (select count(*)::int from lists where owner_group_id is not null),
+  0,
+  'non-member A cannot read the group''s list'
+);
+
+select is(
+  (select count(*)::int from list_items
+   where added_by = 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
+  0,
+  'non-member A cannot read items in the group''s list'
+);
+
+select throws_ok(
+  $$insert into list_items (list_id, movie_id, added_by)
+    values ((select id from lists
+             where owner_group_id = '99999999-9999-9999-9999-999999999999'),
+            '33333333-3333-3333-3333-333333333333',
+            '11111111-1111-1111-1111-111111111111')$$,
+  '42501',
+  null,
+  'non-member A cannot add an item to the group''s list'
+);
+
+-- Distinct from "A cannot read B's profile": C *is* in a group, so this pins
+-- that the widened profiles policy leaks only to shared-group peers.
+select is(
+  (select count(*)::int from profiles
+   where id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
+  0,
+  'A cannot read the profile of a group member it shares no group with'
+);
+
+-- ------------------------------------------- D: joining, and member access
+-- Every assertion in this block is a positive that only passes as a real,
+-- impersonated D, so the block controls itself: with claims unset the join
+-- returns null and all of them fail.
+
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-dddd-dddd-dddddddddddd","role":"authenticated"}';
+
+select is(
+  (select public.join_group_by_code('  testcode  ')),
+  '99999999-9999-9999-9999-999999999999'::uuid,
+  'control: D joins by invite code, case- and whitespace-insensitively'
+);
+
+select is(
+  (select public.join_group_by_code('NOSUCH00')),
+  null,
+  'an unknown invite code resolves to null rather than erroring'
+);
+
+select is(
+  (select count(*)::int from groups),
+  1,
+  'control: D reads the group it just joined'
+);
+
+select is(
+  (select count(*)::int from group_members),
+  2,
+  'control: D reads the group''s membership (C and itself)'
+);
+
+select is(
+  (select count(*)::int from lists where owner_group_id is not null),
+  1,
+  'control: D reads the group''s list'
+);
+
+select is(
+  (select count(*)::int from list_items
+   where added_by = 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
+  1,
+  'control: D reads what C added to the group list'
+);
+
+-- The regression guard for app/page.tsx's default-list .single(): being in a
+-- group must not make a second is_default list visible.
+select is(
+  (select count(*)::int from lists where is_default),
+  1,
+  'control: D still sees exactly one is_default list while in a group'
+);
+
+select is(
+  (select count(*)::int from lists
+   where owner_group_id = '99999999-9999-9999-9999-999999999999' and is_default),
+  0,
+  'design: the group''s list is not is_default'
+);
+
+select is(
+  (select count(*)::int from profiles
+   where id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
+  1,
+  'control: D reads its group peer C''s profile'
+);
+
+-- SPEC §11: sharing a group must not expose another member's ratings. Phase
+-- 4's recommender reads them server-side; that is not a reason to widen here.
+select is(
+  (select count(*)::int from user_movie_status
+   where user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
+  0,
+  'D cannot read group peer C''s movie status'
+);
+
+-- Both writes into group_members are SECURITY DEFINER functions, so
+-- authenticated holds no INSERT grant at all -- the same "no write policy is
+-- the enforcement" argument phase 0 made for the catalog tables.
+select throws_ok(
+  $$insert into group_members (group_id, user_id)
+    values ('99999999-9999-9999-9999-999999999999',
+            '11111111-1111-1111-1111-111111111111')$$,
+  '42501',
+  null,
+  'D cannot add a member to the group directly'
+);
+
+-- Group lists exist only because handle_new_group made them: lists_insert_own
+-- checks auth.uid() = owner_user_id, which is NULL for a group-owned row.
+select throws_ok(
+  $$insert into lists (name, owner_group_id)
+    values ('sneaky', '99999999-9999-9999-9999-999999999999')$$,
+  '42501',
+  null,
+  'D cannot create a second list owned by the group'
+);
+
+select lives_ok(
+  $$insert into list_items (list_id, movie_id, added_by)
+    select id, '55555555-5555-5555-5555-555555555555',
+           'dddddddd-dddd-dddd-dddd-dddddddddddd'
+    from lists where owner_group_id = '99999999-9999-9999-9999-999999999999'$$,
+  'control: D adds to the group list'
+);
+
+-- A third film, so this fails on the policy's added_by clause rather than on
+-- list_items' (list_id, movie_id) primary key.
+select throws_ok(
+  $$insert into list_items (list_id, movie_id, added_by)
+    select id, '66666666-6666-6666-6666-666666666666',
+           'cccccccc-cccc-cccc-cccc-cccccccccccc'
+    from lists where owner_group_id = '99999999-9999-9999-9999-999999999999'$$,
+  '42501',
+  null,
+  'D cannot attribute an add to C (added_by is pinned to auth.uid())'
+);
+
+-- Documented decision, not an oversight: at 4-6 friends a per-adder delete rule
+-- buys friction rather than safety.
+select lives_ok(
+  $$delete from list_items
+    where added_by = 'cccccccc-cccc-cccc-cccc-cccccccccccc'$$,
+  'control: any member may remove any member''s addition'
+);
+
+select is(
+  (select count(*)::int from list_items
+   where added_by = 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
+  0,
+  'control: D''s delete of C''s item actually landed'
 );
 
 -- ------------------------------------------------------------ anon access

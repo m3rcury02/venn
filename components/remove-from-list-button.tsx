@@ -3,12 +3,18 @@
 import { useTransition } from "react";
 import { removeFromList } from "@/app/list/actions";
 
-export function RemoveFromListButton({ movieId }: { movieId: string }) {
+export function RemoveFromListButton({
+  movieId,
+  listId,
+}: {
+  movieId: string;
+  listId?: string;
+}) {
   const [isPending, startTransition] = useTransition();
 
   function handleClick() {
     startTransition(async () => {
-      await removeFromList(movieId);
+      await removeFromList(movieId, listId);
     });
   }
 

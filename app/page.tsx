@@ -37,9 +37,12 @@ export default async function Home({ searchParams }: HomeProps) {
   const { data } = await supabase.auth.getClaims();
   if (!data?.claims) redirect("/login");
 
+  // Scoped to owner_user_id, not is_default alone: since phase 3 the lists
+  // policy also returns group lists, and .single() would throw on two rows.
   const { data: list } = await supabase
     .from("lists")
     .select("id")
+    .eq("owner_user_id", data.claims.sub)
     .eq("is_default", true)
     .single();
 
@@ -66,6 +69,9 @@ export default async function Home({ searchParams }: HomeProps) {
         subtitle={count > 0 ? `Your list · ${count} movie${count === 1 ? "" : "s"}` : "Your list"}
         actions={
           <>
+            <Link href="/groups" className={navLinkClass}>
+              Groups
+            </Link>
             <Link href="/search" className={navLinkClass}>
               Search
             </Link>
