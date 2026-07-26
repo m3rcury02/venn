@@ -6,7 +6,17 @@ import { NextResponse, type NextRequest } from "next/server";
 // below catches it. That failure is quiet and confusing -- a 307 preserves the
 // POST method, so an iOS Shortcut would receive the /login page instead of JSON
 // and report success.
-const PUBLIC_PATHS = ["/login", "/auth", "/api/ingest"];
+//
+// /share (phase 6) needs the same exemption for the same reason: it answers
+// its own auth with a 303, which a browser correctly turns into a GET, and a
+// 307 landing on /login first would defeat that.
+//
+// /manifest.webmanifest (phase 6) needs it for a different reason: browsers
+// fetch a manifest without credentials by default, so a signed-out visitor's
+// very first request for it would 307 to /login, the manifest would never
+// parse, and the app would never be installable -- silently, with nothing in
+// the console naming why.
+const PUBLIC_PATHS = ["/login", "/auth", "/api/ingest", "/share", "/manifest.webmanifest"];
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });

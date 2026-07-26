@@ -1,6 +1,6 @@
 # Decisions
 
-**Current phase: 5**
+**Current phase: 6**
 
 Append after every phase: what changed, and why.
 
@@ -1448,3 +1448,205 @@ or get the confusing `Bad plan. You planned 73 tests but ran 0`.
   the badge is conditional on it being non-zero. The first version tied the link
   itself to `inboxCount > 0`, which made the Inbox appear and disappear from the
   nav as items arrived and were cleared — that reads as a bug, not a badge.
+
+---
+
+## Phase 6 — Android Web Share Target, iOS Shortcut
+
+**No schema change.** `ingest_source` already enumerated `android_share` and
+`ios_shortcut` (phase 5's migration), and `service_role` already held every
+grant the new route needs. The third no-schema phase, after 1b and 2.
+
+```
+lib/ingest/resolve.ts         resolution engine, moved out of the ingest route
+app/share/route.ts            the Android share target
+public/manifest.webmanifest   share_target + the minimum install fields
+public/icon-192.png, icon-512.png
+components/shortcut-setup.tsx iOS steps + copy-the-endpoint button
+```
+
+Phase 5 named the seams: *"No Web Share Target, no iOS Shortcut — §9 phase 6.
+The `source` column and a mintable token are what they plug into."* Both
+platforms plug in, but by different mechanisms — Android's installed PWA
+carries a cookie, so `/share` needs no token; iOS carries neither a PWA nor a
+share target, so the payoff there is the instructions on `/settings`, not new
+server code.
+
+### `/api/ingest` and `/share` differ only in how they learn the user id
+
+Everything after that — resolve a candidate, add to the default list, guard
+against a dismiss racing the resolution — was identical between the two, so it
+moved out to `lib/ingest/resolve.ts` as a pure relocation: same functions, same
+comments, only the import graph changed. `resolveInBackground(db, rowId,
+userId, text)` already took `userId` as a parameter, so no auth branch entered
+the shared module. `pnpm smoke:ingest` stayed 10/10 across the move, and a real
+token round trip against `/api/ingest` (TMDB url → resolved, `Dune`-style query
+→ pending) confirmed no regression.
+
+### `source` is hardcoded in `/share`, not read from the form
+
+The route *is* the Android path. Accepting a client-supplied `source` would be
+spoofable and would defeat the one thing the column exists for — §5:
+*"Instrument every ingest with its source. That number decides whether the
+Apple developer account is worth it."* Verified end to end against the local
+stack: a real signed-in POST to `/share` landed a row with `source =
+'android_share'`, resolved to Inception, added to that user's default list with
+`added_by` set correctly.
+
+### Every response is a 303, never a 307
+
+A 307 preserves the POST method, which would make the browser re-POST to
+`/inbox` — a GET-only page. This is the same trap phase 5 documented for the
+proxy's own redirect, arriving here from a different direction. Verified:
+`curl -i -X POST` against `/share`, both signed in and signed out, returns 303
+in both cases, never 307.
+
+### Two new entries in `PUBLIC_PATHS`, for two different reasons
+
+- **`/manifest.webmanifest`** — browsers fetch a manifest without credentials
+  by default. Left off this list, a signed-out visitor's first request for it
+  would 307 to `/login`, the manifest would never parse, and the app would
+  never be installable — silently, with nothing in the console naming why.
+  Verified: `curl -i` with no cookie returns `200` and the JSON body, not a
+  redirect.
+- **`/share`** — same 307-preserves-POST hazard as `/api/ingest`. The route
+  answers its own auth with a 303; the proxy's 307 would have to be avoided
+  entirely for that to matter, so the path is exempted the same way
+  `/api/ingest` was.
+
+Listed one path at a time, never `/api` or a prefix — the precedent phase 5 set
+for exactly this reason.
+
+### The manifest's fields are the Chrome installability set, checked this
+session, and no service worker is in it
+
+Confirmed against Chrome's current documentation rather than assumed: Chrome
+dropped the requirement for a fetch-handling service worker for install-from-menu
+in M108 (mobile) / M112 (desktop). What Chrome does require — `name` or
+`short_name`, a 192px **and** a 512px icon, `start_url`, and a `display` value
+of `standalone`/`fullscreen`/`minimal-ui`/`window-controls-overlay`, over
+HTTPS — is exactly what `public/manifest.webmanifest` carries. Nothing from
+phase 7's offline shell got pulled forward as a result.
+
+`share_target` is verbatim from SPEC §5, including `multipart/form-data` with
+no `files` member — legal, if unusual; worth remembering as the first thing to
+suspect if a manifest ever fails to parse. `start_url: "/"` redirects to
+`/login` when signed out, which is intended, not a bug to fix in phase 7.
+
+**Icons** are `VennMark`'s own geometry rendered to PNG, not new artwork: two
+circles at 0.62× the icon size, offset 0.19×, `#f2545b` (circle-a) on the left
+and `#4c6fff` (circle-b) at 75% opacity on the right, over the app's
+`#15121c` background. Generated with a throwaway PIL script (not committed —
+no new dependency, and phase 7's icon pass supersedes these), recorded here so
+they're reproducible: 4× supersampled ellipses composited with `alpha_composite`
+for the translucent overlap, then downsampled with Lanczos. Maskable variants,
+monochrome icons, splash screens and `apple-touch-icon` are phase 7's row,
+verbatim, and are not built here.
+
+### The assumption this phase rests on, and could not verify
+
+Supabase's auth cookies are `SameSite=Lax`, which withholds the cookie from
+cross-site non-GET requests. The share-target launch is a POST *navigation*
+triggered by the OS/browser share sheet, not by a page on this origin. If
+Chrome classifies that navigation as cross-site, `getClaims()` in `/share`
+would see nothing, every real share would 303 to `/login`, and the Android
+half of this phase would silently not work — reading as "auth is broken," not
+"share target misconfigured."
+
+The reasoning points to same-site (the navigation targets this app's own
+origin, user-agent-initiated, the same class as a typed URL or bookmark), but
+neither the Web Share Target spec nor Chrome's own share-target docs say
+anything about cookies — checked this session, and both instead describe a
+service worker intercepting the POST, because their worked examples are file
+sharing. **This could not be tested from here.** `curl --cookie` attaches
+cookies unconditionally regardless of SameSite, and this environment has no
+Android device and no OS share sheet to launch a real one. This is the phase's
+primary unverified assumption.
+
+**The fallback, decided in advance rather than as a mid-build stall:** if a
+real Android share lands on `/login`, flip the manifest's `share_target.method`
+to `"GET"` (params arrive as a query string), make `/share` a page instead of a
+route handler, and render the shared text with one "Add to Venn" button wired
+to a server action. A GET navigation carries Lax cookies; the button keeps the
+write off the render, since a mutating GET would fire on prefetch or reload.
+Cost: one extra tap and a stated departure from SPEC §5's literal "POST,
+multipart" — the same kind of departure phase 5 recorded for reordering §5's
+own steps 1 and 2. The insert, the `source` value, and `resolveInBackground`
+are unchanged either way; only the transport would differ.
+
+### One accepted departure from §5's own rule
+
+A signed-out `/share` POST creates no row — confirmed as a paired control
+alongside the signed-in case. That is a share vanishing without trace, which is
+exactly what §5 says must never happen, and phase 5 built the
+`rejected`-status-instead-of-DELETE design around that sentence. Accepted here
+because there is no user to attribute an anonymous row to, and because an
+installed PWA holds its session long enough that the window is small in
+practice.
+
+### Settings — iOS Shortcut steps, not a shortcut file
+
+An unsigned `.shortcut` import requires the recipient to have already enabled
+untrusted shortcuts in iOS settings — a worse first run than six manual steps —
+so `components/shortcut-setup.tsx` renders the steps plus the one thing that
+differs per deployment, the ingest endpoint. That URL is derived from the
+request's `host` header via `headers()` in the server component rather than a
+new env var: correct on localhost and on Vercel with nothing to keep in sync
+between them, and no `.env.example` churn. Step 3's `source: ios_shortcut`
+field is load-bearing, not decoration — omit it in a real Shortcut and every
+ingest from it defaults to `paste`, and the count phase 5's Apple-developer
+question depends on stays zero forever.
+
+### Verification
+
+1. `pnpm typecheck`, `pnpm lint` — clean. `pnpm build` — clean; `/share` builds
+   as `ƒ`, server-rendered on demand. `pnpm smoke:ingest` — **10/10**, unchanged.
+   This only covers `extract.ts` and confirms the import graph resolves; it
+   exercises none of the moved resolution code. Step 5 below is the actual
+   regression guard for the `resolve.ts` extraction.
+2. `curl -i` on `/manifest.webmanifest` with no cookie → `200`, `Content-Type:
+   application/manifest+json`, full JSON body — not a `307`. Both icon paths →
+   `200`.
+3. A real magic-link session against the local stack + Mailpit (the same
+   round trip phases 1b–5 used). `curl -i -X POST -F` multipart to `/share`
+   with that session's cookie → `303`, `Location: /inbox`; the row landed with
+   `source = 'android_share'`, resolved to Inception, and the movie appeared in
+   `list_items` on that user's default list with the correct `added_by`.
+4. **Paired control**: the identical POST with no cookie → `303`, `Location:
+   /login`, and no row created — confirming the exemption in `PUBLIC_PATHS` is
+   scoped to the route's own auth answer, not a hole that lets anything through.
+5. `/api/ingest` regression, same session, a real minted token (via
+   `mintToken`/`hashToken` as `createIngestToken` would produce): a TMDB url with
+   no `source` → defaulted to `paste`, resolved. A second call with
+   `source: "ios_shortcut"` on an ambiguous title (`Parasite`, which has two
+   films by that title) → `pending` with 3 candidates, `source` recorded
+   correctly — proving the iOS path's payload shape end to end without an
+   actual Shortcuts run.
+6. No Claude-in-Chrome extension connected this session (recurring constraint
+   in this repo). Fell back to headless `google-chrome`, same pattern as phases
+   1b–3: a real magic-link sign-in via the actual `/auth/confirm` link from
+   Mailpit, then `/settings` screenshotted showing both the existing token
+   panel and the new "Send from your phone" section with the live endpoint,
+   copy button, and numbered steps rendering correctly. (One purely cosmetic
+   artifact: the headless environment's font substitutes the ⋮ and → glyphs in
+   the Android install line with fallback glyphs — confirmed the source bytes
+   are the correct `U+22EE`/`U+2192` characters; a real device renders them
+   normally.)
+7. **Not verified, and stated as such rather than implied**: a real Android
+   home-screen install and a real share-sheet tap, and a real iPhone Shortcuts
+   run. Neither can be driven from this environment. What (2)–(5) prove is that
+   the endpoints behave correctly and the manifest is valid and reachable — not
+   that the share sheet will carry a cookie, which is the SameSite question
+   above.
+8. Applied to nothing — no migration this phase, so nothing was applied to
+   `vfkkpflenfpfrrygxmto`.
+
+### Not in this phase
+
+Install prompt UI, offline shell, maskable/monochrome icons, splash screens,
+`apple-touch-icon` — phase 7's row, verbatim, and untouched here. Push
+notification on resolve (§8) is phase 11. An iCloud share link for a prebuilt
+Shortcut was considered and set aside: it requires the link to be created
+outside this repo and the token would still need pasting by hand, so it saves
+setup steps rather than eliminating them — the Settings section built here is
+where it would drop in later if that changes.

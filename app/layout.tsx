@@ -15,6 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Venn",
   description: "Shared movie lists for your group.",
+  manifest: "/manifest.webmanifest",
 };
 
 export default function RootLayout({
