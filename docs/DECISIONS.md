@@ -2472,3 +2472,69 @@ dashboard template and this system has already paid to not look like that.
 - **Optimistic UI** on the vote controls. `useTransition` disables them today;
   `useOptimistic` would let a vote land instantly and roll back on failure.
 - **View Transitions** — still flagged not-for-production by Next.
+
+---
+
+## Mark colors: magenta/cyan → orange/azure ("Cinema")
+
+The user flagged that `--beam-a`/`--beam-b` (magenta `#FF2D6F`, cyan `#00E5FF`)
+read as visually adjacent to another app's mark before they read as Venn's —
+two overlapping circles is already a common shorthand (compatibility apps,
+insurance comparisons, data-viz decks), so the specific hue pair was carrying
+more of the risk than the shape.
+
+Replaced with orange `#FF5A1F` / azure `#00C2FF` ("Cinema"). Chosen over two
+other computed candidates — gold/blue (`#FFB400`/`#0080FF`, rejected: too close
+to `--marquee`'s existing yellow, so the mark and the primary CTA would compete
+for "the important color") and violet/chartreuse (`#9B3FFF`/`#C8FF00`,
+rejected: boldest option but chartreuse skews toward a 90s-neon/toxic
+association, and violet cleared AA at only 4.55:1, the thinnest margin of the
+three) — presented to the user as a live HTML comparison (actual
+`mix-blend-mode: plus-lighter`, not swatches) before picking.
+
+Orange/azure is not an arbitrary substitution: it's the actual complementary
+color grade used on theatrical posters and DCPs (skin tones pushed warm,
+shadows pushed teal), so for a movie-night app it's a convention already in the
+subject's own world rather than a borrowed palette.
+
+**The additive-light proof still holds, with new numbers:**
+
+```
+#FF5A1F + #00C2FF = (255, 90+194->255, 31+255->255) = #FFFFFF
+```
+
+Verified two ways: sampled the actual rendered pixel at the mark's overlap
+(white, exactly), and sampled the regenerated PWA icons' center pixel the same
+way.
+
+**Contrast, recomputed, not assumed to transfer:**
+
+```
+on #000000      beam-a 6.73   beam-b 10.16
+on #16161A      beam-a 5.79   beam-b 8.73
+black on beam-a 6.73   (white on beam-a 3.12 — still fails AA, --on-beam stays black)
+```
+
+Every figure still clears 4.5:1; the "text on a fill is always black" rule from
+the original palette needed no change, just new numbers behind it.
+
+**Files touched:** `app/globals.css` (tokens + the file-header proof comment),
+`components/venn-mark.tsx` (the proof comment only — the component reads the
+CSS custom properties, so no logic changed), `app/global-error.tsx` (the two
+hardcoded hexes — this file can't reach the CSS tokens, since it replaces the
+root layout on the same failure path that would take `globals.css` down with
+it), and all six PWA icon PNGs, regenerated from the same geometry phase 7
+established (`circle = size × 0.62`, `offset = size × 0.19`, maskable variants
+at 0.7× scale centered in the full canvas) with the new beam colors baked in.
+`icon-monochrome.png` was left untouched — Android's themed-icon system reads
+only its alpha channel, so the fill color in that file was never load-bearing.
+
+### Verification
+
+1. `pnpm typecheck`, `pnpm lint` — clean.
+2. Overlap pixel sampled at (255, 255, 255) in both the live-rendered mark and
+   the regenerated icons, not eyeballed.
+3. All contrast pairs recomputed via script, not carried over from the old
+   palette on the assumption that "it's still an accent color, should be fine."
+4. Mark viewed live in the running app at header scale (26px) — the white lens
+   stays legible at the smallest in-app size, not just at icon scale.

@@ -4,7 +4,7 @@
 // `mix-blend-mode: plus-lighter`, which adds channel-wise and clamps, so where
 // they cross the GPU computes:
 //
-//     #FF2D6F + #00E5FF = (255, 274->255, 366->255) = #FFFFFF
+//     #FF5A1F + #00C2FF = (255, 284->255, 286->255) = #FFFFFF
 //
 // Pure white -- the blown-out center of two beams landing on the same spot.
 // The previous version faked its overlap with a clip-path and a hand-picked

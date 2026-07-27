@@ -11,11 +11,16 @@
  * with `mix-blend-mode: plus-lighter`, so where the two circles cross the GPU
  * adds them channel-wise and clamps:
  *
- *     #FF2D6F + #00E5FF = (255, 274->255, 366->255) = #FFFFFF
+ *     #FF5A1F + #00C2FF = (255, 284->255, 286->255) = #FFFFFF
  *
  * Pure white, exactly. There is no third hex anywhere in this file for the
  * overlap, because the overlap is not a color choice -- it is what happens
  * when you shine both beams at the same spot. See components/venn-mark.tsx.
+ *
+ * Orange + azure is the actual complementary color grade used on theatrical
+ * posters and DCPs (warm skin tones pushed toward orange, shadows toward
+ * teal) -- chosen over the original magenta/cyan pair, which read as another
+ * app's mark before it read as this one's.
  *
  * There is no light mode. Every ratio below is computed against #000000, and
  * a white-ground variant of "projector light in a dark room" would be a
@@ -25,15 +30,16 @@
  * actually renders; see docs/DECISIONS.md):
  *
  *   on #000000      fg 21.00  fg-dim 6.48  fg-faint 5.31
- *                   beam-a 5.86   beam-b 13.65   marquee 16.46
+ *                   beam-a 6.73   beam-b 10.16   marquee 16.46
  *   on #16161A      fg 18.04  fg-dim 5.57  fg-faint 4.56   <- the tightest
+ *                   beam-a 5.79   beam-b 8.73
  *
  * Two rules fall out of that, and both are load-bearing:
  *
  *   1. Every accent clears 4.5:1 on the ground, so an accent is allowed to
  *      carry meaning as text -- it is not restricted to decoration.
- *   2. Text on an accent FILL is always black. White on `--beam-a` is 3.59:1
- *      and fails AA; black on it is 5.86:1. `--on-beam` exists so that is a
+ *   2. Text on an accent FILL is always black. White on `--beam-a` is 3.12:1
+ *      and fails AA; black on it is 6.73:1. `--on-beam` exists so that is a
  *      token decision rather than a per-component judgement call.
  *
  * `--fg-faint` is #7F7F8A rather than a darker grey because #7A7A85 measured
@@ -51,8 +57,8 @@
   --fg-dim: #8e8e99;
   --fg-faint: #7f7f8a;
 
-  --beam-a: #ff2d6f;
-  --beam-b: #00e5ff;
+  --beam-a: #ff5a1f;
+  --beam-b: #00c2ff;
   --marquee: #ffe500;
   --on-beam: #000000;
 

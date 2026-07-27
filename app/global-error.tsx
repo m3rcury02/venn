@@ -45,7 +45,7 @@ export default function GlobalError({
                 width: 31,
                 height: 31,
                 borderRadius: "50%",
-                background: "#FF2D6F",
+                background: "#FF5A1F",
                 mixBlendMode: "plus-lighter",
               }}
             />
@@ -56,7 +56,7 @@ export default function GlobalError({
                 width: 31,
                 height: 31,
                 borderRadius: "50%",
-                background: "#00E5FF",
+                background: "#00C2FF",
                 mixBlendMode: "plus-lighter",
               }}
             />
