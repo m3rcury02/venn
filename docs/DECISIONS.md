@@ -2672,11 +2672,12 @@ request for every visible cached movie before the user clicked anything.
 
 ### Ratings are links unless the data is licensed
 
-The page displays the cached TMDB score. It obtains an IMDb id through a new
-provider-interface method and links to that title; Letterboxd and Rotten
-Tomatoes use title/year search links because TMDB has no identifiers for them.
-No IMDb, Letterboxd or Rotten Tomatoes number is scraped or presented as if it
-had been fetched.
+The page displays the cached provider score as its visually primary `Rating`,
+without a `TMDB` label that would make it look like one of several equivalent
+ratings. It obtains an IMDb id through a new provider-interface method and links
+to that title; Letterboxd and Rotten Tomatoes use title/year search links
+because TMDB has no identifiers for them. No IMDb, Letterboxd or Rotten
+Tomatoes number is scraped or presented as if it had been fetched.
 
 This is a licensing decision, not a missing parser. Letterboxd API access is
 request-only and currently excludes private/personal and recommendation

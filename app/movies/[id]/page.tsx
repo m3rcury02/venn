@@ -311,16 +311,13 @@ export default async function MovieDetailPage({ params }: MovieDetailPageProps) 
 
         <aside className="flex flex-col gap-5">
           <Panel>
-            <h2 className="t-label text-fg-faint">Ratings</h2>
-            <dl className="mt-4 flex flex-col divide-y divide-hairline">
-              <div className="flex min-h-14 items-center justify-between gap-4 py-3">
-                <dt className="t-body text-[14px] text-fg">TMDB</dt>
-                <dd className="t-data text-xl text-marquee">
-                  {movie.rating_external !== null
-                    ? `${Number(movie.rating_external).toFixed(1)}/10`
-                    : "—"}
-                </dd>
-              </div>
+            <h2 className="t-label text-fg-faint">Rating</h2>
+            <p className="t-data mt-3 text-4xl text-marquee">
+              {movie.rating_external !== null
+                ? `${Number(movie.rating_external).toFixed(1)}/10`
+                : "—"}
+            </p>
+            <dl className="mt-5 flex flex-col divide-y divide-hairline border-t border-hairline">
               {imdbId ? (
                 <ExternalRatingLink
                   label="IMDb"
