@@ -96,6 +96,16 @@
   --animate-beam-scan-a: beam-scan-a 1.5s ease-in-out infinite;
   --animate-beam-scan-b: beam-scan-b 1.5s ease-in-out infinite;
   --animate-breathe: breathe 1.8s ease-in-out infinite;
+  --animate-drawer-in: drawer-in 0.22s cubic-bezier(0.22, 0.8, 0.3, 1) both;
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
 
 /* Loading. The two beams hunt for each other -- they pull apart, then cross
@@ -207,6 +217,12 @@ html {
 body {
   background: var(--ink);
   color: var(--fg);
+}
+
+@media (width < 40rem) {
+  [data-mobile-nav] ~ [data-install-prompt] {
+    --mobile-nav-offset: 4rem;
+  }
 }
 
 @layer base {

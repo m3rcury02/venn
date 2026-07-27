@@ -2615,3 +2615,43 @@ extra indirection.
    (previously true only at 167).
 4. Search failure path exercised live against a broken TMDB key: UI now shows
    an error and clears "Searching…" instead of hanging.
+
+## Mobile navigation: stable tabs, secondary actions in More
+
+The mobile audit above fixed the header links' tap targets but made the
+underlying information architecture more visible: home carried five
+equal-weight actions across two rows, `Sign out` competed with daily tasks,
+there was no current-page state, and the available links changed from screen
+to screen. At 390px the header measured 160px tall before the page heading.
+There was no overflow or accessibility reason to shrink the targets again.
+
+Mobile now uses four persistent bottom tabs: **My List, Search, Groups, More**.
+The first three are the stable primary destinations. More opens a native
+right-side dialog containing Inbox (with the pending count), Settings and
+Sign out. `/inbox` and `/settings` activate More; nested group routes activate
+Groups. The bar lives in the root layout so route-level `loading.tsx` files
+cannot make it disappear between pages.
+
+The existing header navigation remains unchanged from `sm` upward. On mobile,
+it renders only page-specific actions that the global bar cannot replace:
+Back to group on targeted search and Movie Night, plus Movie night/Add movies
+on a group detail page. This keeps global navigation predictable without
+hiding contextual work in More.
+
+No icon package or dialog dependency was added. The four small line icons are
+local SVG, the drawer uses the browser's modal `<dialog>` behavior for focus
+containment and Escape handling, and all tab/drawer controls retain at least a
+44px target. The root navigation also reserves its own content height and
+raises phase 7's fixed install prompt by the same 64px when both are present,
+so neither overlay covers the other.
+
+### Verification
+
+1. `pnpm typecheck`, `pnpm lint`, `pnpm build` and `git diff --check` — clean.
+2. Live at 341×740 and 390×844: zero horizontal overflow, each tab 64px tall,
+   the correct tab active on `/`, `/search`, `/groups/*` and `/settings`, and
+   group-detail contextual actions visible above the page.
+3. Drawer opened at 320px wide, focused its Close control, locked background
+   scrolling, and closed via Escape with `aria-expanded` returning to false.
+4. The live install prompt cleared the bar with a 15px gap at 390px; at 1280px
+   the mobile bar was hidden and the existing desktop header nav remained flex.

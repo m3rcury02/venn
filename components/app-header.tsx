@@ -10,16 +10,22 @@ export const navLinkClass =
 type AppHeaderProps = {
   subtitle: string;
   actions?: ReactNode;
+  /** Page-specific actions that must remain reachable above the mobile tabs. */
+  mobileActions?: ReactNode;
   /**
    * §5: "stay pending, badge the Inbox". Passed in rather than fetched here --
-   * /login renders this header with no session at all, so a query inside the
-   * component would have to handle a case that only exists because of where it
-   * lives. The caller already knows whether it has a user.
+   * the home page already has the count, and the shared mobile navigation owns
+   * its own badge so every protected route can show it.
    */
   inboxCount?: number;
 };
 
-export function AppHeader({ subtitle, actions, inboxCount }: AppHeaderProps) {
+export function AppHeader({
+  subtitle,
+  actions,
+  mobileActions,
+  inboxCount,
+}: AppHeaderProps) {
   return (
     <header className="flex flex-wrap items-center justify-between gap-4">
       <div>
@@ -30,7 +36,7 @@ export function AppHeader({ subtitle, actions, inboxCount }: AppHeaderProps) {
         <p className="t-label mt-1.5 text-fg-faint">{subtitle}</p>
       </div>
       {actions || inboxCount !== undefined ? (
-        <nav className="flex flex-wrap items-center justify-start gap-1 sm:justify-end">
+        <nav className="hidden flex-wrap items-center justify-end gap-1 sm:flex">
           {/* The link renders whenever the caller has a user; only the count is
               conditional. Hiding the link at zero would make the Inbox appear
               and vanish from the nav, which reads as a bug rather than a badge. */}
@@ -45,6 +51,11 @@ export function AppHeader({ subtitle, actions, inboxCount }: AppHeaderProps) {
             </Link>
           ) : null}
           {actions}
+        </nav>
+      ) : null}
+      {mobileActions ? (
+        <nav className="flex w-full flex-wrap items-center gap-1 sm:hidden">
+          {mobileActions}
         </nav>
       ) : null}
     </header>

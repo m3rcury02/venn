@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Anton, Archivo } from "next/font/google";
 import { InstallPrompt } from "@/components/install-prompt";
+import { MobileNavigation } from "@/components/mobile-navigation";
 import { RegisterServiceWorker } from "@/components/register-service-worker";
 import "./globals.css";
 
@@ -66,8 +67,9 @@ export default function RootLayout({
           }}
         >
           {children}
+          <MobileNavigation />
+          <InstallPrompt />
         </div>
-        <InstallPrompt />
         <RegisterServiceWorker />
       </body>
     </html>

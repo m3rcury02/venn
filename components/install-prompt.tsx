@@ -69,8 +69,12 @@ export function InstallPrompt() {
 
   return (
     <div
+      data-install-prompt
       className="fixed inset-x-4 z-50 mx-auto flex max-w-md items-center gap-3 rounded-card border border-hairline bg-surface px-4 py-3"
-      style={{ bottom: "calc(env(safe-area-inset-bottom) + 1rem)" }}
+      style={{
+        bottom:
+          "calc(env(safe-area-inset-bottom) + var(--mobile-nav-offset, 0px) + 1rem)",
+      }}
     >
       {/* On `bg-surface` (#0B0B0D), not a fill -- the mark blends additively
           and needs a near-black backdrop to resolve. */}

@@ -44,6 +44,13 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
             </Link>
           )
         }
+        mobileActions={
+          target ? (
+            <Link href={`/groups/${target.groupId}`} className={navLinkClass}>
+              Back to group
+            </Link>
+          ) : null
+        }
       />
 
       <h1 className="t-display text-[clamp(44px,13vw,104px)] text-fg">

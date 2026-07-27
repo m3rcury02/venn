@@ -98,6 +98,18 @@ export default async function GroupPage({ params }: GroupPageProps) {
             ) : null}
           </>
         }
+        mobileActions={
+          <>
+            <Link href={`/groups/${id}/night`} className={navLinkClass}>
+              Movie night
+            </Link>
+            {list ? (
+              <Link href={`/search?list=${list.id}`} className={navLinkClass}>
+                Add movies
+              </Link>
+            ) : null}
+          </>
+        }
       />
 
       <div>

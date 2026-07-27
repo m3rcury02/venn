@@ -110,6 +110,11 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
             </Link>
           </>
         }
+        mobileActions={
+          <Link href={`/groups/${id}`} className={navLinkClass}>
+            Back to group
+          </Link>
+        }
       />
 
       <Ticker items={presentNames} />
