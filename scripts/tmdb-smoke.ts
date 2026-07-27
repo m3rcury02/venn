@@ -152,7 +152,15 @@ async function main() {
     "and lands on the same internal id — one movie, two lookup paths",
   );
 
-  section("6. getWatchProviders");
+  section("6. getExternalIds");
+  const externalIds = await provider.getExternalIds("27205");
+  check(
+    externalIds.imdbId === INCEPTION_IMDB,
+    "TMDB 27205 carries IMDb tt1375666",
+    externalIds.imdbId ?? "null",
+  );
+
+  section("7. getWatchProviders");
   const watch = await provider.getWatchProviders("27205", REGION);
   check(
     watch.providers.length > 0,
@@ -167,7 +175,7 @@ async function main() {
     watch.link ?? "null",
   );
 
-  section("7. getImageUrl");
+  section("8. getImageUrl");
   const url = provider.getImageUrl("/abc.jpg", "w342");
   check(
     url === "https://image.tmdb.org/t/p/w342/abc.jpg",
@@ -175,7 +183,7 @@ async function main() {
     url,
   );
 
-  section("8. rows actually landed");
+  section("9. rows actually landed");
   const cachedIds = [...ids.values()];
 
   const { count: movieCount, error: movieError } = await db

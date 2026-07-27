@@ -6,7 +6,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { createClient } from "@/lib/supabase/client";
 import { VennMark } from "@/components/venn-mark";
 
-const APP_PATHS = ["/search", "/groups", "/inbox", "/settings"];
+const APP_PATHS = ["/search", "/groups", "/inbox", "/settings", "/movies"];
 
 function isAppPath(pathname: string) {
   return pathname === "/" || APP_PATHS.some((path) => pathname.startsWith(path));

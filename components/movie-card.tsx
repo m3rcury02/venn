@@ -1,10 +1,13 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { Poster } from "@/components/poster";
+import { LinkPending } from "@/components/ui/link-pending";
 
 type MovieCardProps = {
   title: string;
   year: number | null;
   posterUrl: string | null;
+  href?: string;
   children?: ReactNode;
   footer?: ReactNode;
 };
@@ -12,11 +15,30 @@ type MovieCardProps = {
 // Titles stay in Archivo, not Anton. A grid of twenty cards set in the display
 // face is noise -- Anton earns its keep on headings and the night hero, where
 // there is one of it.
-export function MovieCard({ title, year, posterUrl, children, footer }: MovieCardProps) {
+export function MovieCard({
+  title,
+  year,
+  posterUrl,
+  href,
+  children,
+  footer,
+}: MovieCardProps) {
   return (
     <div className="group flex flex-col gap-2.5">
       <div className="relative">
-        <Poster src={posterUrl} alt={title} glow={false} />
+        {href ? (
+          <Link
+            href={href}
+            prefetch={false}
+            aria-label={`View details for ${title}`}
+            className="relative block"
+          >
+            <Poster src={posterUrl} alt={title} glow={false} />
+            <LinkPending size={24} />
+          </Link>
+        ) : (
+          <Poster src={posterUrl} alt={title} glow={false} />
+        )}
 
         {/* The beam glow is off by default in the grid, and lit on hover --
             twenty simultaneous glows read as fog. */}
@@ -34,7 +56,19 @@ export function MovieCard({ title, year, posterUrl, children, footer }: MovieCar
       </div>
 
       <div>
-        <p className="truncate text-[14px] font-semibold text-fg">{title}</p>
+        <p className="truncate text-[14px] font-semibold text-fg">
+          {href ? (
+            <Link
+              href={href}
+              prefetch={false}
+              className="transition-colors hover:text-marquee"
+            >
+              {title}
+            </Link>
+          ) : (
+            title
+          )}
+        </p>
         <p className="t-label mt-1 text-fg-faint">{year ?? "—"}</p>
       </div>
 

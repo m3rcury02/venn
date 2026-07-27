@@ -2655,3 +2655,69 @@ so neither overlay covers the other.
    scrolling, and closed via Escape with `aria-expanded` returning to false.
 4. The live install prompt cleared the bar with a 15px gap at 390px; at 1280px
    the mobile bar was hidden and the existing desktop header nav remained flex.
+
+## Movie detail: cached identity, live availability, launch-safe ratings
+
+SPEC §7 names a Movie Detail screen, but phase 7 had ended without one. The
+screen now lives at `/movies/[id]`, where `id` is Venn's internal movie UUID.
+It reads the cached catalog row for the synopsis, art, runtime, release date and
+TMDB score, plus only the caller's RLS-scoped status row.
+
+Search results are the one place a movie may not have an internal UUID yet.
+Those link to `/movies/external/[externalId]`, which validates the current
+provider's numeric id, calls `cacheMovie`, and redirects to the canonical UUID
+URL. Detail links set `prefetch={false}` deliberately: prefetching a poster grid
+would otherwise cache every visible search result and issue a live availability
+request for every visible cached movie before the user clicked anything.
+
+### Ratings are links unless the data is licensed
+
+The page displays the cached TMDB score. It obtains an IMDb id through a new
+provider-interface method and links to that title; Letterboxd and Rotten
+Tomatoes use title/year search links because TMDB has no identifiers for them.
+No IMDb, Letterboxd or Rotten Tomatoes number is scraped or presented as if it
+had been fetched.
+
+This is a licensing decision, not a missing parser. Letterboxd API access is
+request-only and currently excludes private/personal and recommendation
+projects; Rotten Tomatoes requires an approved API/data-feed proposal; IMDb's
+limited non-commercial dataset permission restricts republishing it as an
+online movie database. If approved access is added later, Rotten Tomatoes
+should show both the critic Tomatometer and audience Popcornmeter because they
+measure different populations.
+
+### Availability stays live and degrades independently
+
+Watch providers use the profile region (falling back to `IN`) and remain
+uncached, as phase 1a decided. Stream, rent and buy are separate sections;
+provider logos hotlink the TMDB CDN, and the only outbound availability link is
+TMDB's per-region watch page because the endpoint does not return provider deep
+links. “Availability data by JustWatch via TMDB” renders next to every result
+set to satisfy the endpoint's attribution requirement.
+
+External-id and watch-provider calls use `Promise.allSettled`. Either can fail
+without taking down the cached movie detail: an IMDb link can disappear, or the
+availability section can report a temporary failure while synopsis and Venn
+controls remain usable. This was exercised live when TMDB exhausted its
+connection retries for the watch call; the page still returned 200 and rendered
+the remaining sections.
+
+### Card interaction
+
+`MovieCard` links only its poster and title, leaving watched/remove/list/vote
+buttons as siblings rather than creating invalid nested controls. The movie
+night winner links as one non-interactive hero. Inbox candidates were the one
+conflict: their entire card previously meant “resolve this share,” so resolution
+is now an explicit “Choose this movie” button and poster/title open details.
+
+### Verification
+
+1. `pnpm typecheck`, `pnpm lint`, `pnpm build`, and `git diff --check` — clean.
+2. `pnpm smoke:tmdb` — pass, including TMDB 27205 resolving to IMDb
+   `tt1375666` and 10 watch-provider entries plus the regional link for `IN`.
+3. A real local Supabase user/session rendered the Inception detail route
+   through Next with every named section and outbound source present. A
+   390×844 headless-Chrome capture confirmed the hero, synopsis and fixed mobile
+   navigation have no horizontal overflow or overlap at the top of the page.
+   An authenticated request to `/movies/external/27205` emitted the canonical
+   `/movies/<uuid>` redirect target.

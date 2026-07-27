@@ -10,6 +10,7 @@ import type {
   ImageSize,
   Movie,
   MovieDataProvider,
+  MovieExternalIds,
   MovieSummary,
   Tag,
   WatchProviderType,
@@ -61,6 +62,7 @@ type TmdbDetailWithTags = TmdbDetail & {
 };
 
 type TmdbCompany = { provider_name: string; logo_path: string | null };
+type TmdbExternalIds = { imdb_id: string | null };
 
 // ----------------------------------------------------------------- fetching
 
@@ -188,6 +190,11 @@ export const tmdb: MovieDataProvider = {
     });
 
     return toTags(detail);
+  },
+
+  async getExternalIds(externalId): Promise<MovieExternalIds> {
+    const ids = await get<TmdbExternalIds>(`/movie/${externalId}/external_ids`);
+    return { imdbId: ids.imdb_id || null };
   },
 
   async getWatchProviders(externalId, region) {

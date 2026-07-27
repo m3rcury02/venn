@@ -93,6 +93,11 @@ export function SearchForm({
             <MovieCard
               title={movie.title}
               year={movie.year}
+              href={
+                movie.movieId
+                  ? `/movies/${movie.movieId}`
+                  : `/movies/external/${movie.externalId}`
+              }
               posterUrl={movie.posterUrl}
               footer={
                 <SearchMovieActions

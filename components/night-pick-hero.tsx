@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { Poster } from "@/components/poster";
+import { LinkPending } from "@/components/ui/link-pending";
 
 // SPEC §7 screen 6's reveal. Picks #2 and #3 stay ordinary MovieCards below;
 // the hierarchy of "one winner, two runners-up" is carried by the treatment,
@@ -10,6 +12,7 @@ import { Poster } from "@/components/poster";
 type NightPickHeroProps = {
   title: string;
   year: number | null;
+  href: string;
   /** Large art for the blurred backdrop. */
   backdropUrl: string | null;
   /** Sharp art for the foreground poster. */
@@ -20,12 +23,18 @@ type NightPickHeroProps = {
 export function NightPickHero({
   title,
   year,
+  href,
   backdropUrl,
   posterUrl,
   reasons,
 }: NightPickHeroProps) {
   return (
-    <section className="relative overflow-hidden rounded-card border border-hairline">
+    <Link
+      href={href}
+      prefetch={false}
+      aria-label={`View details for ${title}`}
+      className="relative block overflow-hidden rounded-card border border-hairline"
+    >
       {backdropUrl ? (
         // eslint-disable-next-line @next/next/no-img-element -- hotlinked provider CDN, never re-hosted
         <img
@@ -94,6 +103,7 @@ export function NightPickHero({
       </div>
 
       <div className="grain-art" aria-hidden />
-    </section>
+      <LinkPending size={30} />
+    </Link>
   );
 }

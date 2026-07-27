@@ -66,21 +66,30 @@ export function InboxItem({
       {candidates.length > 0 ? (
         <div className="grid grid-cols-3 gap-3 sm:max-w-md">
           {candidates.map((candidate) => (
-            <button
+            <div
               key={candidate.id}
-              type="button"
-              disabled={pending}
-              onClick={() => pick(candidate.id)}
-              className={`rounded-card text-left transition-opacity disabled:cursor-wait ${
+              className={`flex min-w-0 flex-col transition-opacity ${
                 picked && picked !== candidate.id ? "opacity-25" : ""
               }`}
             >
               <MovieCard
                 title={candidate.title}
                 year={candidate.year}
+                href={`/movies/${candidate.id}`}
                 posterUrl={candidate.posterUrl}
               />
-            </button>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => pick(candidate.id)}
+                className={buttonClass(
+                  "ghost",
+                  "mt-3 min-h-11 w-full px-2 text-[12px] disabled:cursor-wait",
+                )}
+              >
+                Choose this movie
+              </button>
+            </div>
           ))}
         </div>
       ) : (

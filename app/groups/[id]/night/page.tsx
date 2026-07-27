@@ -132,6 +132,7 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
             <NightPickHero
               title={winner.title}
               year={winner.year}
+              href={`/movies/${winner.movie_id}`}
               backdropUrl={
                 winner.poster_path ? provider.getImageUrl(winner.poster_path, "w780") : null
               }
@@ -155,6 +156,7 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
                     <MovieCard
                       title={pick.title}
                       year={pick.year}
+                      href={`/movies/${pick.movie_id}`}
                       posterUrl={
                         pick.poster_path
                           ? provider.getImageUrl(pick.poster_path, "w342")

@@ -57,6 +57,10 @@ export type WatchAvailability = {
   providers: WatchProvider[];
 };
 
+export type MovieExternalIds = {
+  imdbId: string | null;
+};
+
 export type ImageSize =
   | "w92"
   | "w154"
@@ -72,6 +76,7 @@ export interface MovieDataProvider {
   search(query: string, region: string): Promise<MovieSummary[]>;
   getMovie(externalId: string): Promise<Movie>;
   getTags(externalId: string): Promise<Tag[]>;
+  getExternalIds(externalId: string): Promise<MovieExternalIds>;
   getWatchProviders(
     externalId: string,
     region: string,

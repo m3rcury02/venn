@@ -122,6 +122,7 @@ export default async function Home({ searchParams }: HomeProps) {
                     <MovieCard
                       title={item.movies.title}
                       year={item.movies.year}
+                      href={`/movies/${item.movie_id}`}
                       posterUrl={
                         item.movies.poster_path
                           ? provider.getImageUrl(item.movies.poster_path, "w342")

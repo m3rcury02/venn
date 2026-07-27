@@ -5,12 +5,21 @@ import { setWatched } from "@/app/status/actions";
 import { overlayButtonClass } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 
-export function WatchedToggle({ movieId, watched }: { movieId: string; watched: boolean }) {
+export function WatchedToggle({
+  movieId,
+  watched,
+  onChange,
+}: {
+  movieId: string;
+  watched: boolean;
+  onChange?: (watched: boolean) => void;
+}) {
   const [isPending, startTransition] = useTransition();
 
   function handleClick() {
     startTransition(async () => {
-      await setWatched(movieId, !watched);
+      const next = !watched;
+      if (await setWatched(movieId, next)) onChange?.(next);
     });
   }
 
