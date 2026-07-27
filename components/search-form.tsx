@@ -28,7 +28,7 @@ export function SearchForm({
     const timer = setTimeout(() => {
       setIsSearching(true);
       setError(false);
-      searchMovies(query)
+      searchMovies(query, listId)
         .then((found) => {
           if (id === requestId.current) {
             setResults(found);
@@ -44,7 +44,7 @@ export function SearchForm({
     }, DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, listId]);
 
   const trimmed = query.trim();
   const showEmpty = !isSearching && !error && trimmed.length >= 2 && results.length === 0;
@@ -95,7 +95,17 @@ export function SearchForm({
               year={movie.year}
               posterUrl={movie.posterUrl}
               footer={
-                <SearchMovieActions externalId={movie.externalId} listId={listId} />
+                <SearchMovieActions
+                  externalId={movie.externalId}
+                  listId={listId}
+                  initialState={{
+                    movieId: movie.movieId,
+                    isInList: movie.isInList,
+                    watched: movie.watched,
+                    rating: movie.rating,
+                    hype: movie.hype,
+                  }}
+                />
               }
             />
           </div>

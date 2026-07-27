@@ -4,13 +4,19 @@ import { useState, useTransition } from "react";
 import {
   addToList,
   addWatchedToList,
-  type AddToListResult,
+  removeFromList,
 } from "@/app/list/actions";
-import type { Hype, Rating } from "@/app/status/actions";
+import { setWatched, type Hype, type Rating } from "@/app/status/actions";
 import { Spinner } from "@/components/ui/spinner";
 import { VoteControl } from "@/components/vote-control";
 
-type MovieState = Extract<AddToListResult, { status: "added" | "already-in-list" }>;
+type MovieState = {
+  movieId: string | null;
+  isInList: boolean;
+  watched: boolean;
+  rating: Rating | null;
+  hype: Hype | null;
+};
 type PendingAction = "add" | "watched" | null;
 
 const actionClass =
@@ -19,19 +25,48 @@ const actionClass =
 export function SearchMovieActions({
   externalId,
   listId,
+  initialState,
 }: {
   externalId: string;
   listId?: string;
+  initialState: MovieState;
 }) {
-  const [movie, setMovie] = useState<MovieState | null>(null);
+  const [movie, setMovie] = useState(initialState);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  function run(action: Exclude<PendingAction, null>) {
+  function toggle(action: Exclude<PendingAction, null>) {
     setMessage(null);
     setPendingAction(action);
     startTransition(async () => {
+      if (action === "add" && movie.isInList && movie.movieId) {
+        const removed = await removeFromList(movie.movieId, listId);
+        if (removed) {
+          setMovie((current) => ({ ...current, isInList: false }));
+        } else {
+          setMessage("Couldn't remove it from the list.");
+        }
+        setPendingAction(null);
+        return;
+      }
+
+      if (action === "watched" && movie.watched && movie.movieId) {
+        const markedUnwatched = await setWatched(movie.movieId, false);
+        if (markedUnwatched) {
+          setMovie((current) => ({
+            ...current,
+            watched: false,
+            rating: null,
+            hype: null,
+          }));
+        } else {
+          setMessage("Couldn't mark it unwatched.");
+        }
+        setPendingAction(null);
+        return;
+      }
+
       const result =
         action === "add"
           ? await addToList(externalId, listId)
@@ -40,7 +75,13 @@ export function SearchMovieActions({
       if (result.status === "error") {
         setMessage(result.message);
       } else {
-        setMovie(result);
+        setMovie({
+          movieId: result.movieId,
+          isInList: true,
+          watched: result.watched,
+          rating: result.rating,
+          hype: result.hype,
+        });
       }
       setPendingAction(null);
     });
@@ -48,44 +89,48 @@ export function SearchMovieActions({
 
   function handleVote(value: Rating | Hype | null) {
     setMovie((current) => {
-      if (!current) return current;
       return current.watched
         ? { ...current, rating: value as Rating | null }
         : { ...current, hype: value as Hype | null };
     });
   }
 
-  const isAdded = movie !== null;
-  const isWatched = movie?.watched ?? false;
-
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-stretch gap-1">
         <button
           type="button"
-          onClick={() => run("add")}
-          disabled={isPending || isAdded}
+          onClick={() => toggle("add")}
+          disabled={isPending}
+          aria-pressed={movie.isInList}
           className={`${actionClass} ${
-            isAdded
+            movie.isInList
               ? "border-marquee bg-marquee text-on-beam"
               : "border-hairline bg-surface-2 text-fg hover:border-marquee"
           }`}
         >
-          {pendingAction === "add" ? <Spinner /> : isAdded ? "Added" : "Add to list"}
+          {pendingAction === "add" ? (
+            <Spinner />
+          ) : movie.isInList ? (
+            "Added"
+          ) : (
+            "Add to list"
+          )}
         </button>
         <button
           type="button"
-          onClick={() => run("watched")}
-          disabled={isPending || isWatched}
+          onClick={() => toggle("watched")}
+          disabled={isPending}
+          aria-pressed={movie.watched}
           className={`${actionClass} ${
-            isWatched
+            movie.watched
               ? "border-fg bg-fg text-ink"
               : "border-hairline bg-surface-2 text-fg hover:border-fg-dim"
           }`}
         >
           {pendingAction === "watched" ? (
             <Spinner />
-          ) : isWatched ? (
+          ) : movie.watched ? (
             "Watched"
           ) : (
             "Mark watched"
@@ -99,7 +144,7 @@ export function SearchMovieActions({
         </p>
       ) : null}
 
-      {movie ? (
+      {movie.movieId && (movie.isInList || movie.watched) ? (
         <VoteControl
           movieId={movie.movieId}
           watched={movie.watched}

@@ -110,14 +110,14 @@ export async function addWatchedToList(
 export async function removeFromList(
   movieId: string,
   listId?: string,
-): Promise<void> {
+): Promise<boolean> {
   const supabase = await createClient();
 
   let targetListId = listId;
   if (!targetListId) {
     const { data: claims } = await supabase.auth.getClaims();
     const userId = claims?.claims?.sub;
-    if (typeof userId !== "string") return;
+    if (typeof userId !== "string") return false;
 
     const { data: list } = await supabase
       .from("lists")
@@ -125,18 +125,20 @@ export async function removeFromList(
       .eq("owner_user_id", userId)
       .eq("is_default", true)
       .single();
-    if (!list) return;
+    if (!list) return false;
     targetListId = list.id;
   }
 
-  await supabase
+  const { error } = await supabase
     .from("list_items")
     .delete()
     .eq("list_id", targetListId)
     .eq("movie_id", movieId);
+  if (error) return false;
 
   // "/groups/[id]" is the page-file form: it invalidates every path matching
   // that dynamic route. Targeting "/groups" with type "layout" would not work
   // -- "layout" matches a layout *file*, and there is no app/groups/layout.tsx.
   revalidatePath(listId ? "/groups/[id]" : "/", "page");
+  return true;
 }
