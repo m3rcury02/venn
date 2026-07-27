@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { searchMovies, type SearchResult } from "@/app/search/actions";
-import { AddToListButton } from "@/components/add-to-list-button";
 import { MovieCard } from "@/components/movie-card";
+import { SearchMovieActions } from "@/components/search-movie-actions";
 import { errorClass } from "@/components/ui/input";
 
 const DEBOUNCE_MS = 300;
@@ -90,9 +90,14 @@ export function SearchForm({
             className="motion-safe:animate-expose"
             style={{ animationDelay: `${Math.min(i, 10) * 30}ms` }}
           >
-            <MovieCard title={movie.title} year={movie.year} posterUrl={movie.posterUrl}>
-              <AddToListButton externalId={movie.externalId} listId={listId} />
-            </MovieCard>
+            <MovieCard
+              title={movie.title}
+              year={movie.year}
+              posterUrl={movie.posterUrl}
+              footer={
+                <SearchMovieActions externalId={movie.externalId} listId={listId} />
+              }
+            />
           </div>
         ))}
       </div>

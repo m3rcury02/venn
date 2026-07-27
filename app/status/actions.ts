@@ -18,14 +18,14 @@ async function getUserId() {
 // across the flip would show a vote for a state the user just said isn't true
 // anymore. This is an upsert -- a movie can be marked watched before any hype
 // vote ever created the row.
-export async function setWatched(movieId: string, watched: boolean): Promise<void> {
+export async function setWatched(movieId: string, watched: boolean): Promise<boolean> {
   const userId = await getUserId();
-  if (!userId) return;
+  if (!userId) return false;
 
   const supabase = await createClient();
   const now = new Date().toISOString();
 
-  await supabase.from("user_movie_status").upsert({
+  const { error } = await supabase.from("user_movie_status").upsert({
     user_id: userId,
     movie_id: movieId,
     watched,
@@ -34,12 +34,14 @@ export async function setWatched(movieId: string, watched: boolean): Promise<voi
     hype: null,
     updated_at: now,
   });
+  if (error) return false;
 
   // Flipping watched clears `rating`, so it changes the caller's tag weights
   // just as setRating does (SPEC §4.1: "rebuilt when a user's rating changes").
-  await supabase.rpc("rebuild_user_tag_weights");
+  const { error: rebuildError } = await supabase.rpc("rebuild_user_tag_weights");
 
   revalidatePath("/");
+  return !rebuildError;
 }
 
 // UPDATE, not upsert: a rating can only exist on a row setWatched(true) already

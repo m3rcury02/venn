@@ -8,6 +8,7 @@ type VoteControlProps = {
   watched: boolean;
   rating: Rating | null;
   hype: Hype | null;
+  onChange?: (value: Rating | Hype | null) => void;
 };
 
 const RATING_OPTIONS: { value: Rating; label: string }[] = [
@@ -54,7 +55,13 @@ function selectedClassFor(value: Rating | Hype) {
   return selectedMid;
 }
 
-export function VoteControl({ movieId, watched, rating, hype }: VoteControlProps) {
+export function VoteControl({
+  movieId,
+  watched,
+  rating,
+  hype,
+  onChange,
+}: VoteControlProps) {
   const [isPending, startTransition] = useTransition();
 
   const current = watched ? rating : hype;
@@ -68,6 +75,7 @@ export function VoteControl({ movieId, watched, rating, hype }: VoteControlProps
       } else {
         await setHype(movieId, next as Hype | null);
       }
+      onChange?.(next);
     });
   }
 

@@ -1,12 +1,19 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { setWatched, type Hype, type Rating } from "@/app/status/actions";
 import { cacheMovie } from "@/lib/movies/cache";
 import { createClient } from "@/lib/supabase/server";
 
+type MovieVoteState = {
+  movieId: string;
+  watched: boolean;
+  rating: Rating | null;
+  hype: Hype | null;
+};
+
 export type AddToListResult =
-  | { status: "added" }
-  | { status: "already-in-list" }
+  | ({ status: "added" | "already-in-list" } & MovieVoteState)
   | { status: "error"; message: string };
 
 // A listId targets a group's list; without one the caller's own default list is
@@ -49,17 +56,55 @@ export async function addToList(
     .from("list_items")
     .insert({ list_id: targetListId, movie_id: movieId, added_by: userId });
 
-  if (error) {
-    // 23505: already on this list -- not a failure the user needs to see as one.
-    if (error.code === "23505") return { status: "already-in-list" };
+  // 23505: already on this list -- not a failure the user needs to see as one.
+  if (error && error.code !== "23505") {
     return { status: "error", message: "Couldn't add to list." };
+  }
+
+  const { data: vote, error: voteError } = await supabase
+    .from("user_movie_status")
+    .select("watched, rating, hype")
+    .eq("user_id", userId)
+    .eq("movie_id", movieId)
+    .maybeSingle();
+  if (voteError) {
+    return { status: "error", message: "Couldn't load your movie status." };
   }
 
   // "/groups/[id]" is the page-file form: it invalidates every path matching
   // that dynamic route. Targeting "/groups" with type "layout" would not work
   // -- "layout" matches a layout *file*, and there is no app/groups/layout.tsx.
   revalidatePath(listId ? "/groups/[id]" : "/", "page");
-  return { status: "added" };
+  return {
+    status: error ? "already-in-list" : "added",
+    movieId,
+    watched: vote?.watched ?? false,
+    rating: (vote?.rating as Rating | null | undefined) ?? null,
+    hype: (vote?.hype as Hype | null | undefined) ?? null,
+  };
+}
+
+export async function addWatchedToList(
+  externalId: string,
+  listId?: string,
+): Promise<AddToListResult> {
+  const result = await addToList(externalId, listId);
+  if (result.status === "error") return result;
+
+  const markedWatched = await setWatched(result.movieId, true);
+  if (!markedWatched) {
+    return {
+      status: "error",
+      message: "Added to the list, but couldn't mark it watched.",
+    };
+  }
+
+  return {
+    ...result,
+    watched: true,
+    rating: null,
+    hype: null,
+  };
 }
 
 export async function removeFromList(
