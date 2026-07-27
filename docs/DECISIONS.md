@@ -1893,3 +1893,72 @@ the theme. `"black-translucent"` would look better but needs
 `viewport-fit=cover` plus manual safe-area-inset padding so the header content
 doesn't sit under the notch/status bar; neither was asked for, so left as the
 safe default rather than half-built.
+
+---
+
+## Auth: Google OAuth added (post-phase-7, revises Phase 0)
+
+Not a numbered phase — a retrofit to Phase 0's auth deliverable, requested
+directly. §1 and §7 of `docs/SPEC.md` now read "Google OAuth (primary),
+magic link (secondary)"; the historical Phase 0 row in §9's build-order table
+was left as `magic-link auth` since that's what actually shipped at the time.
+
+**Files:** `app/auth/callback/route.ts` (new), `app/login/page.tsx`.
+
+**No migration.** `handle_new_user()` (Phase 0) provisions `profiles`/`lists`
+off an `auth.users` insert regardless of which provider created the row, so
+Google sign-ins hit the same trigger and the same onboarding flow as
+magic-link users. Nothing in the schema assumed email-only auth.
+
+**Two auth flows, two routes.** Magic links use Supabase's token-hash flow
+(`app/auth/confirm/route.ts`, unchanged). OAuth uses the PKCE code-exchange
+flow instead — Supabase redirects back with a `?code=`, not a `token_hash` —
+so it needed its own route rather than reusing `/auth/confirm`.
+`app/auth/callback/route.ts` mirrors that file's shape: exchange the code,
+redirect to `/`; on missing/invalid code, redirect to `/login?error=link_invalid`,
+same as the magic-link failure path.
+
+No `proxy.ts` change: `PUBLIC_PATHS` already lists `/auth` as a prefix, which
+covers `/auth/callback` via the existing `startsWith` check.
+
+**No new env vars for the hosted project** — its Google client secret is
+configured in the Supabase dashboard (Authentication → Providers → Google),
+not in this repo. **Local dev is different**: `supabase/config.toml` now has
+an `[auth.external.google]` block (mirroring the existing disabled `apple`
+one) so `pnpm exec supabase start` runs a Google-capable local GoTrue too.
+That block's `client_id`/`secret` use `env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)`
+/ `env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_SECRET)` — added to
+`.env.example`, but note the Supabase CLI's `env()` only reads a root-level
+`.env`, never `.env.local` (that file is Next.js-only), so these two need
+their own `.env` locally. `auth.additional_redirect_urls` also gained
+`http://localhost:3000/auth/callback` — that list requires *exact* URLs
+(no wildcard support locally, unlike the hosted dashboard's `**` patterns),
+so the bare origins already there wouldn't have matched the callback path.
+
+**Client-side call, not a server action.** `signIn` (magic link) is a server
+action because it only needs to call Supabase and report back "sent" or
+"error" — no redirect leaves the app. `signInWithGoogle` runs in the browser
+via `lib/supabase/client.ts`'s client instead: `signInWithOAuth` on that
+client auto-navigates `window.location` to Google's consent screen, which a
+server action can't do without an explicit `redirect()` round-trip for no
+benefit here.
+
+**Layout: always-visible secondary form, not a collapsed toggle.** Asked;
+chose no extra state/click for email users over a marginally cleaner first
+screen.
+
+**Known pre-existing gap, not touched:** `/login?error=link_invalid` has
+never been read by `app/login/page.tsx` — a failed magic-link confirm has
+silently redirected to a blank login page since Phase 0. The new OAuth
+callback inherits the same behavior for consistency. Out of scope here since
+it predates this change; worth a follow-up.
+
+**External configuration (not in this repo, done by the user):** Google
+Cloud OAuth consent screen + Web application client ID, with **two**
+authorized redirect URIs — the hosted project's
+`https://vfkkpflenfpfrrygxmto.supabase.co/auth/v1/callback` and the local
+`http://127.0.0.1:54321/auth/v1/callback` (Google permits `http` for
+loopback addresses); Supabase Authentication → Providers → Google enabled
+with that client's ID/secret; Supabase Authentication → URL Configuration →
+Redirect URLs allow-listing `http://localhost:3000/**` and
+`https://venn-roan.vercel.app/**`.

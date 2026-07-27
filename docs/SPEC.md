@@ -12,7 +12,7 @@ Shared movie lists and group recommendations. Personal libraries, friend groups,
 |---|---|---|
 | Distribution | PWA, installable | No dev account. Native iOS wrapper later via Capacitor if the data justifies it |
 | Frontend | Next.js on Vercel | Hobby tier during development — see §2 |
-| Backend | Supabase free tier | Postgres, magic-link auth, RLS |
+| Backend | Supabase free tier | Postgres, Google OAuth (primary) + magic-link (secondary) auth, RLS |
 | Movie data | TMDB, behind a swappable provider interface | See §2 |
 | Scoring | Plain SQL over normalized tag tables | **Not pgvector.** See §4 |
 | Push | Web Push | Works on Android PWA and iOS PWA when installed to home screen |
@@ -273,7 +273,7 @@ Generated from scoring components, no LLM:
 
 ## 7. Screens
 
-1. **Auth** — magic link
+1. **Auth** — Google OAuth (primary), magic link (secondary)
 2. **Onboarding** — username, region, rate 10 popular movies
 3. **My List** — filter by watched / unwatched / rating / hype
 4. **Group List** — who added what
