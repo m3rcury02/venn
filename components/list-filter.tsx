@@ -55,7 +55,8 @@ export function matchesFilter(filter: FilterValue, status: Status): boolean {
 // `relative` so LinkPending can cover the chip you tapped. These navigate to
 // the same route with a different searchParam, which never engages
 // `loading.tsx` -- see components/ui/link-pending.tsx.
-const chipBase = "t-label relative rounded-ctl px-3 py-2 transition-colors";
+const chipBase =
+  "t-label relative flex min-h-11 items-center rounded-ctl px-3 py-2 transition-colors";
 const chipInactive = "bg-surface-2 text-fg-dim hover:text-fg";
 
 // A selected value chip lights in its own vote color, matching VoteControl:

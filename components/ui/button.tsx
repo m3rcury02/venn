@@ -29,9 +29,11 @@ export function buttonClass(variant: ButtonVariant = "marquee", extra?: string) 
 }
 
 // The small square control that sits on top of a poster. Shared by add,
-// remove and watched so the three agree on size and weight.
+// remove and watched so the three agree on size and weight. 44px is the
+// platform tap-target minimum (Apple HIG), not a size the poster composition
+// asked for.
 export const overlayButtonClass =
-  "flex h-8 w-8 items-center justify-center rounded-ctl border border-hairline bg-ink/70 text-fg backdrop-blur-sm transition duration-200 disabled:opacity-50";
+  "flex h-11 w-11 items-center justify-center rounded-ctl border border-hairline bg-ink/70 text-fg backdrop-blur-sm transition duration-200 disabled:opacity-50";
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;

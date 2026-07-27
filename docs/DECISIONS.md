@@ -2538,3 +2538,80 @@ only its alpha channel, so the fill color in that file was never load-bearing.
    palette on the assumption that "it's still an accent color, should be fine."
 4. Mark viewed live in the running app at header scale (26px) — the white lens
    stays legible at the smallest in-app size, not just at icon scale.
+
+## Mobile audit: VoteControl overflow, search hang, safe-area, tap targets
+
+The phase-7/Neon-Marquee verification pass (see above, "all nine screens driven
+in a real browser at 390×844") checked exactly one viewport. A follow-up pass
+at smaller widths found the app scrolling sideways on every phone narrower than
+388px, plus a second, unrelated window at 768-775px (iPad portrait) — same
+root cause, different trigger.
+
+**`VoteControl`'s label size was fixed to fit one viewport, not a range.**
+`components/vote-control.tsx`'s three-button row is `flex-1` with the default
+`min-width: auto`, so it has a hard intrinsic floor set by its longest word at
+`.t-label`'s tracking (0.18em) — 166px, chosen because that's what a third of a
+390px card gives you. Below 388px (and again at 768-775px, where the grid drops
+to 4 columns), the row is wider than the card and the whole page scrolls
+horizontally.
+
+Fix: the control now sets its own `text-[10px] tracking-[0.02em]` instead of
+inheriting `.t-label`'s 11px/0.18em, plus `min-w-0 wrap-anywhere` as a
+structural floor so the row can never widen the page at any width, ever. This
+is a deliberate, scoped exception to the "body 15px, label 11px" scale this
+file fixed for the rest of the app (see "Visual identity" above) — a control
+that must fit three labels across a half-width card is a different
+typographic problem from an eyebrow label, and nothing else in the app faces
+that constraint. Rejected: shortening the labels instead (`Meh`/`Hyped`/`Amped`
+still overflows at 375px — the floor is set by any 5-letter word at that
+tracking, not by "Very hyped" specifically) and keeping 11px with only the
+structural floor (stops the page scroll but breaks "hyped"/"Loved" mid-word on
+the smallest phones, which is worse than the type-scale exception).
+
+**Search had no failure path.** `components/search-form.tsx`'s debounced
+`searchMovies(query).then(...)` had no `.catch`. A rejected request (reproduced
+live against a broken TMDB key) left `isSearching` stuck at `true` forever,
+with the previous query's results still on screen and nothing telling the user
+it failed. Added a `.catch` that clears the loading state and shows an inline
+error, guarded by the same `requestId` ref the success path already uses — an
+unguarded catch would let a stale failure clear a newer, still-in-flight
+search's spinner.
+
+**iOS standalone had no safe-area insets.** The status bar is
+`black-translucent` (full-bleed under it), but the viewport never opted into
+`viewport-fit=cover`, so `env(safe-area-inset-*)` resolved to 0px everywhere —
+the header sat under the notch/clock and the fixed install prompt sat over the
+home indicator. Added `viewportFit: "cover"` to `app/layout.tsx`'s `viewport`
+export, padded the root flex column with top/bottom safe-area insets, and
+added the bottom inset to `InstallPrompt`'s fixed offset. Not verified on a
+physical device — only via the emitted meta tags and a source-level check that
+no other fixed-position element exists to worry about.
+
+**Tap targets were below the platform minimum.** Header nav links and list
+filter chips measured 29px tall, poster overlay buttons (`overlayButtonClass`)
+32×32 — under Apple HIG's 44pt / Material's 48dp floor. Raised `navLinkClass`
+and `list-filter.tsx`'s `chipBase` to `min-h-11` with `flex items-center`, and
+`overlayButtonClass` to `h-11 w-11`. Accepted cost: the header nav (which
+already wraps to 3 rows on the narrowest phones) gets taller, and the overlay
+squares on poster art are visually larger than the previous 32px — no attempt
+was made to keep the smaller visual box with an invisible larger hit area,
+since the squares aren't small enough on top of poster art to justify the
+extra indirection.
+
+### Files touched
+
+`components/vote-control.tsx`, `components/search-form.tsx`,
+`components/ui/input.tsx` (import only, no change), `app/layout.tsx`,
+`components/install-prompt.tsx`, `components/app-header.tsx`,
+`components/list-filter.tsx`, `components/ui/button.tsx`.
+
+### Verification
+
+1. `pnpm typecheck`, `pnpm lint` — clean.
+2. `document.documentElement.scrollWidth === clientWidth` checked true on `/`
+   and `/groups/[id]` at 341px live (previously false: 344 vs 326).
+3. `VoteControl`'s button row cloned into fixed-width boxes at 167 / 164 /
+   159.5 / 152 / 132px in the live DOM; `scrollWidth <= width` at every step
+   (previously true only at 167).
+4. Search failure path exercised live against a broken TMDB key: UI now shows
+   an error and clears "Searching…" instead of hanging.

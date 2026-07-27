@@ -37,6 +37,7 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: "#000000",
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -53,7 +54,19 @@ export default function RootLayout({
         {/* Grain sits at z-0 and the app at z-1, so the texture never
             composites against text. See globals.css. */}
         <div className="grain-page" aria-hidden />
-        <div className="relative z-[1] flex min-h-dvh flex-col">{children}</div>
+        {/* `black-translucent` (below) draws the app under the iOS status bar
+            and home indicator; these insets are 0px everywhere else because
+            `viewportFit: "cover"` above is what unlocks env(safe-area-inset-*)
+            at all. */}
+        <div
+          className="relative z-[1] flex min-h-dvh flex-col"
+          style={{
+            paddingTop: "env(safe-area-inset-top)",
+            paddingBottom: "env(safe-area-inset-bottom)",
+          }}
+        >
+          {children}
+        </div>
         <InstallPrompt />
         <RegisterServiceWorker />
       </body>

@@ -22,12 +22,17 @@ const HYPE_OPTIONS: { value: Hype; label: string }[] = [
   { value: "superhyped", label: "Very hyped" },
 ];
 
-// Tracking is pulled in from `.t-label`'s 0.18em: at a third of a 167px card
-// on a 390px viewport, "Very hyped" does not fit on one line at the wider
-// setting. It is still allowed to wrap, and `items-center` on a stretched
-// flex row is what keeps the two one-line siblings the same height as it.
+// `.t-label`'s 0.6875rem/0.18em was tuned to exactly one viewport (390) and
+// still only fit "Very hyped" by wrapping -- every phone narrower than 388px,
+// and iPad portrait at 768-775px, overflowed the page (see docs/DECISIONS.md,
+// "VoteControl label size" entry). text-[10px] + a tighter 0.02em tracking
+// buys back enough width to clear those; `min-w-0` overrides flex's default
+// min-width:auto floor and `wrap-anywhere` gives it somewhere to go if a
+// future label is even longer, so the row can never widen the page. It is
+// still allowed to wrap, and `items-center` on a stretched flex row is what
+// keeps the two one-line siblings the same height as it.
 const buttonBase =
-  "t-label flex flex-1 items-center justify-center rounded-ctl px-1 py-2 text-center leading-[1.15] tracking-[0.08em] transition-colors disabled:opacity-50";
+  "t-label flex flex-1 min-w-0 items-center justify-center rounded-ctl px-1 py-2 text-center text-[10px] leading-[1.15] tracking-[0.02em] wrap-anywhere transition-colors disabled:opacity-50";
 const unselected = "bg-surface-2 text-fg-dim hover:text-fg";
 
 // The scale is the mark, unrolled. `--beam-a` is the low end, `--beam-b` the

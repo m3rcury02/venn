@@ -68,7 +68,10 @@ export function InstallPrompt() {
   if (dismissed || (!deferredPrompt && !showIosSteps)) return null;
 
   return (
-    <div className="fixed inset-x-4 bottom-4 z-50 mx-auto flex max-w-md items-center gap-3 rounded-card border border-hairline bg-surface px-4 py-3">
+    <div
+      className="fixed inset-x-4 z-50 mx-auto flex max-w-md items-center gap-3 rounded-card border border-hairline bg-surface px-4 py-3"
+      style={{ bottom: "calc(env(safe-area-inset-bottom) + 1rem)" }}
+    >
       {/* On `bg-surface` (#0B0B0D), not a fill -- the mark blends additively
           and needs a near-black backdrop to resolve. */}
       <VennMark size={28} />

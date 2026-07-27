@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { searchMovies, type SearchResult } from "@/app/search/actions";
 import { AddToListButton } from "@/components/add-to-list-button";
 import { MovieCard } from "@/components/movie-card";
+import { errorClass } from "@/components/ui/input";
 
 const DEBOUNCE_MS = 300;
 
@@ -17,26 +18,36 @@ export function SearchForm({
   const [query, setQuery] = useState(initialQuery ?? "");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  // Guards against a slow earlier response overwriting a newer one.
+  const [error, setError] = useState(false);
+  // Guards against a slow earlier response -- success or failure -- overwriting
+  // a newer one.
   const requestId = useRef(0);
 
   useEffect(() => {
     const id = ++requestId.current;
     const timer = setTimeout(() => {
       setIsSearching(true);
-      searchMovies(query).then((found) => {
-        if (id === requestId.current) {
-          setResults(found);
-          setIsSearching(false);
-        }
-      });
+      setError(false);
+      searchMovies(query)
+        .then((found) => {
+          if (id === requestId.current) {
+            setResults(found);
+            setIsSearching(false);
+          }
+        })
+        .catch(() => {
+          if (id === requestId.current) {
+            setIsSearching(false);
+            setError(true);
+          }
+        });
     }, DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
   }, [query]);
 
   const trimmed = query.trim();
-  const showEmpty = !isSearching && trimmed.length >= 2 && results.length === 0;
+  const showEmpty = !isSearching && !error && trimmed.length >= 2 && results.length === 0;
 
   return (
     <div className="flex flex-col gap-8">
@@ -61,6 +72,10 @@ export function SearchForm({
       </div>
 
       {isSearching ? <p className="t-label text-fg-faint">Searching…</p> : null}
+
+      {error ? (
+        <p className={errorClass}>Search failed. Try again in a moment.</p>
+      ) : null}
 
       {showEmpty ? (
         <p className="t-body text-[15px] text-fg-dim">
