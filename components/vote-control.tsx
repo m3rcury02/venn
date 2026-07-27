@@ -22,14 +22,32 @@ const HYPE_OPTIONS: { value: Hype; label: string }[] = [
   { value: "superhyped", label: "Very hyped" },
 ];
 
+// Tracking is pulled in from `.t-label`'s 0.18em: at a third of a 167px card
+// on a 390px viewport, "Very hyped" does not fit on one line at the wider
+// setting. It is still allowed to wrap, and `items-center` on a stretched
+// flex row is what keeps the two one-line siblings the same height as it.
 const buttonBase =
-  "flex-1 rounded-full py-1 text-[10px] font-medium tracking-wide transition-colors disabled:opacity-60";
-const unselected = "bg-surface-strong text-fg-muted hover:text-fg";
-// `hate` is the one value that's negative in kind, not just lower (SPEC §4.1
-// gives it the only negative tag weight) -- it gets circle-a instead of the
-// shared overlap fill every other selected value uses.
-const selectedOverlap = "bg-overlap text-overlap-fg";
-const selectedHate = "bg-circle-a text-white";
+  "t-label flex flex-1 items-center justify-center rounded-ctl px-1 py-2 text-center leading-[1.15] tracking-[0.08em] transition-colors disabled:opacity-50";
+const unselected = "bg-surface-2 text-fg-dim hover:text-fg";
+
+// The scale is the mark, unrolled. `--beam-a` is the low end, `--beam-b` the
+// high end, and the middle value is WHITE -- which is precisely what those two
+// beams make where they overlap (see components/venn-mark.tsx). So the control
+// and the logo are the same statement.
+//
+// Note this is a design-system choice, not a SPEC-mandated asymmetry. SPEC
+// §4.1 singles out `hate` as the only negative tag weight, but `love` is just
+// the top of a linear positive range -- nothing in the spec makes the poles
+// qualitatively different from each other.
+const selectedLow = "bg-beam-a text-on-beam";
+const selectedMid = "bg-fg text-ink";
+const selectedHigh = "bg-beam-b text-on-beam";
+
+function selectedClassFor(value: Rating | Hype) {
+  if (value === "hate" || value === "dont_care") return selectedLow;
+  if (value === "love" || value === "superhyped") return selectedHigh;
+  return selectedMid;
+}
 
 export function VoteControl({ movieId, watched, rating, hype }: VoteControlProps) {
   const [isPending, startTransition] = useTransition();
@@ -49,10 +67,13 @@ export function VoteControl({ movieId, watched, rating, hype }: VoteControlProps
   }
 
   return (
-    <div className="flex gap-1" role="group" aria-label={watched ? "Rating" : "Hype"}>
+    <div
+      className="flex items-stretch gap-1"
+      role="group"
+      aria-label={watched ? "Rating" : "Hype"}
+    >
       {options.map((option) => {
         const isSelected = current === option.value;
-        const selectedClass = option.value === "hate" ? selectedHate : selectedOverlap;
         return (
           <button
             key={option.value}
@@ -60,7 +81,9 @@ export function VoteControl({ movieId, watched, rating, hype }: VoteControlProps
             aria-pressed={isSelected}
             disabled={isPending}
             onClick={() => handleClick(option.value)}
-            className={`${buttonBase} ${isSelected ? selectedClass : unselected}`}
+            className={`${buttonBase} ${
+              isSelected ? selectedClassFor(option.value) : unselected
+            }`}
           >
             {option.label}
           </button>

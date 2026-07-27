@@ -2,6 +2,8 @@
 
 import { useTransition } from "react";
 import { setWatched } from "@/app/status/actions";
+import { overlayButtonClass } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 
 export function WatchedToggle({ movieId, watched }: { movieId: string; watched: boolean }) {
   const [isPending, startTransition] = useTransition();
@@ -20,12 +22,14 @@ export function WatchedToggle({ movieId, watched }: { movieId: string; watched: 
       aria-pressed={watched}
       aria-label={watched ? "Mark unwatched" : "Mark watched"}
       title={watched ? "Watched" : "Not watched"}
-      className={`flex h-8 w-8 items-center justify-center rounded-full text-white shadow-sm backdrop-blur-sm transition-transform hover:scale-110 focus-visible:scale-110 disabled:opacity-60 ${
-        watched ? "bg-overlap" : "bg-black/60"
+      // White for watched, matching VoteControl's middle value and the mark's
+      // overlap -- "both beams landed here" is the same idea as "seen it".
+      className={`${overlayButtonClass} ${
+        watched ? "border-fg bg-fg text-ink" : "hover:border-fg-dim"
       }`}
     >
       {isPending ? (
-        <span className="h-3.5 w-3.5 rounded-full border-2 border-white/40 border-t-white motion-safe:animate-spin motion-reduce:animate-pulse" />
+        <Spinner />
       ) : (
         <svg
           viewBox="0 0 20 20"

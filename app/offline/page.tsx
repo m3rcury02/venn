@@ -5,15 +5,18 @@ import { VennMark } from "@/components/venn-mark";
 // between accounts.
 export default function OfflinePage() {
   return (
-    <main className="flex flex-1 items-center justify-center p-6">
+    <main className="relative flex flex-1 items-center justify-center overflow-hidden px-5 py-14">
+      <div aria-hidden className="absolute inset-x-0 top-0 h-6 bg-ink sm:h-9" />
+      <div aria-hidden className="absolute inset-x-0 bottom-0 h-6 bg-ink sm:h-9" />
+
       <div className="w-full max-w-sm text-center">
-        <div className="flex items-center justify-center gap-2">
-          <VennMark size={26} />
-          <h1 className="text-2xl font-semibold tracking-tight text-fg">
-            Venn
-          </h1>
+        <div className="flex justify-center">
+          <VennMark size={56} />
         </div>
-        <p className="mt-4 text-sm text-fg-muted">
+        <h1 className="t-display mt-6 text-[clamp(40px,12vw,72px)] text-fg">
+          No signal
+        </h1>
+        <p className="t-body mt-5 text-[15px] text-fg-dim">
           You&rsquo;re offline. Reconnect to keep browsing your lists.
         </p>
       </div>

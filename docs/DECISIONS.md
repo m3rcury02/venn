@@ -1962,3 +1962,402 @@ loopback addresses); Supabase Authentication → Providers → Google enabled
 with that client's ID/secret; Supabase Authentication → URL Configuration →
 Redirect URLs allow-listing `http://localhost:3000/**` and
 `https://venn-roan.vercel.app/**`.
+
+---
+
+## Visual identity: palette, type, and a precise VennMark (post-phase-7)
+
+Not a numbered phase — a full design pass on the whole app's visual system,
+requested directly ahead of an expected scale-up (real user growth, a brand
+worth defending). Scope, per the user's own call: the token system (color,
+type) plus two hand-finished flagship screens (`/login`, home/My List) —
+every other screen inherits color and type automatically through the same
+CSS custom properties and Tailwind theme they already referenced, and mostly
+needed zero code changes to pick up the new look (confirmed live on
+`/search`, which was never touched — its gradient input border and wordmark
+updated for free).
+
+**Files:** `app/globals.css`, `app/layout.tsx`, `components/venn-mark.tsx`,
+`components/app-header.tsx`, `components/vote-control.tsx`,
+`app/login/page.tsx`, `app/page.tsx`, `public/manifest.webmanifest`, and all
+six PWA icon/apple-touch-icon PNGs (regenerated).
+
+### Why the old palette had to go
+
+The shipped palette (circle-a `#f2545b`, circle-b `#4c6fff`, overlap
+`#9f61ad` on a `#15121c` near-black ground) wasn't wrong on its own terms —
+the RGB-midpoint-as-overlap idea was already good — but at the scale the
+user is building for, it reads as the single most common "modern app" look
+right now: near-black background, one violet/purple accent. Discord,
+Linear, and a large share of Vercel-ecosystem and AI-adjacent products
+converge on close to that exact orchid-violet. Renaming it wouldn't fix
+that — mixing any warm (reddish) hue with any cool (bluish) hue via literal
+RGB averaging lands in purple/magenta territory almost by mathematical
+necessity, so keeping the midpoint mechanic while chasing "not purple" is a
+contradiction. The fix had to be which two hues get averaged, not the
+averaging itself.
+
+### New palette
+
+Reel Rust `#D43F26` (circle-a) × Projector Blue `#2461A8` (circle-b) →
+Velvet Wine `#7C5067` (`overlap`, still the literal RGB midpoint — mechanic
+unchanged). Grounded in film's own materials rather than tech-palette
+space: aged celluloid rust, projector-glow blue, and their overlap landing
+on velvet-cinema-seat wine. Ground shifted from violet-tinted near-black
+(`#15121c`) to warm near-black Blackout `#191411` (a warmed HSL ramp derived
+from it: surface `#271F1A`, surface-strong `#342A24`), so the identity reads
+as "dark room" rather than "dark SaaS."
+
+**Dark is now the default (`:root`), light is the media-query override** —
+flipped from the previous structure. Per the user: dark is the actual brand
+(App Store listing, pitch deck), matching how the product is actually used
+(deciding what to watch, at night, on a phone). Light mode is unchanged in
+its own values (`#faf7f3` cream, etc.) and still fully supported, just no
+longer the code's implicit default.
+
+**Contrast was computed, not eyeballed**, because the first-draft hexes
+failed two real checks:
+- `circle-a` against white button text was 4.11:1 (fails WCAG AA's 4.5:1
+  for normal text) at the original `#E1462B` — darkened to `#D43F26`
+  (4.63:1) before it was used anywhere.
+- The pure Velvet Wine midpoint against the new Blackout ground is only
+  2.78:1 — fine for a filled button (text sits on the fill, not the page
+  background, and that pairing is 6.56:1), but the *old* palette's focus
+  ring (`overlap` directly on `bg`) was 4.22:1, so reusing pure wine for
+  `:focus-visible`/`::selection` would have been a real regression on
+  keyboard-focus visibility. Added `--ring: #8F5C76` — wine lightened in
+  HSL just enough to clear 3:1 (3.44:1) — used only for those two rules.
+  `--overlap` itself stays the true, unlightened midpoint everywhere else.
+
+### VennMark: the lens is now real, not simulated
+
+The old mark faked its overlap region with plain CSS opacity (circle-b at
+75% laid over circle-a) — whatever color appeared where they crossed was
+alpha-composited by the browser, not the actual `--overlap` value anywhere
+in the markup. At the scale this brand is meant to reach, two overlapping
+circles alone is one of the most common shorthands for "compatibility/match"
+(dating apps, insurance comparisons, data-viz decks) — the thing that makes
+it ownable here is that the intersection is now *precisely* the computed
+midpoint, not applied to the mark, so the logo is a small, checkable claim:
+"these two colors, mixed, produce exactly this third one."
+
+Technique: a third circle, identically positioned/sized to circle-a,
+clipped with `clip-path: circle(r at cx cy)` using circle-b's geometry
+converted into the third circle's own local coordinate space. The visible
+region of "an element shaped like circle-a" ∩ "a clip region shaped like
+circle-b" is exactly circle-a ∩ circle-b — CSS does the set intersection,
+not an approximation. Verified at all four in-app sizes (22/30/40/96px) via
+an isolated static-HTML test before touching the component, since the lens
+gets genuinely thin at icon scale (~8px wide at 30px) and needed confirming
+it wasn't just anti-aliasing away to nothing.
+
+Same technique reimplemented in Pillow (`ImageChops.multiply` of two 0/255
+circle masks, since `Image.composite` against one circle's mask alone was
+tried first and silently wiped out that circle's own non-overlapping region
+— caught by inspecting the rendered PNG before regenerating all sizes) for
+the regenerated PWA icons, so the app icon and the in-app mark are the same
+claim rendered by two different engines.
+
+### Type
+
+Geist Sans/Mono (Next.js's own defaults, zero personality) replaced
+entirely: **Fraunces** (variable, `opsz`/`SOFT`/`WONK` axes loaded) for the
+wordmark and empty-state headlines only — dialed toward its idiosyncratic
+soft-serif character, never used for body text. **Karla** for all UI text.
+**Space Mono** replacing Geist Mono for the metadata/eyebrow pattern that
+already existed (`YOUR LIST`, years, counts) — same role, more ticket-stub
+character.
+
+### Also changed: circle-b gets a real job
+
+`circle-b` had zero functional meaning before this — decoration only (the
+mark, the card hover-glow). `circle-a` already meant something: SPEC §4.1's
+`hate` is the only *negative* rating weight, and `VoteControl` gave it
+circle-a instead of the shared `overlap` fill every other value used.
+`circle-b` now takes the top of each scale — `love` and `superhyped`, SPEC
+§4.1's +3 — not because the spec singles those out the way it does `hate`
+(it doesn't; `love` is just the top of a linear positive range, not
+qualitatively different from `like`), but as a design-system choice: circle-a
+and circle-b become the two poles the rating system actually swings between,
+with `overlap` as the shared middle ground. Documented as such in
+`vote-control.tsx` so a future reader doesn't mistake it for a SPEC-mandated
+asymmetry.
+
+### Not in this pass
+
+Every screen besides `/login` and home was left untouched at the file
+level — Search, Groups, Movie Night, Settings, Inbox, Movie Detail all
+inherit the new palette/type through the same CSS custom properties and
+Tailwind theme mapping they already used, with no hand-finishing. Confirmed
+live on `/search`, which picked up the new wordmark and a rust→petrol
+gradient input border it already had, just recolored — not something built
+in this pass.
+
+---
+
+## Vibrant/bold/immersive: reframed around real poster art, not new UI color
+
+Requested directly, off a set of 2026 design-trend articles (Figma's trend
+roundup, a mobile UX trends search). Most of what's actually trending right
+now — gamification, neumorphism, 3D/AR, neo-brutalism, vibrant "dopamine"
+UI chrome — was rejected outright: gamification contradicts SPEC §8's
+"rating is prompted, never blocking... mandatory modals get apps deleted,"
+neumorphism regresses the contrast work already done, and generic vibrant
+color chrome would have undone the whole rust/petrol/wine pass by chasing
+the *next* crowded trend instead of stepping outside the cycle.
+
+The compromise that survived scrutiny: real movie poster art is *already*
+vibrant, maximalist, marketing-designed to pop — the app doesn't need
+neon-colored buttons to feel immersive if it lets that material carry the
+feeling instead. So "vibrant" and "immersive" landed as one move, not two.
+
+**Files:** `app/globals.css` (new `--vivid-a`/`--vivid-b` tokens),
+`components/night-pick-hero.tsx` (new), `app/groups/[id]/night/page.tsx`,
+`app/page.tsx`.
+
+**`--vivid-a` (`#F9482A`) / `--vivid-b` (`#0D72E8`)**: circle-a/circle-b with
+saturation and lightness boosted in HSL space. Explicitly scoped to
+backdrops/glows/scrims only, never persistent chrome and never small text —
+`vivid-a` is 3.51:1 against white, below AA's 4.5:1 for text, which is fine
+for a blurred ambient glow no one reads but would be a real regression as a
+button fill. Documented as a boundary directly in `globals.css` so it isn't
+reached for casually later.
+
+**`NightPickHero`** replaces the Top-3 grid's uniform treatment for pick #1
+only (SPEC §7 screen 6's reveal moment) — a full-bleed blurred, scaled
+backdrop of the pick's own poster (`blur-2xl`, `scale-110`, TMDB `w780`),
+a `bg`-to-transparent scrim for legibility, the sharp poster in the
+foreground, and an oversized `font-display` title. Picks #2/#3 stay as
+plain `MovieCard`s below, unchanged, so the hierarchy — one winner,
+two runners-up — is visual, not just numbered badges. No-poster case falls
+back to a `--vivid-a`/`--vivid-b` radial-gradient glow rather than breaking
+the layout.
+
+**Home's empty-state hero** got the same ambient-glow treatment behind the
+`VennMark` (ambient, ~40% opacity, heavily blurred, ` -z-10` so it never
+competes with the mark) and a much larger `Nothing here yet` (`text-5xl`,
+up from `text-3xl`) — the "oversized headline" move, using the same
+Fraunces already established rather than a second display face.
+
+### Not in this pass
+
+Everything else on the trend lists — glassmorphism, gesture nav, 3D/AR,
+voice UI, gamification, asymmetric layouts, a second "poster marquee" 
+display typeface — deliberately skipped. Reasoning is in the chat, not
+repeated in full here: most either contradict SPEC's own stated product
+philosophy or would have meant chasing whichever look is currently
+converged-on, which is the same failure mode the rust/petrol/wine palette
+was chosen specifically to avoid.
+
+---
+
+## Design reset — "Neon Marquee"
+
+**The two entries above are superseded.** Neither shipped: both were still
+uncommitted when the user read them back and called the result "boilerplate AI
+generated design," and asked for a reset from scratch with a vibrant palette,
+bold typography and immersive elements. The prior work was stashed
+(`pre-reset design pass (rust/wine/Fraunces)`) rather than discarded, and only
+this document was recovered from it — so the reasoning survives even though the
+code does not. They are left in place because the *diagnosis* of why they read
+as generic is the most useful part of this entry.
+
+The verdict was correct and the cause is nameable. That system was muted
+rust/wine on a tinted near-black with one soft accent, Fraunces as the
+personality serif, `rounded-full` on 53 elements, and a two-tier type scale
+(`text-sm` body, 10–11px labels) with nothing in between. Every one of those is
+a default a language model reaches for first. The second pass also explicitly
+*rejected* vibrant color, bold display type and immersive treatment as "chasing
+trends" — which is exactly what was being asked for.
+
+Direction, mark treatment and scope were chosen by the user from three rendered
+options, not proposed as a single take.
+
+### The palette is light, because the mark is light
+
+```
+--ink        #000000    true black, not a tinted near-black
+--surface    #0B0B0D    --surface-2  #16161A
+--fg         #FFFFFF    --fg-dim     #8E8E99   --fg-faint  #7F7F8A
+--beam-a     #FF2D6F    --beam-b     #00E5FF   --marquee   #FFE500
+--on-beam    #000000
+```
+
+The overlap is **not a token**. Both circles composite with
+`mix-blend-mode: plus-lighter`, which adds channel-wise and clamps:
+
+```
+#FF2D6F + #00E5FF = (255, 274->255, 366->255) = #FFFFFF
+```
+
+Pure white — the blown-out center of two beams landing on the same spot. The
+previous mark faked its intersection with a `clip-path` and a hand-picked third
+hex; this one contains no third color at all. Verified by rendering it headless
+at 22/30/40/96px before anything was built on top: the intersection samples
+`(255,255,255)` at every size.
+
+The 0.55 circle-to-box ratio was measured, not picked — rendered against 0.52,
+0.58, 0.61 and 0.64. Above ~0.58 the white lens swallows both beams and the
+mark reads as one blob; below ~0.52 the lens vanishes at 22px.
+
+Two constraints follow and both are commented at the call sites: the wrapper
+must `isolate` or the blend leaks onto the page, and the mark must never sit on
+a bright fill (additive light on a bright backdrop clips to white everywhere).
+`AddToListButton`'s success badge is `bg-ink` for precisely that reason.
+
+### Contrast was computed, and it caught three real failures
+
+Scripted over every pair the app actually renders, not eyeballed:
+
+| on `#000000` | | on `#16161A` (the tightest surface) | |
+|---|---|---|---|
+| `--fg` | 21.00 | `--fg` | 18.04 |
+| `--fg-dim` | 6.48 | `--fg-dim` | 5.57 |
+| `--fg-faint` | 5.31 | `--fg-faint` | 4.56 |
+| `--beam-a` | 5.86 | | |
+| `--beam-b` | 13.65 | | |
+| `--marquee` | 16.46 | | |
+
+Two rules fall out, and both are load-bearing:
+
+1. Every accent clears 4.5:1 on the ground, so an accent may carry meaning as
+   text rather than being restricted to decoration.
+2. **Text on an accent fill is always black.** White on `--beam-a` is 3.59:1
+   and fails AA; black is 5.86:1. `--on-beam` makes that a token decision
+   instead of a per-component judgement call.
+
+Three things the arithmetic caught that inspection would not have:
+
+- `--fg-faint` started at `#7A7A85`, which measures 4.25:1 on `--surface-2` —
+  fine on the ground, a real failure in the one place the app nests text on a
+  lifted panel. Solved upward to `#7F7F8A`.
+- **The page grain was rendering as literally nothing.** It was specified as
+  `soft-light`, which by definition leaves pure black untouched, and the ground
+  is `#000`. Sampling the painted pixels returned `(0,0,0)` across an empty
+  band. Changed to `screen` at 0.1 — now 595 distinct values in that band, and
+  because the layer sits *under* all content (layout puts children in a `z-1`
+  context) it can blend additively without ever compositing against text.
+  Re-measured against the brightest grain pixel: white 18.37:1, `--fg-dim`
+  5.67:1, `--fg-faint` 4.64:1. All still AA.
+- **The night hero's supporting text failed over real poster art.** Measured
+  off the rendered page against a text-free strip of the blurred backdrop,
+  `--fg-dim` came out 4.36:1. Poster art is arbitrary, so no scrim setting can
+  be trusted to hold a muted tone; the year and reason lines are white now, and
+  hierarchy comes from the 96px title instead of from dimming.
+
+`--ring` is deleted. The previous palette needed a lightened-accent token
+because its muted midpoint measured 2.78:1 as a focus outline. `--marquee` at
+16.46:1 is a better ring than any dedicated token and is on-concept.
+
+**Light mode is dropped**, `color-scheme: dark` on `:root`. Every figure above
+is computed against `#000`, and a white-ground variant of "projector light in a
+dark room" is a different product, not a theme. Flagged to the user before
+implementation rather than discovered afterward.
+
+### Type: two families, and the second one does three jobs
+
+**Anton** (static 400, display only) and **Archivo** (variable, `wdth` 62–125 ×
+`wght` 100–900). Both confirmed against Next 16.2.12's own `font-data.json`
+before the plan was written, so this cost **zero new dependencies**.
+
+Archivo's width axis is what replaces the 28 `font-mono` uses: the uppercase
+eyebrow is `wdth 118 / wght 600 / 0.18em`, owned by a single `.t-label` rule.
+No monospace webfont loads at all. `--font-mono` is the *system* stack and is
+reserved for the three places the text is genuinely machine-read — invite code,
+ingest token, endpoint URL — where character disambiguation actually matters.
+
+Real scale jumps, since bold typography means hierarchy and not just weight:
+display `clamp(40px,12vw,104px)` at `line-height .82`, section 24–32px, body
+15px, label 11px. Display type is expected to crop off the frame on hero
+screens; the sections clip it deliberately.
+
+### Radius: near-square, with one rule for the exception
+
+`--radius-card: 3px`, `--radius-ctl: 2px`. This is the single largest visual
+break from the old look. The exception is stated as a rule so it reads as a
+system rather than an inconsistency: **circles are reserved for the mark and
+for things that stand for people.** After the rebuild the only surviving
+`rounded-full` uses are the mark, the spinner, the present-picker chips and the
+group member pills — which is exactly that rule and nothing else.
+
+### Immersive, without a dependency
+
+- **Poster beam** — the same hotlinked `image.tmdb.org` URL painted twice: the
+  sharp `<img>`, plus an `aria-hidden` copy blurred and over-saturated behind
+  it. One request, two paints. Still a plain `<img>`; `next/image` would proxy
+  the bytes through Vercel, which CLAUDE.md forbids. Off by default in grids —
+  twenty simultaneous glows read as fog — and lit on hover.
+- **Film grain** in two layers for one reason, legibility: `.grain-page` under
+  all content, `.grain-art` over poster artwork only, where there is no text to
+  degrade. The tile is a 140×140 `feTurbulence` data URI repeated, not one
+  viewport-sized turbulence rect, which is expensive on phones.
+- **Letterbox** on the night reveal, `/login` and `/offline`.
+- **Marquee ticker** of who is present. It pads its sequence to at least 8
+  entries before duplicating, because with one member present the track was
+  narrower than the viewport and `-50%` dragged visible empty space across the
+  screen.
+
+### A primitives layer, because nine hand-built screens otherwise drift
+
+`ui/screen` (replaced 7 verbatim page shells), `ui/button` (6 copies of the
+primary button, plus the shared overlay-button class), `ui/panel`, `ui/label`
+(25 label sites), `ui/input`, `ui/spinner` (3 verbatim copies), and
+`components/poster`. Each replaces five or more existing copies, so this is
+deduplication rather than speculative abstraction.
+
+`ui/input` deliberately carries **no `flex-1`**. It did at first, and in
+`/login`'s column-direction form that sets flex-basis on the vertical axis and
+collapsed the field to a sliver — visible immediately in the browser pass and
+invisible to `typecheck`, `lint` and `build`. Row layouts opt back in.
+
+### `VoteControl`'s scale is the mark, unrolled
+
+`--beam-a` at the low end, `--beam-b` at the top, and the middle value **white**
+— which is what those two beams make where they overlap. The control and the
+logo became the same statement. `ListFilter`'s value chips follow the same
+mapping; its three structural chips light marquee, because they are navigation
+rather than a value.
+
+This is a design-system choice, not a SPEC-mandated asymmetry, and is commented
+as such: §4.1 singles out `hate` as the only negative tag weight, but `love` is
+just the top of a linear positive range.
+
+### Verification
+
+1. `pnpm typecheck`, `pnpm lint`, `pnpm build` — clean.
+2. Contrast scripted over every rendered pair; the three failures above were
+   found this way and fixed before shipping.
+3. `plus-lighter` confirmed by headless render at all four in-app sizes before
+   anything depended on it.
+4. **All nine screens driven in a real browser at 390×844**, signed in through
+   a genuine magic-link round trip against the local stack + Mailpit, with the
+   catalog seeded from live TMDB (13 films, real poster art) and every vote
+   state represented. Desktop at 1280 as a second pass. Four layout bugs were
+   found only here: the nav clipped "Settings" off the viewport, "Very hyped"
+   wrapped to an uneven height, the ticker dragged empty space, and the login
+   field collapse above.
+5. `prefers-reduced-motion` — ticker halted, nothing left mid-animation.
+6. PWA icons regenerated with the same additive math in Pillow
+   (`min(a+b, 255)` per channel — *not* `ImageChops.multiply`, which darkens
+   the intersection instead of blowing it out), then inspected as rendered PNGs
+   before shipping: intersection samples `(255,255,255)` at every size,
+   maskables sit inside the 80% safe zone, monochrome is a white silhouette on
+   transparent. Manifest and `themeColor` are `#000000`.
+
+### Not in this pass
+
+- **The platform layer.** The app still has **zero** `loading.tsx`, zero
+  `<Suspense>`, zero `error.tsx`, zero `not-found.tsx` and no skeletons. Every
+  page is an async server component that blocks on Supabase, so every filter
+  chip, present chip and reroll is a dead tap until the server answers. This is
+  the largest remaining UX gap and the obvious next pass; the user scoped this
+  one to the visual rebuild.
+- **Live-readout circles** — one circle per person present, the mark as a
+  consensus meter. Chosen by the user as a later step, by name.
+- **View Transitions** — `experimental.viewTransition` is flagged "not
+  recommended for production" in Next 16.2.12's own docs.
+- **Scroll-driven animation** (`animation-timeline: view()`) — support was too
+  unsettled to pin during planning; the hardcoded `animationDelay` stagger
+  stays for now.
+- **JustWatch attribution UI** — still owed from phase 1a, but no
+  watch-provider data reaches a screen yet, so nothing is out of compliance.

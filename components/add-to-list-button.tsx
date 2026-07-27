@@ -2,12 +2,11 @@
 
 import { useState, useTransition } from "react";
 import { addToList } from "@/app/list/actions";
+import { overlayButtonClass } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { VennMark } from "@/components/venn-mark";
 
 type Status = "idle" | "added" | "already-in-list" | "error";
-
-const badgeBase =
-  "flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white shadow-sm backdrop-blur-sm transition-transform hover:scale-110 focus-visible:scale-110";
 
 export function AddToListButton({
   externalId,
@@ -29,20 +28,26 @@ export function AddToListButton({
   }
 
   if (status === "added" || status === "already-in-list") {
+    const label =
+      status === "added"
+        ? listId
+          ? "Added to the group list"
+          : "Added to your list"
+        : listId
+          ? "Already on the group list"
+          : "Already on your list";
+
     return (
+      // Deliberately `bg-ink`, not a colored fill: the mark composites with
+      // `plus-lighter` and only resolves to white on black. On a bright
+      // backdrop it would clip to white everywhere and disappear.
       <span
-        className={`${badgeBase} cursor-default bg-overlap hover:scale-100`}
-        title={
-          status === "added"
-            ? listId
-              ? "Added to the group list"
-              : "Added to your list"
-            : listId
-              ? "Already on the group list"
-              : "Already on your list"
-        }
+        className={`${overlayButtonClass} cursor-default bg-ink`}
+        title={label}
+        role="status"
       >
-        <VennMark size={16} animated={status === "added"} />
+        <VennMark size={18} animated={status === "added"} />
+        <span className="sr-only">{label}</span>
       </span>
     );
   }
@@ -54,10 +59,10 @@ export function AddToListButton({
         onClick={handleClick}
         disabled={isPending}
         aria-label="Add to list"
-        className={`${badgeBase} disabled:opacity-60`}
+        className={`${overlayButtonClass} hover:border-marquee hover:bg-marquee hover:text-on-beam`}
       >
         {isPending ? (
-          <span className="h-3.5 w-3.5 rounded-full border-2 border-white/40 border-t-white motion-safe:animate-spin motion-reduce:animate-pulse" />
+          <Spinner />
         ) : (
           <svg
             viewBox="0 0 20 20"
@@ -72,7 +77,7 @@ export function AddToListButton({
         )}
       </button>
       {status === "error" && message ? (
-        <p className="max-w-[8rem] rounded-md bg-black/70 px-2 py-1 text-right text-[11px] text-white">
+        <p className="max-w-[9rem] rounded-ctl border border-beam-a/50 bg-ink px-2 py-1 text-right text-[11px] text-fg">
           {message}
         </p>
       ) : null}

@@ -2,6 +2,8 @@
 
 import { useTransition } from "react";
 import { removeFromList } from "@/app/list/actions";
+import { overlayButtonClass } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 
 export function RemoveFromListButton({
   movieId,
@@ -24,10 +26,10 @@ export function RemoveFromListButton({
       onClick={handleClick}
       disabled={isPending}
       aria-label="Remove from list"
-      className="flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white opacity-80 shadow-sm backdrop-blur-sm transition-all hover:scale-110 hover:bg-circle-a hover:opacity-100 focus-visible:opacity-100 disabled:opacity-60"
+      className={`${overlayButtonClass} opacity-75 hover:border-beam-a hover:bg-beam-a hover:text-on-beam hover:opacity-100 focus-visible:opacity-100`}
     >
       {isPending ? (
-        <span className="h-3.5 w-3.5 rounded-full border-2 border-white/40 border-t-white motion-safe:animate-spin motion-reduce:animate-pulse" />
+        <Spinner />
       ) : (
         <svg
           viewBox="0 0 20 20"

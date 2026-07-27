@@ -4,6 +4,7 @@ import { AppHeader, navLinkClass } from "@/components/app-header";
 import { CreateGroupForm } from "@/components/create-group-form";
 import { DisplayNameForm } from "@/components/display-name-form";
 import { JoinGroupForm } from "@/components/join-group-form";
+import { Screen } from "@/components/ui/screen";
 import { VennMark } from "@/components/venn-mark";
 import { createClient } from "@/lib/supabase/server";
 
@@ -39,11 +40,11 @@ export default async function GroupsPage() {
   const groups = memberships ?? [];
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-10 px-6 py-10 sm:px-8">
+    <Screen width="narrow">
       <AppHeader
         subtitle={
           groups.length > 0
-            ? `Groups · ${groups.length}`
+            ? `${groups.length} group${groups.length === 1 ? "" : "s"}`
             : "Where your lists overlap"
         }
         actions={
@@ -58,51 +59,47 @@ export default async function GroupsPage() {
         }
       />
 
+      <h1 className="t-display text-[clamp(44px,13vw,96px)] text-fg">Your groups</h1>
+
       {groups.length > 0 ? (
         <ul className="flex flex-col gap-2">
           {groups.map((m, i) => (
             <li
               key={m.groups.id}
-              className="motion-safe:animate-rise-in"
+              className="motion-safe:animate-expose"
               style={{ animationDelay: `${Math.min(i, 10) * 40}ms` }}
             >
               <Link
                 href={`/groups/${m.groups.id}`}
-                className="flex items-center gap-3 rounded-2xl bg-surface px-4 py-3.5 transition-colors hover:bg-surface-strong"
+                className="flex items-center gap-3.5 rounded-card border border-hairline bg-surface px-4 py-4 transition-colors hover:border-fg-dim"
               >
-                <VennMark size={20} />
-                <span className="flex-1 truncate text-sm font-medium text-fg">
+                <VennMark size={22} />
+                <span className="flex-1 truncate text-[15px] font-semibold text-fg">
                   {m.groups.name}
                 </span>
-                <span className="font-mono text-[10px] tracking-wider text-fg-faint uppercase">
-                  {m.role}
-                </span>
+                <span className="t-label text-fg-faint">{m.role}</span>
               </Link>
             </li>
           ))}
         </ul>
       ) : (
-        <div className="flex flex-col items-center gap-3 py-10 text-center">
-          <VennMark size={36} />
-          <p className="max-w-sm text-sm text-fg-muted">
+        <div className="flex flex-col items-center gap-4 py-10 text-center">
+          <VennMark size={40} />
+          <p className="t-body max-w-sm text-[15px] text-fg-dim">
             No groups yet. Start one and share the code, or paste a code someone
             sent you.
           </p>
         </div>
       )}
 
-      <div className="flex flex-col gap-6 border-t border-surface-strong pt-8">
-        <section className="flex flex-col gap-2">
-          <h2 className="font-mono text-[11px] tracking-wider text-fg-faint uppercase">
-            Start a group
-          </h2>
+      <div className="flex flex-col gap-7 border-t border-hairline pt-9">
+        <section className="flex flex-col gap-2.5">
+          <h2 className="t-label text-fg-faint">Start a group</h2>
           <CreateGroupForm />
         </section>
 
-        <section className="flex flex-col gap-2">
-          <h2 className="font-mono text-[11px] tracking-wider text-fg-faint uppercase">
-            Join with a code
-          </h2>
+        <section className="flex flex-col gap-2.5">
+          <h2 className="t-label text-fg-faint">Join with a code</h2>
           <JoinGroupForm />
         </section>
 
@@ -110,6 +107,6 @@ export default async function GroupsPage() {
           <DisplayNameForm current={profile?.display_name ?? null} />
         </section>
       </div>
-    </main>
+    </Screen>
   );
 }

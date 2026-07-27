@@ -5,6 +5,8 @@ import type { Status } from "@/components/list-filter";
 import { InviteCode } from "@/components/invite-code";
 import { MovieCard } from "@/components/movie-card";
 import { RemoveFromListButton } from "@/components/remove-from-list-button";
+import { buttonClass } from "@/components/ui/button";
+import { Screen } from "@/components/ui/screen";
 import { VennMark } from "@/components/venn-mark";
 import { VoteControl } from "@/components/vote-control";
 import { WatchedToggle } from "@/components/watched-toggle";
@@ -78,9 +80,9 @@ export default async function GroupPage({ params }: GroupPageProps) {
   const items = (rawItems as unknown as GroupItemRow[] | null) ?? [];
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-10 sm:px-8">
+    <Screen>
       <AppHeader
-        subtitle={`${group.name} · ${items.length} movie${items.length === 1 ? "" : "s"}`}
+        subtitle={`${items.length} movie${items.length === 1 ? "" : "s"}`}
         actions={
           <>
             <Link href="/groups" className={navLinkClass}>
@@ -98,21 +100,26 @@ export default async function GroupPage({ params }: GroupPageProps) {
         }
       />
 
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-        <InviteCode code={group.invite_code} />
-        <ul className="flex flex-wrap items-center gap-2">
-          {members.map((m) => (
-            <li
-              key={m.user_id}
-              className="rounded-full bg-surface px-3 py-1 text-xs text-fg-muted"
-            >
-              {m.profiles?.display_name ?? "Member"}
-              {m.role === "owner" ? (
-                <span className="ml-1.5 text-fg-faint">· owner</span>
-              ) : null}
-            </li>
-          ))}
-        </ul>
+      <div>
+        <h1 className="t-display text-[clamp(40px,12vw,96px)] text-fg">{group.name}</h1>
+        <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
+          <InviteCode code={group.invite_code} />
+          {/* Round, because these stand for people -- the one exception to the
+              square-corner rule (see globals.css). */}
+          <ul className="flex flex-wrap items-center gap-2">
+            {members.map((m) => (
+              <li
+                key={m.user_id}
+                className="t-label rounded-full border border-hairline px-3.5 py-1.5 text-fg-dim"
+              >
+                {m.profiles?.display_name ?? "Member"}
+                {m.role === "owner" ? (
+                  <span className="ml-1.5 text-marquee">· owner</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
 
       {items.length > 0 ? (
@@ -123,7 +130,7 @@ export default async function GroupPage({ params }: GroupPageProps) {
             return (
               <div
                 key={item.movie_id}
-                className="motion-safe:animate-rise-in"
+                className="motion-safe:animate-expose"
                 style={{ animationDelay: `${Math.min(i, 10) * 40}ms` }}
               >
                 <MovieCard
@@ -131,12 +138,12 @@ export default async function GroupPage({ params }: GroupPageProps) {
                   year={item.movies.year}
                   posterUrl={
                     item.movies.poster_path
-                      ? provider.getImageUrl(item.movies.poster_path, "w185")
+                      ? provider.getImageUrl(item.movies.poster_path, "w342")
                       : null
                   }
                   footer={
-                    <div className="flex flex-col gap-1.5">
-                      <p className="truncate font-mono text-[10px] tracking-wider text-fg-faint uppercase">
+                    <div className="flex flex-col gap-2">
+                      <p className="t-label truncate text-fg-faint">
                         added by {item.profiles?.display_name ?? "Member"}
                       </p>
                       <VoteControl
@@ -151,10 +158,7 @@ export default async function GroupPage({ params }: GroupPageProps) {
                   <div className="flex gap-1">
                     <WatchedToggle movieId={item.movie_id} watched={watched} />
                     {list ? (
-                      <RemoveFromListButton
-                        movieId={item.movie_id}
-                        listId={list.id}
-                      />
+                      <RemoveFromListButton movieId={item.movie_id} listId={list.id} />
                     ) : null}
                   </div>
                 </MovieCard>
@@ -163,25 +167,20 @@ export default async function GroupPage({ params }: GroupPageProps) {
           })}
         </div>
       ) : (
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 py-20 text-center">
-          <VennMark size={40} />
-          <div className="space-y-1">
-            <p className="text-lg font-medium text-fg">Nothing here yet</p>
-            <p className="max-w-sm text-sm text-fg-muted">
-              Share the code above, then start adding — this list is where
-              everyone&rsquo;s circles meet.
-            </p>
-          </div>
+        <div className="flex flex-1 flex-col items-center justify-center gap-5 py-20 text-center">
+          <VennMark size={44} />
+          <p className="t-section text-3xl text-fg">Nothing here yet</p>
+          <p className="t-body max-w-sm text-[15px] text-fg-dim">
+            Share the code above, then start adding — this list is where
+            everyone&rsquo;s circles meet.
+          </p>
           {list ? (
-            <Link
-              href={`/search?list=${list.id}`}
-              className="mt-2 rounded-full bg-overlap px-5 py-2.5 text-sm font-medium text-overlap-fg transition-transform hover:scale-105"
-            >
+            <Link href={`/search?list=${list.id}`} className={buttonClass("marquee", "mt-2")}>
               Add movies
             </Link>
           ) : null}
         </div>
       )}
-    </main>
+    </Screen>
   );
 }

@@ -2,6 +2,8 @@
 
 import { useActionState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { buttonClass } from "@/components/ui/button";
+import { errorClass, inputClass } from "@/components/ui/input";
 import { VennMark } from "@/components/venn-mark";
 import { signIn, type LoginState } from "./actions";
 
@@ -42,57 +44,64 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex flex-1 items-center justify-center p-6">
+    <main className="relative flex flex-1 items-center justify-center overflow-hidden px-5 py-14">
+      {/* Two beams washing in from the edges, and the letterbox that frames
+          them. The sign-in screen is the house lights going down. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 -z-10 opacity-50 blur-3xl"
+        style={{
+          background:
+            "radial-gradient(45% 55% at 8% 22%, var(--beam-a), transparent 62%), radial-gradient(45% 55% at 92% 82%, var(--beam-b), transparent 62%)",
+        }}
+      />
+      <div aria-hidden className="absolute inset-x-0 top-0 h-6 bg-ink sm:h-9" />
+      <div aria-hidden className="absolute inset-x-0 bottom-0 h-6 bg-ink sm:h-9" />
+
       <div className="w-full max-w-sm">
-        <div className="flex items-center gap-2">
-          <VennMark size={26} />
-          <h1 className="text-2xl font-semibold tracking-tight text-fg">
-            Venn
-          </h1>
-        </div>
-        <p className="mt-2 text-sm text-fg-muted">
+        <VennMark size={64} animated />
+        <h1 className="t-display mt-6 text-[clamp(56px,17vw,88px)] text-fg">Venn</h1>
+        <p className="t-body mt-5 text-[15px] text-fg-dim">
           Sign in to see where your list overlaps with theirs.
         </p>
 
         <button
           type="button"
           onClick={signInWithGoogle}
-          className="mt-8 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-overlap font-medium text-overlap-fg transition-transform hover:scale-[1.02]"
+          className={buttonClass("marquee", "mt-9 h-13 w-full")}
         >
           <GoogleIcon />
           Continue with Google
         </button>
 
-        <div className="mt-6 flex items-center gap-3 text-xs text-fg-faint">
-          <div className="h-px flex-1 bg-fg-faint/20" />
-          or
-          <div className="h-px flex-1 bg-fg-faint/20" />
+        <div className="mt-7 flex items-center gap-3">
+          <div className="h-px flex-1 bg-hairline" />
+          <span className="t-label text-fg-faint">or</span>
+          <div className="h-px flex-1 bg-hairline" />
         </div>
 
         {state.sent ? (
-          <p className="mt-6 text-sm text-fg-muted">
+          <p className="t-body mt-7 text-[15px] text-fg-dim">
             Check your email for a link to sign in.
           </p>
         ) : (
-          <form action={formAction} className="mt-6 flex flex-col gap-3">
+          <form action={formAction} className="mt-7 flex flex-col gap-3">
             <input
               type="email"
               name="email"
               required
               autoComplete="email"
               placeholder="you@example.com"
-              className="h-11 w-full rounded-full border border-fg-faint/20 bg-transparent px-5 text-sm text-fg-muted placeholder:text-fg-faint focus:outline-none"
+              className={inputClass}
             />
             <button
               type="submit"
               disabled={pending}
-              className="h-11 rounded-full border border-fg-faint/20 text-sm text-fg-muted transition-colors hover:bg-surface disabled:opacity-50"
+              className={buttonClass("ghost", "h-12 py-0")}
             >
               {pending ? "Sending…" : "Send magic link"}
             </button>
-            {state.error ? (
-              <p className="text-sm text-circle-a">{state.error}</p>
-            ) : null}
+            {state.error ? <p className={errorClass}>{state.error}</p> : null}
           </form>
         )}
       </div>

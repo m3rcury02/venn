@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { MovieCard } from "@/components/movie-card";
+import { buttonClass } from "@/components/ui/button";
 import { rejectInboxItem, resolveInboxItem } from "@/app/inbox/actions";
 
 export type InboxCandidate = {
@@ -42,13 +43,13 @@ export function InboxItem({
   }
 
   return (
-    <li className="flex flex-col gap-4 rounded-2xl bg-surface p-4">
+    <li className="flex flex-col gap-5 rounded-card border border-hairline bg-surface p-4 sm:p-5">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="font-mono text-[10px] tracking-wider text-fg-faint uppercase">
+          <p className="t-label text-fg-faint">
             Shared · {source.replace(/_/g, " ")}
           </p>
-          <p className="mt-1 line-clamp-3 text-sm wrap-anywhere text-fg-muted">
+          <p className="t-body mt-2 line-clamp-3 text-[15px] wrap-anywhere text-fg-dim">
             {rawText}
           </p>
         </div>
@@ -56,7 +57,7 @@ export function InboxItem({
           type="button"
           disabled={pending}
           onClick={() => startTransition(() => rejectInboxItem(id))}
-          className="shrink-0 rounded-full px-3 py-1.5 font-mono text-[10px] tracking-wider text-fg-faint uppercase transition-colors hover:bg-surface-strong hover:text-circle-a disabled:opacity-50"
+          className="t-label shrink-0 rounded-ctl px-3 py-2 text-fg-faint transition-colors hover:bg-surface-2 hover:text-beam-a disabled:opacity-50"
         >
           Dismiss
         </button>
@@ -70,8 +71,8 @@ export function InboxItem({
               type="button"
               disabled={pending}
               onClick={() => pick(candidate.id)}
-              className={`rounded-2xl text-left transition-opacity disabled:cursor-wait ${
-                picked && picked !== candidate.id ? "opacity-30" : ""
+              className={`rounded-card text-left transition-opacity disabled:cursor-wait ${
+                picked && picked !== candidate.id ? "opacity-25" : ""
               }`}
             >
               <MovieCard
@@ -88,10 +89,8 @@ export function InboxItem({
         // there is nothing to offer. Hand the user the search screen instead of
         // guessing -- "a silent wrong add is worse than a badge".
         <Link
-          href={
-            searchQuery ? `/search?q=${encodeURIComponent(searchQuery)}` : "/search"
-          }
-          className="self-start rounded-full bg-surface-strong px-4 py-2 text-sm text-fg transition-transform hover:scale-105"
+          href={searchQuery ? `/search?q=${encodeURIComponent(searchQuery)}` : "/search"}
+          className={buttonClass("ghost", "self-start")}
         >
           Search for it
         </Link>

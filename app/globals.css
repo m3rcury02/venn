@@ -1,73 +1,117 @@
 @import "tailwindcss";
 
 /*
- * Venn's palette: two identity hues (circle-a, circle-b) plus `overlap`,
- * literally the RGB midpoint of the two -- the one color the app treats as
- * "yours" -- reused wherever the product asks the user to act (primary
- * buttons, focus rings), never as decoration.
+ * NEON MARQUEE
+ *
+ * Venn is used in a dark room, deciding what to watch. So the ground is true
+ * black -- not a tinted near-black -- and everything on top of it is light:
+ * two projector beams and a marquee bulb.
+ *
+ * The mark is the system's own proof. `--beam-a` and `--beam-b` are composited
+ * with `mix-blend-mode: plus-lighter`, so where the two circles cross the GPU
+ * adds them channel-wise and clamps:
+ *
+ *     #FF2D6F + #00E5FF = (255, 274->255, 366->255) = #FFFFFF
+ *
+ * Pure white, exactly. There is no third hex anywhere in this file for the
+ * overlap, because the overlap is not a color choice -- it is what happens
+ * when you shine both beams at the same spot. See components/venn-mark.tsx.
+ *
+ * There is no light mode. Every ratio below is computed against #000000, and
+ * a white-ground variant of "projector light in a dark room" would be a
+ * different product, not a theme.
+ *
+ * Contrast is computed, never eyeballed (scripted over every pair the app
+ * actually renders; see docs/DECISIONS.md):
+ *
+ *   on #000000      fg 21.00  fg-dim 6.48  fg-faint 5.31
+ *                   beam-a 5.86   beam-b 13.65   marquee 16.46
+ *   on #16161A      fg 18.04  fg-dim 5.57  fg-faint 4.56   <- the tightest
+ *
+ * Two rules fall out of that, and both are load-bearing:
+ *
+ *   1. Every accent clears 4.5:1 on the ground, so an accent is allowed to
+ *      carry meaning as text -- it is not restricted to decoration.
+ *   2. Text on an accent FILL is always black. White on `--beam-a` is 3.59:1
+ *      and fails AA; black on it is 5.86:1. `--on-beam` exists so that is a
+ *      token decision rather than a per-component judgement call.
+ *
+ * `--fg-faint` is #7F7F8A rather than a darker grey because #7A7A85 measured
+ * 4.25:1 on `--surface-2` -- fine on the ground, a real failure in the one
+ * place the app nests text on a lifted panel. Solved for, not guessed.
  */
 :root {
-  --bg: #faf7f3;
-  --surface: #f0eae2;
-  --surface-strong: #e4dbd0;
-  --fg: #1c1922;
-  --fg-muted: #6b6478;
-  --fg-faint: #9a93a6;
+  color-scheme: dark;
 
-  --circle-a: #f2545b;
-  --circle-b: #4c6fff;
-  --overlap: #9f61ad;
-  --overlap-fg: #ffffff;
-}
+  --ink: #000000;
+  --surface: #0b0b0d;
+  --surface-2: #16161a;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #15121c;
-    --surface: #201c29;
-    --surface-strong: #2b2635;
-    --fg: #f3efea;
-    --fg-muted: #a79fb3;
-    --fg-faint: #6e6680;
-  }
+  --fg: #ffffff;
+  --fg-dim: #8e8e99;
+  --fg-faint: #7f7f8a;
+
+  --beam-a: #ff2d6f;
+  --beam-b: #00e5ff;
+  --marquee: #ffe500;
+  --on-beam: #000000;
+
+  --hairline: rgba(255, 255, 255, 0.14);
 }
 
 @theme inline {
-  --color-bg: var(--bg);
+  --color-ink: var(--ink);
   --color-surface: var(--surface);
-  --color-surface-strong: var(--surface-strong);
+  --color-surface-2: var(--surface-2);
   --color-fg: var(--fg);
-  --color-fg-muted: var(--fg-muted);
+  --color-fg-dim: var(--fg-dim);
   --color-fg-faint: var(--fg-faint);
-  --color-circle-a: var(--circle-a);
-  --color-circle-b: var(--circle-b);
-  --color-overlap: var(--overlap);
-  --color-overlap-fg: var(--overlap-fg);
+  --color-beam-a: var(--beam-a);
+  --color-beam-b: var(--beam-b);
+  --color-marquee: var(--marquee);
+  --color-on-beam: var(--on-beam);
+  --color-hairline: var(--hairline);
 
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-anton);
+  --font-sans: var(--font-archivo);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
-  --animate-rise-in: rise-in 0.4s ease-out both;
-  --animate-venn-slide-a: venn-slide-a 0.45s cubic-bezier(0.22, 1.4, 0.36, 1) both;
-  --animate-venn-slide-b: venn-slide-b 0.45s cubic-bezier(0.22, 1.4, 0.36, 1) both;
+  /* Near-square. Circles are reserved for the mark and for things that
+     represent people (member pills, present chips, consensus dots); every
+     other corner in the app is one of these two values. */
+  --radius-card: 3px;
+  --radius-ctl: 2px;
+
+  --animate-expose: expose 0.5s cubic-bezier(0.22, 0.8, 0.3, 1) both;
+  --animate-beam-a: beam-a 0.5s cubic-bezier(0.2, 0.9, 0.25, 1) both;
+  --animate-beam-b: beam-b 0.5s cubic-bezier(0.2, 0.9, 0.25, 1) both;
+  --animate-beam-flash: beam-flash 0.9s ease-out both;
+  --animate-ticker: ticker 38s linear infinite;
 }
 
-@keyframes rise-in {
+/* Content arriving looks like film coming up to exposure -- it lifts, settles
+   and gains its own brightness, rather than the generic 6px fade every app
+   ships. */
+@keyframes expose {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(10px) scale(0.985);
+    filter: brightness(0.35);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
+    filter: none;
   }
 }
 
-/* The signature moment: two circles arriving from opposite sides to settle
-   into the overlap, played once when a movie lands on the list. */
-@keyframes venn-slide-a {
+/* The signature moment: two beams swing in from opposite sides and, where
+   they land on each other, blow out to white. Played once when a movie joins
+   a list. */
+@keyframes beam-a {
   from {
     opacity: 0;
-    transform: translateX(-6px);
+    transform: translateX(-45%);
   }
   to {
     opacity: 1;
@@ -75,30 +119,154 @@
   }
 }
 
-@keyframes venn-slide-b {
+@keyframes beam-b {
   from {
     opacity: 0;
-    transform: translateX(6px);
+    transform: translateX(45%);
   }
   to {
     opacity: 1;
     transform: translateX(0);
   }
+}
+
+@keyframes beam-flash {
+  0% {
+    opacity: 0;
+    transform: scale(0.35);
+  }
+  55% {
+    opacity: 0.95;
+    transform: scale(1.2);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.75);
+  }
+}
+
+/* Paired with duplicated content, so -50% lands exactly on the seam. */
+@keyframes ticker {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+html {
+  background: var(--ink);
 }
 
 body {
-  background: var(--bg);
+  background: var(--ink);
   color: var(--fg);
 }
 
 @layer base {
   :focus-visible {
-    outline: 2px solid var(--overlap);
+    outline: 2px solid var(--marquee);
     outline-offset: 2px;
   }
 
   ::selection {
-    background: var(--overlap);
-    color: var(--overlap-fg);
+    background: var(--beam-b);
+    color: var(--on-beam);
+  }
+}
+
+@layer components {
+  /* Anton is the only display face and it is always uppercase -- it has
+     lowercase, but the point of it here is poster lettering. */
+  .t-display {
+    font-family: var(--font-display);
+    text-transform: uppercase;
+    line-height: 0.82;
+    letter-spacing: 0.005em;
+    text-wrap: balance;
+  }
+
+  .t-section {
+    font-family: var(--font-display);
+    text-transform: uppercase;
+    line-height: 0.9;
+    letter-spacing: 0.02em;
+    text-wrap: balance;
+  }
+
+  /* Archivo's width axis is what makes this a label -- the app loads no
+     monospace webfont. `--font-mono` is the system stack and is reserved for
+     text that is genuinely machine-read (invite codes, ingest tokens, the
+     endpoint URL), where character disambiguation actually matters. */
+  .t-label {
+    font-variation-settings: "wdth" 118, "wght" 600;
+    font-size: 0.6875rem;
+    line-height: 1.2;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  .t-data {
+    font-variation-settings: "wght" 500;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .t-body {
+    text-wrap: pretty;
+  }
+
+  /* Film grain, in two places for one reason: legibility.
+     `.grain-page` sits UNDER all content (layout.tsx puts children in a
+     z-1 stacking context), so it textures the black ground without ever
+     compositing against text. `.grain-art` sits over poster artwork only,
+     where there is no text to degrade. soft-light rather than overlay --
+     it leaves both extremes nearly untouched and only bites the midtones,
+     which is exactly where film grain lives anyway. */
+  .grain-page,
+  .grain-art {
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 140px 140px;
+  }
+
+  /* `screen`, not `soft-light`. soft-light leaves pure black untouched by
+     definition, so on a #000 ground this layer rendered as literally nothing
+     -- verified by sampling the painted pixels, which came back (0,0,0). Since
+     this sits UNDER all content it can blend additively without ever reaching
+     text, which is what makes `screen` safe here and not on `.grain-art`. */
+  .grain-page {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    opacity: 0.1;
+    mix-blend-mode: screen;
+  }
+
+  .grain-art {
+    position: absolute;
+    inset: 0;
+    opacity: 0.4;
+    mix-blend-mode: soft-light;
+  }
+
+  /* A marquee bulb: the fill carries its own spill onto the black around it. */
+  .bulb {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--marquee) 55%, transparent),
+      0 6px 34px -6px color-mix(in srgb, var(--marquee) 65%, transparent);
+  }
+
+  .bulb-beam {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--beam-a) 55%, transparent),
+      0 6px 34px -6px color-mix(in srgb, var(--beam-a) 65%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track {
+    animation: none !important;
+    transform: none !important;
   }
 }

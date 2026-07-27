@@ -3,7 +3,11 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { AppHeader, navLinkClass } from "@/components/app-header";
 import { MovieCard } from "@/components/movie-card";
+import { NightPickHero } from "@/components/night-pick-hero";
 import { parsePresent, PresentPicker, type Member } from "@/components/present-picker";
+import { Ticker } from "@/components/ticker";
+import { buttonClass } from "@/components/ui/button";
+import { Screen } from "@/components/ui/screen";
 import { VennMark } from "@/components/venn-mark";
 import { explain, type Recommendation } from "@/lib/recommend/explain";
 import { provider } from "@/lib/providers";
@@ -80,14 +84,19 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
     : { data: null };
 
   const picks = (data as unknown as Recommendation[] | null) ?? [];
+  const [winner, ...runnersUp] = picks;
 
   const rerollHref = nightHref(id, present, memberIds, [
     ...exclude,
     ...picks.map((p) => p.movie_id),
   ]);
 
+  // The marquee runs whoever is actually here -- names the page already has,
+  // so this costs no extra query.
+  const presentNames = members.filter((m) => present.includes(m.id)).map((m) => m.name);
+
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-10 sm:px-8">
+    <Screen>
       <AppHeader
         subtitle={`${group.name} · movie night`}
         actions={
@@ -102,6 +111,8 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
         }
       />
 
+      <Ticker items={presentNames} />
+
       <PresentPicker groupId={id} members={members} present={present} />
 
       {present.length === 0 ? (
@@ -111,55 +122,64 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
         />
       ) : picks.length > 0 ? (
         <>
-          <div className="grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-3">
-            {picks.map((pick, i) => (
-              <div
-                key={pick.movie_id}
-                className="motion-safe:animate-rise-in"
-                style={{ animationDelay: `${i * 60}ms` }}
-              >
-                <MovieCard
-                  title={pick.title}
-                  year={pick.year}
-                  posterUrl={
-                    pick.poster_path
-                      ? provider.getImageUrl(pick.poster_path, "w342")
-                      : null
-                  }
-                  footer={
-                    <ul className="flex flex-col gap-1">
-                      {explain(pick).map((reason) => (
-                        <li key={reason} className="text-xs text-fg-muted">
-                          {reason}
-                        </li>
-                      ))}
-                    </ul>
-                  }
-                >
-                  <span
-                    className={`flex h-6 w-6 items-center justify-center rounded-full font-mono text-[11px] ${
-                      i === 0 ? "bg-overlap text-overlap-fg" : "bg-surface text-fg-muted"
-                    }`}
-                  >
-                    {i + 1}
-                  </span>
-                </MovieCard>
-              </div>
-            ))}
+          <div className="motion-safe:animate-expose">
+            <NightPickHero
+              title={winner.title}
+              year={winner.year}
+              backdropUrl={
+                winner.poster_path ? provider.getImageUrl(winner.poster_path, "w780") : null
+              }
+              posterUrl={
+                winner.poster_path ? provider.getImageUrl(winner.poster_path, "w342") : null
+              }
+              reasons={explain(winner)}
+            />
           </div>
 
+          {runnersUp.length > 0 ? (
+            <div className="flex flex-col gap-4">
+              <h2 className="t-label text-fg-faint">If not that</h2>
+              <div className="grid grid-cols-2 gap-x-5 gap-y-8 sm:max-w-md">
+                {runnersUp.map((pick, i) => (
+                  <div
+                    key={pick.movie_id}
+                    className="motion-safe:animate-expose"
+                    style={{ animationDelay: `${(i + 1) * 70}ms` }}
+                  >
+                    <MovieCard
+                      title={pick.title}
+                      year={pick.year}
+                      posterUrl={
+                        pick.poster_path
+                          ? provider.getImageUrl(pick.poster_path, "w342")
+                          : null
+                      }
+                      footer={
+                        <ul className="flex flex-col gap-1">
+                          {explain(pick).map((reason) => (
+                            <li key={reason} className="t-body text-[13px] text-fg-dim">
+                              {reason}
+                            </li>
+                          ))}
+                        </ul>
+                      }
+                    >
+                      <span className="t-data flex h-6 w-6 items-center justify-center rounded-ctl border border-hairline bg-ink/70 text-[11px] text-fg-dim backdrop-blur-sm">
+                        {i + 2}
+                      </span>
+                    </MovieCard>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <div className="flex flex-wrap items-center gap-3">
-            <Link
-              href={rerollHref}
-              className="rounded-full bg-overlap px-5 py-2.5 text-sm font-medium text-overlap-fg transition-transform hover:scale-105"
-            >
+            <Link href={rerollHref} className={buttonClass("marquee")}>
               Reroll
             </Link>
             {exclude.length > 0 ? (
-              <Link
-                href={nightHref(id, present, memberIds, [])}
-                className={navLinkClass}
-              >
+              <Link href={nightHref(id, present, memberIds, [])} className={navLinkClass}>
                 Start over
               </Link>
             ) : null}
@@ -177,22 +197,19 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
             exclude.length > 0 ? (
               <Link
                 href={nightHref(id, present, memberIds, [])}
-                className="mt-2 rounded-full bg-overlap px-5 py-2.5 text-sm font-medium text-overlap-fg transition-transform hover:scale-105"
+                className={buttonClass("marquee", "mt-2")}
               >
                 Start over
               </Link>
             ) : (
-              <Link
-                href={`/groups/${id}`}
-                className="mt-2 rounded-full bg-overlap px-5 py-2.5 text-sm font-medium text-overlap-fg transition-transform hover:scale-105"
-              >
+              <Link href={`/groups/${id}`} className={buttonClass("marquee", "mt-2")}>
                 Back to the list
               </Link>
             )
           }
         />
       )}
-    </main>
+    </Screen>
   );
 }
 
@@ -206,11 +223,11 @@ function Empty({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-4 py-20 text-center">
-      <VennMark size={40} />
-      <div className="space-y-1">
-        <p className="text-lg font-medium text-fg">{title}</p>
-        <p className="max-w-sm text-sm text-fg-muted">{body}</p>
+    <div className="flex flex-1 flex-col items-center justify-center gap-5 py-20 text-center">
+      <VennMark size={44} />
+      <div className="space-y-3">
+        <p className="t-section text-3xl text-fg">{title}</p>
+        <p className="t-body mx-auto max-w-sm text-[15px] text-fg-dim">{body}</p>
       </div>
       {action}
     </div>

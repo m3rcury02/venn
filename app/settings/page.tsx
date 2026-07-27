@@ -7,6 +7,7 @@ import {
   type TokenRow,
 } from "@/components/ingest-token-panel";
 import { ShortcutSetup } from "@/components/shortcut-setup";
+import { Screen } from "@/components/ui/screen";
 import { createClient } from "@/lib/supabase/server";
 
 // SPEC §7 screen 11. Built with the ingest-token section only -- §5 says the
@@ -37,7 +38,7 @@ export default async function SettingsPage() {
     .order("created_at", { ascending: false });
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-10 px-6 py-10 sm:px-8">
+    <Screen width="narrow">
       <AppHeader
         subtitle="Settings"
         actions={
@@ -52,12 +53,12 @@ export default async function SettingsPage() {
         }
       />
 
-      <section className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1">
-          <h2 className="font-mono text-[11px] tracking-wider text-fg-faint uppercase">
-            Ingest tokens
-          </h2>
-          <p className="max-w-md text-sm text-fg-muted">
+      <h1 className="t-display text-[clamp(44px,13vw,96px)] text-fg">Settings</h1>
+
+      <section className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
+          <h2 className="t-label text-fg-faint">Ingest tokens</h2>
+          <p className="t-body max-w-md text-[15px] text-fg-dim">
             A token lets one device send you movies without signing in — share a
             link or a title and it lands in your Inbox. Generate one per device
             so a lost phone costs you one token, not all of them.
@@ -67,12 +68,10 @@ export default async function SettingsPage() {
         <IngestTokenPanel tokens={(tokens as TokenRow[] | null) ?? []} />
       </section>
 
-      <section className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1">
-          <h2 className="font-mono text-[11px] tracking-wider text-fg-faint uppercase">
-            Send from your phone
-          </h2>
-          <p className="max-w-md text-sm text-fg-muted">
+      <section className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
+          <h2 className="t-label text-fg-faint">Send from your phone</h2>
+          <p className="t-body max-w-md text-[15px] text-fg-dim">
             On Android, install Venn to your home screen (⋮ → Add to Home
             screen) and it appears in the share sheet directly. PWAs
             can&rsquo;t do that on iOS, so there it&rsquo;s a Shortcut instead —
@@ -82,6 +81,6 @@ export default async function SettingsPage() {
 
         <ShortcutSetup endpoint={ingestEndpoint} />
       </section>
-    </main>
+    </Screen>
   );
 }

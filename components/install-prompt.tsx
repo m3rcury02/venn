@@ -68,23 +68,25 @@ export function InstallPrompt() {
   if (dismissed || (!deferredPrompt && !showIosSteps)) return null;
 
   return (
-    <div className="fixed inset-x-4 bottom-4 z-50 mx-auto flex max-w-md items-center gap-3 rounded-2xl bg-surface-strong px-4 py-3 shadow-lg">
+    <div className="fixed inset-x-4 bottom-4 z-50 mx-auto flex max-w-md items-center gap-3 rounded-card border border-hairline bg-surface px-4 py-3">
+      {/* On `bg-surface` (#0B0B0D), not a fill -- the mark blends additively
+          and needs a near-black backdrop to resolve. */}
       <VennMark size={28} />
-      <div className="min-w-0 flex-1 text-sm text-fg">
+      <div className="t-body min-w-0 flex-1 text-[14px]">
         {showIosSteps ? (
-          <p className="text-fg-muted">
+          <p className="text-fg-dim">
             Install Venn: tap <span className="text-fg">Share</span>, then{" "}
             <span className="text-fg">Add to Home Screen</span>.
           </p>
         ) : (
-          <p className="text-fg-muted">Install Venn for quicker access.</p>
+          <p className="text-fg-dim">Install Venn for quicker access.</p>
         )}
       </div>
       {deferredPrompt ? (
         <button
           type="button"
           onClick={install}
-          className="shrink-0 rounded-full bg-overlap px-3 py-1.5 font-mono text-[10px] tracking-wider text-overlap-fg uppercase"
+          className="t-label bulb shrink-0 rounded-ctl bg-marquee px-3 py-2 text-on-beam"
         >
           Install
         </button>
@@ -93,7 +95,7 @@ export function InstallPrompt() {
         type="button"
         onClick={dismiss}
         aria-label="Dismiss"
-        className="shrink-0 rounded-full px-2 py-1.5 text-fg-faint transition-colors hover:bg-surface hover:text-fg"
+        className="shrink-0 rounded-ctl px-2 py-1.5 text-fg-faint transition-colors hover:bg-surface-2 hover:text-fg"
       >
         ×
       </button>

@@ -2,6 +2,8 @@
 
 import { useActionState } from "react";
 import { joinGroup, type GroupFormState } from "@/app/groups/actions";
+import { buttonClass } from "@/components/ui/button";
+import { errorClass, inputClass } from "@/components/ui/input";
 
 const initialState: GroupFormState = {};
 
@@ -17,20 +19,21 @@ export function JoinGroupForm() {
           required
           maxLength={16}
           placeholder="INVITE CODE"
+          // Genuinely machine-read text, so this is one of the three places the
+          // system monospace stack is used rather than Archivo -- an invite code
+          // has to survive being read aloud and retyped.
           // join_group_by_code upper()s and trim()s, so casing here is cosmetic.
-          className="h-11 min-w-0 flex-1 rounded-full bg-surface px-4 font-mono text-sm tracking-[0.2em] text-fg uppercase placeholder:tracking-normal placeholder:text-fg-faint focus:outline-none"
+          className={`${inputClass} flex-1 font-mono tracking-[0.2em] uppercase placeholder:tracking-normal`}
         />
         <button
           type="submit"
           disabled={pending}
-          className="h-11 shrink-0 rounded-full bg-surface-strong px-5 text-sm font-medium text-fg transition-transform hover:scale-105 disabled:opacity-50 disabled:hover:scale-100"
+          className={buttonClass("ghost", "h-12 shrink-0 py-0")}
         >
           {pending ? "Joining…" : "Join"}
         </button>
       </div>
-      {state.error ? (
-        <p className="text-sm text-circle-a">{state.error}</p>
-      ) : null}
+      {state.error ? <p className={errorClass}>{state.error}</p> : null}
     </form>
   );
 }

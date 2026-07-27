@@ -24,20 +24,20 @@ export function ShortcutSetup({ endpoint }: { endpoint: string }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-3 rounded-2xl bg-surface px-4 py-3">
-        <code className="min-w-0 flex-1 truncate font-mono text-xs text-fg">
+      <div className="flex items-center gap-3 rounded-card border border-hairline bg-surface px-4 py-3">
+        <code className="min-w-0 flex-1 truncate font-mono text-[13px] text-fg">
           {endpoint}
         </code>
         <button
           type="button"
           onClick={handleCopy}
-          className="shrink-0 rounded-full px-3 py-1.5 font-mono text-[10px] tracking-wider text-fg-faint uppercase transition-colors hover:bg-surface-strong hover:text-fg"
+          className="t-label shrink-0 rounded-ctl px-3 py-2 text-fg-faint transition-colors hover:bg-surface-2 hover:text-fg"
         >
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
 
-      <ol className="list-decimal space-y-1.5 pl-5 text-sm text-fg-muted">
+      <ol className="t-body list-decimal space-y-2 pl-5 text-[15px] text-fg-dim">
         <li>Open the Shortcuts app, tap + to add a new shortcut.</li>
         <li>
           Add <span className="text-fg">Receive [Text] from [Share Sheet]</span>.

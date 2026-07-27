@@ -1,6 +1,9 @@
 "use client";
 
 import { useActionState } from "react";
+import { buttonClass } from "@/components/ui/button";
+import { errorClass, inputClass } from "@/components/ui/input";
+import { Panel } from "@/components/ui/panel";
 import {
   createIngestToken,
   revokeIngestToken,
@@ -22,10 +25,7 @@ function when(iso: string | null): string {
 }
 
 export function IngestTokenPanel({ tokens }: { tokens: TokenRow[] }) {
-  const [state, formAction, pending] = useActionState(
-    createIngestToken,
-    initialState,
-  );
+  const [state, formAction, pending] = useActionState(createIngestToken, initialState);
 
   return (
     <div className="flex flex-col gap-4">
@@ -37,46 +37,40 @@ export function IngestTokenPanel({ tokens }: { tokens: TokenRow[] }) {
             required
             maxLength={40}
             placeholder="My iPhone"
-            className="h-11 min-w-0 flex-1 rounded-full bg-surface px-4 text-sm text-fg placeholder:text-fg-faint focus:outline-none"
+            className={`${inputClass} flex-1`}
           />
           <button
             type="submit"
             disabled={pending}
-            className="h-11 shrink-0 rounded-full bg-overlap px-5 text-sm font-medium text-overlap-fg transition-transform hover:scale-105 disabled:opacity-50 disabled:hover:scale-100"
+            className={buttonClass("marquee", "h-12 shrink-0 py-0")}
           >
             {pending ? "Creating…" : "Generate"}
           </button>
         </div>
-        {state.error ? (
-          <p className="text-sm text-circle-a">{state.error}</p>
-        ) : null}
+        {state.error ? <p className={errorClass}>{state.error}</p> : null}
       </form>
 
       {/* Rendered here and nowhere else. This value exists only in the action's
           return; nothing on the server can show it again. */}
       {state.token ? (
-        <div className="flex flex-col gap-2 rounded-2xl bg-surface p-4">
-          <p className="font-mono text-[11px] tracking-wider text-fg-faint uppercase">
-            Copy this now — it is not shown again
-          </p>
-          <code className="block wrap-anywhere rounded-xl bg-surface-strong p-3 font-mono text-xs text-fg select-all">
+        <Panel className="flex flex-col gap-2.5 border-marquee/40">
+          <p className="t-label text-marquee">Copy this now — it is not shown again</p>
+          <code className="block wrap-anywhere rounded-ctl bg-surface-2 p-3 font-mono text-[13px] text-fg select-all">
             {state.token}
           </code>
-        </div>
+        </Panel>
       ) : null}
 
       {tokens.length > 0 ? (
-        <ul className="flex flex-col gap-1">
+        <ul className="flex flex-col gap-1.5">
           {tokens.map((token) => (
             <li
               key={token.id}
-              className="flex items-center gap-3 rounded-2xl bg-surface px-4 py-3"
+              className="flex items-center gap-3 rounded-card border border-hairline bg-surface px-4 py-3"
             >
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm text-fg">
-                  {token.label ?? "Unnamed"}
-                </p>
-                <p className="font-mono text-[10px] tracking-wider text-fg-faint uppercase">
+                <p className="truncate text-[15px] text-fg">{token.label ?? "Unnamed"}</p>
+                <p className="t-label mt-1 text-fg-faint">
                   {token.revoked_at
                     ? `Revoked ${when(token.revoked_at)}`
                     : `Last used ${when(token.last_used_at)}`}
@@ -92,10 +86,7 @@ export function IngestTokenPanel({ tokens }: { tokens: TokenRow[] }) {
 }
 
 function RevokeButton({ id }: { id: string }) {
-  const [, formAction, pending] = useActionState(
-    revokeIngestToken,
-    initialState,
-  );
+  const [, formAction, pending] = useActionState(revokeIngestToken, initialState);
 
   return (
     <form action={formAction}>
@@ -103,7 +94,7 @@ function RevokeButton({ id }: { id: string }) {
       <button
         type="submit"
         disabled={pending}
-        className="shrink-0 rounded-full px-3 py-1.5 font-mono text-[10px] tracking-wider text-fg-faint uppercase transition-colors hover:bg-surface-strong hover:text-circle-a disabled:opacity-50"
+        className="t-label shrink-0 rounded-ctl px-3 py-2 text-fg-faint transition-colors hover:bg-surface-2 hover:text-beam-a disabled:opacity-50"
       >
         {pending ? "…" : "Revoke"}
       </button>

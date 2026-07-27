@@ -21,12 +21,11 @@ export function InviteCode({ code }: { code: string }) {
       type="button"
       onClick={handleCopy}
       title="Copy invite code"
-      className="group flex items-center gap-3 rounded-full bg-surface py-2 pr-3 pl-5 transition-colors hover:bg-surface-strong"
+      className="flex items-center gap-4 rounded-ctl border border-hairline bg-surface py-2.5 pr-3 pl-5 transition-colors hover:border-marquee"
     >
-      <span className="font-mono text-sm tracking-[0.25em] text-fg">{code}</span>
-      <span className="font-mono text-[10px] tracking-wider text-fg-faint uppercase">
-        {copied ? "Copied" : "Copy"}
-      </span>
+      {/* System monospace: a code that gets read out and retyped. */}
+      <span className="font-mono text-[15px] tracking-[0.25em] text-fg">{code}</span>
+      <span className="t-label text-fg-faint">{copied ? "Copied" : "Copy"}</span>
     </button>
   );
 }

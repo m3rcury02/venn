@@ -2,6 +2,8 @@
 
 import { useActionState } from "react";
 import { createGroup, type GroupFormState } from "@/app/groups/actions";
+import { buttonClass } from "@/components/ui/button";
+import { errorClass, inputClass } from "@/components/ui/input";
 
 const initialState: GroupFormState = {};
 
@@ -17,19 +19,17 @@ export function CreateGroupForm() {
           required
           maxLength={60}
           placeholder="Friday Night Crew"
-          className="h-11 min-w-0 flex-1 rounded-full bg-surface px-4 text-sm text-fg placeholder:text-fg-faint focus:outline-none"
+          className={`${inputClass} flex-1`}
         />
         <button
           type="submit"
           disabled={pending}
-          className="h-11 shrink-0 rounded-full bg-overlap px-5 text-sm font-medium text-overlap-fg transition-transform hover:scale-105 disabled:opacity-50 disabled:hover:scale-100"
+          className={buttonClass("marquee", "h-12 shrink-0 py-0")}
         >
           {pending ? "Creating…" : "Create"}
         </button>
       </div>
-      {state.error ? (
-        <p className="text-sm text-circle-a">{state.error}</p>
-      ) : null}
+      {state.error ? <p className={errorClass}>{state.error}</p> : null}
     </form>
   );
 }

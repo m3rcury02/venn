@@ -51,18 +51,37 @@ export function matchesFilter(filter: FilterValue, status: Status): boolean {
   }
 }
 
-const chipBase =
-  "rounded-full px-3 py-1 text-xs font-medium tracking-wide transition-colors";
-const chipActive = "bg-overlap text-overlap-fg";
-const chipInactive = "bg-surface text-fg-muted hover:text-fg";
+const chipBase = "t-label rounded-ctl px-3 py-2 transition-colors";
+const chipInactive = "bg-surface-2 text-fg-dim hover:text-fg";
 
-function Chip({ filter, isActive, label, count }: { filter: FilterValue; isActive: boolean; label: string; count: number }) {
+// A selected value chip lights in its own vote color, matching VoteControl:
+// low end `--beam-a`, top end `--beam-b`, middle white. The three structural
+// chips (All / Watched / Unwatched) light marquee, because they are navigation
+// rather than a value.
+function activeToneFor(filter: FilterValue) {
+  if (filter === "hate" || filter === "dont_care") return "bg-beam-a text-on-beam";
+  if (filter === "love" || filter === "superhyped") return "bg-beam-b text-on-beam";
+  if (filter === "like" || filter === "hyped") return "bg-fg text-ink";
+  return "bg-marquee text-on-beam";
+}
+
+function Chip({
+  filter,
+  isActive,
+  label,
+  count,
+}: {
+  filter: FilterValue;
+  isActive: boolean;
+  label: string;
+  count: number;
+}) {
   return (
     <Link
       href={filter === "all" ? "/" : `/?filter=${filter}`}
-      className={`${chipBase} ${isActive ? chipActive : chipInactive}`}
+      className={`${chipBase} ${isActive ? activeToneFor(filter) : chipInactive}`}
     >
-      {label} · {count}
+      {label} <span className="t-data opacity-60">{count}</span>
     </Link>
   );
 }
@@ -77,14 +96,14 @@ export function ListFilter({ active, statuses }: { active: FilterValue; statuses
     active === "unwatched" || active === "dont_care" || active === "hyped" || active === "superhyped";
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-1.5">
       <Chip filter="all" isActive={active === "all"} label="All" count={statuses.length} />
       <Chip filter="watched" isActive={inWatchedSection} label="Watched" count={count("watched")} />
       <Chip filter="unwatched" isActive={inUnwatchedSection} label="Unwatched" count={count("unwatched")} />
 
       {inWatchedSection ? (
         <>
-          <span className="text-fg-faint">/</span>
+          <span className="mx-1 h-4 w-px bg-hairline" aria-hidden />
           <Chip filter="love" isActive={active === "love"} label="Loved" count={count("love")} />
           <Chip filter="like" isActive={active === "like"} label="Liked" count={count("like")} />
           <Chip filter="hate" isActive={active === "hate"} label="Hated" count={count("hate")} />
@@ -93,7 +112,7 @@ export function ListFilter({ active, statuses }: { active: FilterValue; statuses
 
       {inUnwatchedSection ? (
         <>
-          <span className="text-fg-faint">/</span>
+          <span className="mx-1 h-4 w-px bg-hairline" aria-hidden />
           <Chip filter="superhyped" isActive={active === "superhyped"} label="Very hyped" count={count("superhyped")} />
           <Chip filter="hyped" isActive={active === "hyped"} label="Hyped" count={count("hyped")} />
           <Chip filter="dont_care" isActive={active === "dont_care"} label="Meh" count={count("dont_care")} />

@@ -4,6 +4,8 @@ import { AppHeader, navLinkClass } from "@/components/app-header";
 import { ListFilter, matchesFilter, parseFilter, type Status } from "@/components/list-filter";
 import { MovieCard } from "@/components/movie-card";
 import { RemoveFromListButton } from "@/components/remove-from-list-button";
+import { buttonClass } from "@/components/ui/button";
+import { Screen } from "@/components/ui/screen";
 import { VennMark } from "@/components/venn-mark";
 import { VoteControl } from "@/components/vote-control";
 import { WatchedToggle } from "@/components/watched-toggle";
@@ -68,11 +70,12 @@ export default async function Home({ searchParams }: HomeProps) {
   const filter = parseFilter((await searchParams).filter);
   const statuses = items?.map((item) => item.movies.user_movie_status[0] ?? null) ?? [];
   const filteredItems = items?.filter((_, i) => matchesFilter(filter, statuses[i])) ?? [];
+  const unwatched = statuses.filter((s) => !(s?.watched ?? false)).length;
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-10 px-6 py-10 sm:px-8">
+    <Screen>
       <AppHeader
-        subtitle={count > 0 ? `Your list · ${count} movie${count === 1 ? "" : "s"}` : "Your list"}
+        subtitle="Your list"
         inboxCount={pendingCount ?? 0}
         actions={
           <>
@@ -96,6 +99,13 @@ export default async function Home({ searchParams }: HomeProps) {
 
       {items && items.length > 0 ? (
         <>
+          <div>
+            <h1 className="t-display text-[clamp(44px,13vw,104px)] text-fg">Your list</h1>
+            <p className="t-label mt-4 text-fg-dim">
+              {count} movie{count === 1 ? "" : "s"} · {unwatched} unwatched
+            </p>
+          </div>
+
           <ListFilter active={filter} statuses={statuses} />
 
           {filteredItems.length > 0 ? (
@@ -106,7 +116,7 @@ export default async function Home({ searchParams }: HomeProps) {
                 return (
                   <div
                     key={item.movie_id}
-                    className="motion-safe:animate-rise-in"
+                    className="motion-safe:animate-expose"
                     style={{ animationDelay: `${Math.min(i, 10) * 40}ms` }}
                   >
                     <MovieCard
@@ -114,7 +124,7 @@ export default async function Home({ searchParams }: HomeProps) {
                       year={item.movies.year}
                       posterUrl={
                         item.movies.poster_path
-                          ? provider.getImageUrl(item.movies.poster_path, "w185")
+                          ? provider.getImageUrl(item.movies.poster_path, "w342")
                           : null
                       }
                       footer={
@@ -136,29 +146,42 @@ export default async function Home({ searchParams }: HomeProps) {
               })}
             </div>
           ) : (
-            <p className="py-16 text-center text-sm text-fg-muted">
-              No movies match this filter.
-            </p>
+            <div className="flex flex-col items-center gap-5 py-20 text-center">
+              <p className="t-section text-3xl text-fg">Nothing under this filter</p>
+              <p className="t-body max-w-sm text-[15px] text-fg-dim">
+                No movie on your list matches it yet.
+              </p>
+              <Link href="/" className={buttonClass("ghost")}>
+                Show everything
+              </Link>
+            </div>
           )}
         </>
       ) : (
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 py-24 text-center">
-          <VennMark size={40} />
-          <div className="space-y-1">
-            <p className="text-lg font-medium text-fg">Nothing here yet</p>
-            <p className="max-w-sm text-sm text-fg-muted">
-              Search for a movie to add it — this is where your side of the
-              overlap lives.
-            </p>
-          </div>
-          <Link
-            href="/search"
-            className="mt-2 rounded-full bg-overlap px-5 py-2.5 text-sm font-medium text-overlap-fg transition-transform hover:scale-105"
-          >
+        <div className="relative flex flex-1 flex-col items-center justify-center gap-6 py-24 text-center">
+          {/* Ambient beam wash behind the mark -- the only place on this screen
+              the beams appear at size. */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute top-1/2 left-1/2 -z-10 h-64 w-64 -translate-x-1/2 -translate-y-[70%] opacity-40 blur-3xl"
+            style={{
+              background:
+                "radial-gradient(circle at 32% 50%, var(--beam-a), transparent 60%), radial-gradient(circle at 68% 50%, var(--beam-b), transparent 60%)",
+            }}
+          />
+          <VennMark size={96} animated />
+          <h1 className="t-display text-[clamp(44px,13vw,96px)] text-fg">
+            Nothing here yet
+          </h1>
+          <p className="t-body max-w-sm text-[15px] text-fg-dim">
+            Search for a movie to add it — this is where your side of the overlap
+            lives.
+          </p>
+          <Link href="/search" className={buttonClass("marquee", "mt-2")}>
             Search movies
           </Link>
         </div>
       )}
-    </main>
+    </Screen>
   );
 }

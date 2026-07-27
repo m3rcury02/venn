@@ -1,17 +1,24 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Anton, Archivo } from "next/font/google";
 import { InstallPrompt } from "@/components/install-prompt";
 import { RegisterServiceWorker } from "@/components/register-service-worker";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Two families, and the second one does three jobs. Archivo is variable on
+// both width (62-125) and weight (100-900), so the uppercase label idiom this
+// app uses ~28 times is set with `wdth 118` instead of pulling down a third
+// webfont for it. Anton is display only -- it has no weight axis and no
+// business below ~24px.
+const anton = Anton({
+  variable: "--font-anton",
   subsets: ["latin"],
+  weight: "400",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const archivo = Archivo({
+  variable: "--font-archivo",
   subsets: ["latin"],
+  axes: ["wdth"],
 });
 
 export const metadata: Metadata = {
@@ -24,12 +31,12 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     title: "Venn",
-    statusBarStyle: "default",
+    statusBarStyle: "black-translucent",
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#9f61ad",
+  themeColor: "#000000",
 };
 
 export default function RootLayout({
@@ -40,10 +47,13 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${anton.variable} ${archivo.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
-        {children}
+      <body className="min-h-full bg-ink">
+        {/* Grain sits at z-0 and the app at z-1, so the texture never
+            composites against text. See globals.css. */}
+        <div className="grain-page" aria-hidden />
+        <div className="relative z-[1] flex min-h-dvh flex-col">{children}</div>
         <InstallPrompt />
         <RegisterServiceWorker />
       </body>

@@ -18,10 +18,12 @@ export function parsePresent(raw: string | undefined, memberIds: string[]): stri
   return memberIds.filter((id) => asked.has(id));
 }
 
-const chipBase =
-  "rounded-full px-3 py-1.5 text-xs font-medium tracking-wide transition-colors";
-const chipOn = "bg-overlap text-overlap-fg";
-const chipOff = "bg-surface text-fg-muted hover:text-fg";
+// These are the one place in the app that stays round. Corners are square
+// everywhere else; circles are reserved for the mark and for things that
+// stand for people -- which is exactly what a present chip is.
+const chipBase = "t-label rounded-full px-4 py-2 transition-colors";
+const chipOn = "bg-marquee text-on-beam";
+const chipOff = "border border-hairline text-fg-dim hover:border-fg-dim hover:text-fg";
 
 export function PresentPicker({
   groupId,
@@ -42,10 +44,8 @@ export function PresentPicker({
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <h2 className="font-mono text-[11px] tracking-wider text-fg-faint uppercase">
-        Who&rsquo;s here
-      </h2>
+    <div className="flex flex-col gap-3">
+      <h2 className="t-label text-fg-faint">Who&rsquo;s here</h2>
       <div className="flex flex-wrap items-center gap-2">
         {members.map((member) => {
           const isHere = here.has(member.id);

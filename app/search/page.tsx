@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AppHeader, navLinkClass } from "@/components/app-header";
 import { SearchForm } from "@/components/search-form";
+import { Screen } from "@/components/ui/screen";
 import { createClient } from "@/lib/supabase/server";
 
 type SearchPageProps = {
@@ -29,11 +30,9 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-10 px-6 py-10 sm:px-8">
+    <Screen>
       <AppHeader
-        subtitle={
-          target ? `Adding to ${target.name}` : "Add something to the overlap"
-        }
+        subtitle={target ? `Adding to ${target.name}` : "Add something to the overlap"}
         actions={
           target ? (
             <Link href={`/groups/${target.groupId}`} className={navLinkClass}>
@@ -47,7 +46,11 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
         }
       />
 
+      <h1 className="t-display text-[clamp(44px,13vw,104px)] text-fg">
+        {target ? "Add to the group" : "Find it"}
+      </h1>
+
       <SearchForm listId={target?.id} initialQuery={q} />
-    </main>
+    </Screen>
   );
 }
