@@ -87,6 +87,45 @@
   --animate-beam-b: beam-b 0.5s cubic-bezier(0.2, 0.9, 0.25, 1) both;
   --animate-beam-flash: beam-flash 0.9s ease-out both;
   --animate-ticker: ticker 38s linear infinite;
+  --animate-beam-scan-a: beam-scan-a 1.5s ease-in-out infinite;
+  --animate-beam-scan-b: beam-scan-b 1.5s ease-in-out infinite;
+  --animate-breathe: breathe 1.8s ease-in-out infinite;
+}
+
+/* Loading. The two beams hunt for each other -- they pull apart, then cross
+   far enough to blow the lens wide open, forever. It is the same mark and the
+   same additive blend as everywhere else, just never allowed to settle, which
+   is exactly what "still working" should look like in this app. */
+@keyframes beam-scan-a {
+  0%,
+  100% {
+    transform: translateX(-30%);
+  }
+  50% {
+    transform: translateX(18%);
+  }
+}
+
+@keyframes beam-scan-b {
+  0%,
+  100% {
+    transform: translateX(30%);
+  }
+  50% {
+    transform: translateX(-18%);
+  }
+}
+
+/* Skeletons breathe rather than shimmer. A sweeping highlight is the house
+   style of every dashboard template; this is quieter and needs no gradient. */
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.9;
+  }
 }
 
 /* Content arriving looks like film coming up to exposure -- it lifts, settles

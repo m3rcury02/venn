@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LinkPending } from "@/components/ui/link-pending";
 
 // SPEC §4: the recommender runs on members marked present. Which members those
 // are is a searchParam rather than component state, exactly as
@@ -21,7 +22,7 @@ export function parsePresent(raw: string | undefined, memberIds: string[]): stri
 // These are the one place in the app that stays round. Corners are square
 // everywhere else; circles are reserved for the mark and for things that
 // stand for people -- which is exactly what a present chip is.
-const chipBase = "t-label rounded-full px-4 py-2 transition-colors";
+const chipBase = "t-label relative rounded-full px-4 py-2 transition-colors";
 const chipOn = "bg-marquee text-on-beam";
 const chipOff = "border border-hairline text-fg-dim hover:border-fg-dim hover:text-fg";
 
@@ -60,6 +61,10 @@ export function PresentPicker({
               className={`${chipBase} ${isHere ? chipOn : chipOff}`}
             >
               {member.name}
+              {/* Toggling presence re-runs recommend_movies, which is the
+                  slowest query in the app -- this is the tap that most needed
+                  an answer. */}
+              <LinkPending size={14} />
             </Link>
           );
         })}

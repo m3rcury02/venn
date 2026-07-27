@@ -59,7 +59,7 @@ export default function LoginPage() {
       <div aria-hidden className="absolute inset-x-0 bottom-0 h-6 bg-ink sm:h-9" />
 
       <div className="w-full max-w-sm">
-        <VennMark size={64} animated />
+        <VennMark size={64} mode="arrive" />
         <h1 className="t-display mt-6 text-[clamp(56px,17vw,88px)] text-fg">Venn</h1>
         <p className="t-body mt-5 text-[15px] text-fg-dim">
           Sign in to see where your list overlaps with theirs.

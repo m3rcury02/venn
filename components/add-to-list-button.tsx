@@ -46,7 +46,7 @@ export function AddToListButton({
         title={label}
         role="status"
       >
-        <VennMark size={18} animated={status === "added"} />
+        <VennMark size={18} mode={status === "added" ? "arrive" : "still"} />
         <span className="sr-only">{label}</span>
       </span>
     );

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LinkPending } from "@/components/ui/link-pending";
 import type { Hype, Rating } from "@/app/status/actions";
 
 export type FilterValue =
@@ -51,7 +52,10 @@ export function matchesFilter(filter: FilterValue, status: Status): boolean {
   }
 }
 
-const chipBase = "t-label rounded-ctl px-3 py-2 transition-colors";
+// `relative` so LinkPending can cover the chip you tapped. These navigate to
+// the same route with a different searchParam, which never engages
+// `loading.tsx` -- see components/ui/link-pending.tsx.
+const chipBase = "t-label relative rounded-ctl px-3 py-2 transition-colors";
 const chipInactive = "bg-surface-2 text-fg-dim hover:text-fg";
 
 // A selected value chip lights in its own vote color, matching VoteControl:
@@ -82,6 +86,7 @@ function Chip({
       className={`${chipBase} ${isActive ? activeToneFor(filter) : chipInactive}`}
     >
       {label} <span className="t-data opacity-60">{count}</span>
+      <LinkPending size={14} />
     </Link>
   );
 }

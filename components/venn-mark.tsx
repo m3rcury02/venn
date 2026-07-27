@@ -23,12 +23,32 @@
 
 type VennMarkProps = {
   size?: number;
-  /** Plays the beam sweep once. The "joined your list" moment. */
-  animated?: boolean;
+  /**
+   * `still`  — settled. The wordmark.
+   * `arrive` — beams sweep in once and the lens flashes. The "joined your
+   *            list" moment.
+   * `scan`   — beams hunt back and forth, forever. Loading. See
+   *            components/venn-loader.tsx, which wraps this with the
+   *            accessibility a spinner needs.
+   */
+  mode?: "still" | "arrive" | "scan";
   className?: string;
 };
 
-export function VennMark({ size = 20, animated = false, className }: VennMarkProps) {
+export function VennMark({ size = 20, mode = "still", className }: VennMarkProps) {
+  const arrive = mode === "arrive";
+  const scan = mode === "scan";
+  const beamA = arrive
+    ? "motion-safe:animate-beam-a"
+    : scan
+      ? "motion-safe:animate-beam-scan-a"
+      : "";
+  const beamB = arrive
+    ? "motion-safe:animate-beam-b"
+    : scan
+      ? "motion-safe:animate-beam-scan-b"
+      : "";
+
   // 0.55 was measured, not picked: rendered at 22/30/40/96px against 0.52,
   // 0.58, 0.61 and 0.64. Above ~0.58 the white lens swallows both beams and
   // the mark reads as one blob; below ~0.52 the lens disappears at 22px.
@@ -45,7 +65,7 @@ export function VennMark({ size = 20, animated = false, className }: VennMarkPro
       style={{ width: size, height: size }}
     >
       <span
-        className={`absolute rounded-full ${animated ? "motion-safe:animate-beam-a" : ""}`}
+        className={`absolute rounded-full ${beamA}`}
         style={{
           width: circle,
           height: circle,
@@ -56,7 +76,7 @@ export function VennMark({ size = 20, animated = false, className }: VennMarkPro
         }}
       />
       <span
-        className={`absolute rounded-full ${animated ? "motion-safe:animate-beam-b" : ""}`}
+        className={`absolute rounded-full ${beamB}`}
         style={{
           width: circle,
           height: circle,
@@ -66,7 +86,7 @@ export function VennMark({ size = 20, animated = false, className }: VennMarkPro
           mixBlendMode: "plus-lighter",
         }}
       />
-      {animated ? (
+      {arrive ? (
         <span
           className="absolute rounded-full motion-safe:animate-beam-flash motion-reduce:hidden"
           style={{

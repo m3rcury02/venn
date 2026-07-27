@@ -5,7 +5,7 @@ import { VennMark } from "@/components/venn-mark";
 // `whitespace-nowrap` is load-bearing: without it "Movie night" and "Add
 // movies" break mid-label on a 390px viewport.
 export const navLinkClass =
-  "t-label rounded-ctl px-3 py-2 whitespace-nowrap text-fg-dim transition-colors hover:bg-surface-2 hover:text-fg";
+  "t-label relative rounded-ctl px-3 py-2 whitespace-nowrap text-fg-dim transition-colors hover:bg-surface-2 hover:text-fg";
 
 type AppHeaderProps = {
   subtitle: string;

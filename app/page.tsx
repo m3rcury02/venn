@@ -169,7 +169,7 @@ export default async function Home({ searchParams }: HomeProps) {
                 "radial-gradient(circle at 32% 50%, var(--beam-a), transparent 60%), radial-gradient(circle at 68% 50%, var(--beam-b), transparent 60%)",
             }}
           />
-          <VennMark size={96} animated />
+          <VennMark size={96} mode="arrive" />
           <h1 className="t-display text-[clamp(44px,13vw,96px)] text-fg">
             Nothing here yet
           </h1>

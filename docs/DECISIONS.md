@@ -2361,3 +2361,114 @@ just the top of a linear positive range.
   stays for now.
 - **JustWatch attribution UI** — still owed from phase 1a, but no
   watch-provider data reaches a screen yet, so nothing is out of compliance.
+
+---
+
+## The platform layer — loading, errors, and the dead taps
+
+Closes the gap the design reset left open by name. Before this the app had
+**zero** `loading.tsx`, zero `<Suspense>`, zero `error.tsx`, zero
+`not-found.tsx` and no skeletons: every page was an async server component that
+blocked on Supabase, and `notFound()` fell through to Next's stock 404.
+
+### The loader is the mark, hunting
+
+There is no generic spinner in this app. `VennMark` gained a `mode` prop —
+`still` (the wordmark), `arrive` (the one-shot beam sweep, unchanged) and
+`scan`, which drives the two beams back and forth forever so the white lens
+swells and closes. Two things trying to find their overlap is a more honest
+description of what Venn is doing while you wait than a rotating arc, and it
+reuses the same geometry and the same `plus-lighter` blend rather than
+introducing a second visual idea.
+
+`mode` replaced the old `animated` boolean rather than sitting beside it: two
+mutually exclusive booleans is a worse API than one enum, and there were only
+three call sites.
+
+`VennMark` is `aria-hidden`, so `VennLoader` carries the semantics —
+`role="status"` + `aria-live="polite"`, which announces once on appearance and
+then stays quiet. Verified during a live navigation: exactly one `role=status`
+node on screen, not one per skeleton tile.
+
+Under `prefers-reduced-motion` the beams hold still and the whole mark breathes
+instead — an opacity cycle, no positional movement.
+
+### `loading.tsx` was never going to fix the filter chips
+
+This is the part worth writing down, because it is counter-intuitive and it is
+the actual reason the taps felt dead.
+
+`loading.tsx` fires when a **route segment** is newly rendered. The filter
+chips, the present picker, reroll and start-over all navigate to the *same*
+route with different searchParams, and Next runs `<Link>` navigations inside a
+React transition — whose entire purpose is that the previous UI stays on screen
+instead of falling back to a boundary. So the route-level boundary never
+engages, and adding one changes nothing for exactly the interactions that were
+worst.
+
+The fix is `useLinkStatus()` (exported from `next/link`; confirmed present in
+Next 16.2.12 before it was designed around). It reports the pending state of
+the enclosing `<Link>` and only works in a client component rendered as its
+descendant, so `components/ui/link-pending.tsx` is a small client component
+dropped inside each chip. It covers **the control you actually tapped**, which
+also answers "which one did I press" — something a page-level loader
+structurally cannot express.
+
+Verified over CDP rather than reasoned about: with a temporary 3s server delay,
+a real DOM click on the "Watched" chip, screenshotted 900ms later. The tapped
+chip carries the overlay, the other two are untouched, and the previous page
+content is still rendered behind it — which is the transition behaviour above,
+observed directly.
+
+Every control that needed it is `relative` now: `chipBase` in both
+`list-filter` and `present-picker`, plus `buttonClass`'s base and
+`navLinkClass`.
+
+### Skeletons hold shape; they do not perform
+
+One shared `ScreenLoading` with `grid` / `rows` / `plain` variants, mirroring
+each screen's real rhythm (header row, display heading, content) so the swap is
+a fill-in rather than a relayout. Tiles are dumb blocks on `--surface-2`.
+
+Activity is signalled **once**, by the loader in the header — not by twenty
+independently animating tiles. They breathe (a slow opacity cycle) rather than
+shimmer, because a sweeping highlight gradient is the house style of every
+dashboard template and this system has already paid to not look like that.
+
+### Errors
+
+- `app/error.tsx` — client boundary with `reset()`. Logs `error.digest`, which
+  in production is the only handle on the server stack (the message itself is
+  redacted before it reaches the client), and surfaces it so a user can quote
+  it.
+- `app/not-found.tsx` — **copy deliberately vague.** Both `/groups/[id]` and
+  `/groups/[id]/night` call `notFound()` for non-members precisely so the
+  group's existence is never confirmed, so this page has to read identically
+  whether the group is real or not. "This page doesn't exist, or it isn't yours
+  to see" is doing security work, not tone work.
+- `app/global-error.tsx` — replaces the root layout, so `globals.css` and both
+  fonts never load. Everything in it is inline for that reason; a class name
+  would resolve to nothing. The mark is hand-rolled from two spans.
+
+### Verification
+
+1. `pnpm typecheck`, `pnpm lint`, `pnpm build` — clean.
+2. Loader cycle rendered headless as a filmstrip across five phases: apart,
+   converging, lens fully open, separating, apart.
+3. Both skeleton variants rendered in the running app. (First attempt 404'd:
+   the preview route was under `app/__loaderpreview/`, and App Router treats
+   `_`-prefixed folders as private and excludes them from routing. That
+   accident did confirm `not-found.tsx` renders correctly.)
+4. The pending overlay driven by a real click over CDP, as described above.
+5. The temporary 3s delay used for (4) was removed and its absence confirmed by
+   diff before commit.
+
+### Still not in this pass
+
+- **Streaming with `<Suspense>`.** Each page still awaits all of its queries
+  before rendering anything; `loading.tsx` covers the whole screen rather than
+  letting the header paint while the grid resolves. Worth doing on `/` and the
+  group page, where the poster query dominates.
+- **Optimistic UI** on the vote controls. `useTransition` disables them today;
+  `useOptimistic` would let a vote land instantly and roll back on failure.
+- **View Transitions** — still flagged not-for-production by Next.

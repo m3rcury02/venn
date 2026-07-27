@@ -7,6 +7,7 @@ import { NightPickHero } from "@/components/night-pick-hero";
 import { parsePresent, PresentPicker, type Member } from "@/components/present-picker";
 import { Ticker } from "@/components/ticker";
 import { buttonClass } from "@/components/ui/button";
+import { LinkPending } from "@/components/ui/link-pending";
 import { Screen } from "@/components/ui/screen";
 import { VennMark } from "@/components/venn-mark";
 import { explain, type Recommendation } from "@/lib/recommend/explain";
@@ -175,12 +176,16 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
           ) : null}
 
           <div className="flex flex-wrap items-center gap-3">
+            {/* Reroll re-runs the recommender against a longer exclude list --
+                same route, so `loading.tsx` never fires for it. */}
             <Link href={rerollHref} className={buttonClass("marquee")}>
               Reroll
+              <LinkPending size={16} />
             </Link>
             {exclude.length > 0 ? (
               <Link href={nightHref(id, present, memberIds, [])} className={navLinkClass}>
                 Start over
+                <LinkPending size={14} />
               </Link>
             ) : null}
           </div>

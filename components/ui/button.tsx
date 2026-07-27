@@ -12,8 +12,10 @@ import type { ButtonHTMLAttributes } from "react";
 
 export type ButtonVariant = "marquee" | "beam" | "ghost";
 
+// `relative` so a <LinkPending> child can cover the button while its
+// navigation is in flight.
 const base =
-  "inline-flex items-center justify-center gap-2 rounded-ctl px-5 py-3 font-display uppercase text-[15px] leading-none tracking-[0.06em] transition duration-200 disabled:opacity-45 disabled:pointer-events-none";
+  "relative inline-flex items-center justify-center gap-2 rounded-ctl px-5 py-3 font-display uppercase text-[15px] leading-none tracking-[0.06em] transition duration-200 disabled:opacity-45 disabled:pointer-events-none";
 
 const variants: Record<ButtonVariant, string> = {
   marquee: "bulb bg-marquee text-on-beam hover:brightness-110",
