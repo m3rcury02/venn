@@ -2,30 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { VennMark } from "@/components/venn-mark";
+import { isIos, isStandalone, useDeferredInstallPrompt } from "@/lib/pwa-install";
 
 const DISMISSED_KEY = "venn-install-dismissed";
 
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-}
-
-function isStandalone() {
-  return (
-    window.matchMedia("(display-mode: standalone)").matches ||
-    // Safari's own flag -- iOS never fires beforeinstallprompt, so
-    // display-mode alone would miss an already-installed iOS PWA.
-    (window.navigator as { standalone?: boolean }).standalone === true
-  );
-}
-
-function isIos() {
-  return /iphone|ipad|ipod/i.test(window.navigator.userAgent);
-}
-
 export function InstallPrompt() {
-  const [deferredPrompt, setDeferredPrompt] =
-    useState<BeforeInstallPromptEvent | null>(null);
+  const { canPrompt, promptInstall } = useDeferredInstallPrompt();
   const [showIosSteps, setShowIosSteps] = useState(false);
   const [dismissed, setDismissed] = useState(true);
 
@@ -38,18 +20,7 @@ export function InstallPrompt() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDismissed(false);
 
-    if (isIos()) {
-      setShowIosSteps(true);
-      return;
-    }
-
-    function onBeforeInstallPrompt(e: Event) {
-      e.preventDefault();
-      setDeferredPrompt(e as BeforeInstallPromptEvent);
-    }
-    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
-    return () =>
-      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+    if (isIos()) setShowIosSteps(true);
   }, []);
 
   function dismiss() {
@@ -58,14 +29,11 @@ export function InstallPrompt() {
   }
 
   async function install() {
-    if (!deferredPrompt) return;
-    await deferredPrompt.prompt();
-    await deferredPrompt.userChoice;
-    setDeferredPrompt(null);
+    await promptInstall();
     dismiss();
   }
 
-  if (dismissed || (!deferredPrompt && !showIosSteps)) return null;
+  if (dismissed || (!canPrompt && !showIosSteps)) return null;
 
   return (
     <div
@@ -89,7 +57,7 @@ export function InstallPrompt() {
           <p className="text-fg-dim">Install Venn for quicker access.</p>
         )}
       </div>
-      {deferredPrompt ? (
+      {canPrompt ? (
         <button
           type="button"
           onClick={install}

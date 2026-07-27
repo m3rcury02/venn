@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { isIos, isStandalone, useDeferredInstallPrompt } from "@/lib/pwa-install";
 import { VennMark } from "@/components/venn-mark";
 
 const APP_PATHS = ["/search", "/groups", "/inbox", "/settings", "/movies"];
@@ -106,6 +107,9 @@ export function MobileNavigation() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [inboxCount, setInboxCount] = useState<number | null>(null);
   const [supabase] = useState(createClient);
+  const { canPrompt, promptInstall } = useDeferredInstallPrompt();
+  const [showInstallRow, setShowInstallRow] = useState(false);
+  const [showIosSteps, setShowIosSteps] = useState(false);
 
   const fetchInboxCount = useCallback(async () => {
     const { count, error } = await supabase
@@ -138,6 +142,15 @@ export function MobileNavigation() {
     };
   }, [moreOpen]);
 
+  useEffect(() => {
+    // matchMedia/navigator don't exist during SSR -- starting hidden and
+    // revealing here once mounted, same pattern as install-prompt.tsx.
+    if (isStandalone()) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setShowInstallRow(true);
+    setShowIosSteps(isIos());
+  }, []);
+
   if (!isAppPath(pathname)) return null;
 
   const myListActive = pathname === "/";
@@ -145,6 +158,7 @@ export function MobileNavigation() {
   const groupsActive = pathname.startsWith("/groups");
   const moreActive =
     moreOpen || pathname.startsWith("/inbox") || pathname.startsWith("/settings");
+  const installVisible = showInstallRow && (canPrompt || showIosSteps);
 
   function openMore() {
     if (!dialogRef.current?.open) dialogRef.current?.showModal();
@@ -156,6 +170,11 @@ export function MobileNavigation() {
 
   function closeMore() {
     dialogRef.current?.close();
+  }
+
+  async function install() {
+    await promptInstall();
+    closeMore();
   }
 
   return (
@@ -252,6 +271,24 @@ export function MobileNavigation() {
             >
               <span className="t-label">Settings</span>
             </Link>
+            {installVisible ? (
+              canPrompt ? (
+                <button
+                  type="button"
+                  onClick={install}
+                  className="flex min-h-14 items-center border-b border-hairline px-1 text-left text-fg-dim transition-colors hover:text-fg"
+                >
+                  <span className="t-label">Install app</span>
+                </button>
+              ) : (
+                <div className="flex min-h-14 flex-col justify-center border-b border-hairline px-1 text-fg-dim">
+                  <span className="t-label">Install app</span>
+                  <span className="t-body mt-1 text-[13px] text-fg-faint">
+                    Tap Share, then Add to Home Screen
+                  </span>
+                </div>
+              )
+            ) : null}
           </nav>
 
           <form action="/auth/signout" method="post" className="mt-auto">
