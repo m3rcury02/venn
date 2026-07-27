@@ -24,17 +24,28 @@ type Film = {
 };
 
 // Chosen for spread: blockbuster, franchise, non-English, pre-1960, Indian,
-// documentary, animation, and a recent tentpole.
+// documentary, animation, and a recent tentpole. Ids are "movie-<tmdb id>" --
+// see lib/providers/tmdb.ts on why the prefix exists.
 const FILMS: Film[] = [
-  { externalId: "27205", label: "Inception (2010)" },
-  { externalId: "155", label: "The Dark Knight (2008)" },
-  { externalId: "496243", label: "Parasite (2019, Korean)" },
-  { externalId: "389", label: "12 Angry Men (1957)" },
-  { externalId: "19404", label: "Dilwale Dulhania Le Jayenge (1995)" },
-  { externalId: "515001", label: "Free Solo (2018, documentary)" },
-  { externalId: "129", label: "Spirited Away (2001, animation)" },
-  { externalId: "550", label: "Fight Club (1999)" },
-  { externalId: "76600", label: "Avatar: The Way of Water (2022)" },
+  { externalId: "movie-27205", label: "Inception (2010)" },
+  { externalId: "movie-155", label: "The Dark Knight (2008)" },
+  { externalId: "movie-496243", label: "Parasite (2019, Korean)" },
+  { externalId: "movie-389", label: "12 Angry Men (1957)" },
+  { externalId: "movie-19404", label: "Dilwale Dulhania Le Jayenge (1995)" },
+  { externalId: "movie-515001", label: "Free Solo (2018, documentary)" },
+  { externalId: "movie-129", label: "Spirited Away (2001, animation)" },
+  { externalId: "movie-550", label: "Fight Club (1999)" },
+  { externalId: "movie-76600", label: "Avatar: The Way of Water (2022)" },
+];
+
+// TV shares the same cache path as movies, but the TMDB response shape
+// genuinely differs (no runtime, keywords under a different key, no
+// job === "Director" crew) -- see lib/providers/tmdb.ts. These exist to catch
+// toTvTags silently returning an empty array, which cacheMovie would then
+// commit as a mapping row with no tags and nothing would ever re-fetch.
+const SHOWS: Film[] = [
+  { externalId: "tv-1396", label: "Breaking Bad (TV, 2008)" },
+  { externalId: "tv-1399", label: "Game of Thrones (TV, 2011)" },
 ];
 
 const REGION = "IN";
@@ -80,15 +91,15 @@ async function main() {
   const results = await provider.search("inception", REGION);
   check(results.length > 0, "search returns results", `${results.length} hits`);
   check(
-    /^\d+$/.test(results[0]?.externalId ?? ""),
-    "top hit carries a numeric TMDB id",
+    /^(movie|tv)-\d+$/.test(results[0]?.externalId ?? ""),
+    "top hit carries a prefixed TMDB id",
     results[0]?.externalId,
   );
 
   section("2. cacheMovie — cold");
   const dateless = await findDatelessFilm();
   const unreleased = await findUnreleasedFilm();
-  const films = [...FILMS, ...dateless, ...unreleased];
+  const films = [...FILMS, ...SHOWS, ...dateless, ...unreleased];
 
   const ids = new Map<string, string>();
   for (const film of films) {
@@ -126,13 +137,22 @@ async function main() {
 
     // Only the curated titles carry the baseline claim. Zero keywords on one of
     // those is a getTags parsing bug -- append_to_response nests movie keywords
-    // under keywords.keywords, and the wrong shape yields silent zeros rather
-    // than an error. Zero on a probe entry is just obscure data.
+    // under keywords.keywords (TV: keywords.results) -- and the wrong shape
+    // yields silent zeros rather than an error. Zero on a probe entry is just
+    // obscure data. Person is checked here too, not just for Inception in
+    // section 9 below: TV credits carry no job === "Director" crew entry, so a
+    // toTvTags bug that misses created_by would zero this out specifically for
+    // TV while leaving keywords intact.
     if (!film.probe) {
       check(
         counts.keyword > 0,
         `${film.label} has keywords`,
         `${counts.keyword} keywords`,
+      );
+      check(
+        counts.person > 0,
+        `${film.label} has people`,
+        `${counts.person} people`,
       );
     }
   }
@@ -140,28 +160,28 @@ async function main() {
 
   section("5. findByImdbId");
   const found = await provider.findByImdbId(INCEPTION_IMDB);
-  check(found?.externalId === "27205", "tt1375666 resolves to TMDB 27205", found?.externalId);
+  check(found?.externalId === "movie-27205", "tt1375666 resolves to TMDB movie-27205", found?.externalId);
 
   // Self-contained on purpose: both sides are resolved here rather than read
   // back from step 2, so a network blip earlier cannot masquerade as a
   // two-lookup-paths mismatch.
   const viaImdb = found ? await cacheMovie(found.externalId) : null;
-  const inceptionId = await cacheMovie("27205");
+  const inceptionId = await cacheMovie("movie-27205");
   check(
     viaImdb === inceptionId,
     "and lands on the same internal id — one movie, two lookup paths",
   );
 
   section("6. getExternalIds");
-  const externalIds = await provider.getExternalIds("27205");
+  const externalIds = await provider.getExternalIds("movie-27205");
   check(
     externalIds.imdbId === INCEPTION_IMDB,
-    "TMDB 27205 carries IMDb tt1375666",
+    "TMDB movie-27205 carries IMDb tt1375666",
     externalIds.imdbId ?? "null",
   );
 
   section("7. getWatchProviders");
-  const watch = await provider.getWatchProviders("27205", REGION);
+  const watch = await provider.getWatchProviders("movie-27205", REGION);
   check(
     watch.providers.length > 0,
     `returns providers for ${REGION}`,

@@ -9,7 +9,7 @@ import { Screen } from "@/components/ui/screen";
 import { VennMark } from "@/components/venn-mark";
 import { VoteControl } from "@/components/vote-control";
 import { WatchedToggle } from "@/components/watched-toggle";
-import { provider } from "@/lib/providers";
+import { provider, type MediaType } from "@/lib/providers";
 import { createClient } from "@/lib/supabase/server";
 
 // No generated database.types.ts (see docs/DECISIONS.md phase 1a) -- postgrest-js
@@ -24,6 +24,7 @@ type ListItemRow = {
     title: string;
     year: number | null;
     poster_path: string | null;
+    media_type: MediaType;
     user_movie_status: Status[];
   };
 };
@@ -52,7 +53,7 @@ export default async function Home({ searchParams }: HomeProps) {
     ? await supabase
         .from("list_items")
         .select(
-          "movie_id, added_at, movies(title, year, poster_path, user_movie_status(watched, rating, hype))",
+          "movie_id, added_at, movies(title, year, poster_path, media_type, user_movie_status(watched, rating, hype))",
         )
         .eq("list_id", list.id)
         .order("added_at", { ascending: false })
@@ -102,7 +103,7 @@ export default async function Home({ searchParams }: HomeProps) {
           <div>
             <h1 className="t-display text-[clamp(44px,13vw,104px)] text-fg">Your list</h1>
             <p className="t-label mt-4 text-fg-dim">
-              {count} movie{count === 1 ? "" : "s"} · {unwatched} unwatched
+              {count} title{count === 1 ? "" : "s"} · {unwatched} unwatched
             </p>
           </div>
 
@@ -122,6 +123,7 @@ export default async function Home({ searchParams }: HomeProps) {
                     <MovieCard
                       title={item.movies.title}
                       year={item.movies.year}
+                      mediaType={item.movies.media_type}
                       href={`/movies/${item.movie_id}`}
                       posterUrl={
                         item.movies.poster_path
@@ -150,7 +152,7 @@ export default async function Home({ searchParams }: HomeProps) {
             <div className="flex flex-col items-center gap-5 py-20 text-center">
               <p className="t-section text-3xl text-fg">Nothing under this filter</p>
               <p className="t-body max-w-sm text-[15px] text-fg-dim">
-                No movie on your list matches it yet.
+                Nothing on your list matches it yet.
               </p>
               <Link href="/" className={buttonClass("ghost")}>
                 Show everything
@@ -175,11 +177,11 @@ export default async function Home({ searchParams }: HomeProps) {
             Nothing here yet
           </h1>
           <p className="t-body max-w-sm text-[15px] text-fg-dim">
-            Search for a movie to add it — this is where your side of the overlap
-            lives.
+            Search for a movie or show to add it — this is where your side of
+            the overlap lives.
           </p>
           <Link href="/search" className={buttonClass("marquee", "mt-2")}>
-            Search movies
+            Search movies & shows
           </Link>
         </div>
       )}

@@ -21,9 +21,14 @@ type Case = {
 
 const CASES: Case[] = [
   {
-    name: "TMDB url",
+    name: "TMDB movie url",
     text: "https://www.themoviedb.org/movie/27205-inception",
-    expect: { kind: "external-id", value: "27205" },
+    expect: { kind: "external-id", value: "movie-27205" },
+  },
+  {
+    name: "TMDB tv url",
+    text: "https://www.themoviedb.org/tv/1396-breaking-bad",
+    expect: { kind: "external-id", value: "tv-1396" },
   },
   {
     name: "IMDb url",
@@ -58,7 +63,7 @@ const CASES: Case[] = [
   {
     name: "a url outranks prose in the same share",
     text: "You have to see this — https://www.themoviedb.org/movie/496243",
-    expect: { kind: "external-id", value: "496243" },
+    expect: { kind: "external-id", value: "movie-496243" },
   },
   {
     name: "instagram caption with no film url",

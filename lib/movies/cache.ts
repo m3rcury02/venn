@@ -79,6 +79,7 @@ async function insertMovie(db: Db, movie: Movie): Promise<string> {
       // truncation is intended; do not "fix" it by rounding here first.
       rating_external: movie.ratingExternal,
       release_date: movie.releaseDate,
+      media_type: movie.mediaType,
     })
     .select("id")
     .single();

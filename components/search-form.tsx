@@ -64,7 +64,7 @@ export function SearchForm({
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search movies…"
+            placeholder="Search movies & shows…"
             autoFocus
             className="h-14 w-full rounded-ctl bg-transparent px-5 text-[17px] text-fg placeholder:text-fg-faint focus:outline-none"
           />
@@ -93,6 +93,7 @@ export function SearchForm({
             <MovieCard
               title={movie.title}
               year={movie.year}
+              mediaType={movie.mediaType}
               href={
                 movie.movieId
                   ? `/movies/${movie.movieId}`

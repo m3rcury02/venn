@@ -5,12 +5,14 @@ import { useState, useTransition } from "react";
 import { MovieCard } from "@/components/movie-card";
 import { buttonClass } from "@/components/ui/button";
 import { rejectInboxItem, resolveInboxItem } from "@/app/inbox/actions";
+import type { MediaType } from "@/lib/providers";
 
 export type InboxCandidate = {
   id: string;
   title: string;
   year: number | null;
   posterUrl: string | null;
+  mediaType: MediaType;
 };
 
 type InboxItemProps = {
@@ -75,6 +77,7 @@ export function InboxItem({
               <MovieCard
                 title={candidate.title}
                 year={candidate.year}
+                mediaType={candidate.mediaType}
                 href={`/movies/${candidate.id}`}
                 posterUrl={candidate.posterUrl}
               />
@@ -87,7 +90,7 @@ export function InboxItem({
                   "mt-3 min-h-11 w-full px-2 text-[12px] disabled:cursor-wait",
                 )}
               >
-                Choose this movie
+                Choose this title
               </button>
             </div>
           ))}

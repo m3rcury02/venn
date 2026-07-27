@@ -12,7 +12,7 @@ export default function MovieDetailLoading() {
           <div className={`${block} h-7 w-32`} />
           <div className={`${block} h-2.5 w-24`} />
         </div>
-        <VennLoader size={30} label="Loading movie details" />
+        <VennLoader size={30} label="Loading details" />
       </div>
 
       <div className="grid gap-7 rounded-card border border-hairline p-5 sm:grid-cols-[minmax(180px,260px)_1fr] sm:items-end sm:p-8">

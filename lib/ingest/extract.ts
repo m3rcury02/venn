@@ -34,7 +34,7 @@ const MAX_QUERY_LENGTH = 60;
 
 const URL_PATTERN = /https?:\/\/\S+/gi;
 
-const TMDB_PATTERN = /themoviedb\.org\/movie\/(\d+)/gi;
+const TMDB_PATTERN = /themoviedb\.org\/(movie|tv)\/(\d+)/gi;
 const IMDB_PATTERN = /imdb\.com\/title\/(tt\d+)/gi;
 const LETTERBOXD_PATTERN = /letterboxd\.com\/film\/([a-z0-9-]+)/gi;
 
@@ -128,15 +128,24 @@ function captures(text: string, pattern: RegExp): string[] {
 }
 
 /**
+ * TMDB urls carry two groups (kind, id), unlike every other pattern here --
+ * `captures()` flattens groups across matches and would interleave "movie"/"tv"
+ * with ids from separate matches, losing which id each kind belongs to. This
+ * pairs them per match instead, into the "movie-<id>" / "tv-<id>" shape
+ * lib/providers/tmdb.ts expects.
+ */
+function tmdbUrlIds(text: string): string[] {
+  return [...text.matchAll(TMDB_PATTERN)].map((match) => `${match[1]}-${match[2]}`);
+}
+
+/**
  * Candidates in §5's confidence order: a provider url, then an IMDb url, then a
  * Letterboxd slug, then `Title (Year)`, then quoted strings, then Title Case
  * runs over what is left once urls are stripped.
  */
 export function extractCandidates(text: string): Candidate[] {
   const candidates: Candidate[] = [
-    ...captures(text, TMDB_PATTERN).map(
-      (value): Candidate => ({ kind: "external-id", value }),
-    ),
+    ...tmdbUrlIds(text).map((value): Candidate => ({ kind: "external-id", value })),
     ...captures(text, IMDB_PATTERN).map(
       (value): Candidate => ({ kind: "imdb-id", value }),
     ),

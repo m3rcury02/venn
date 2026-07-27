@@ -24,7 +24,7 @@ const archivo = Archivo({
 
 export const metadata: Metadata = {
   title: "Venn",
-  description: "Shared movie lists for your group.",
+  description: "Shared movie and TV lists for your group.",
   manifest: "/manifest.webmanifest",
   icons: {
     apple: "/apple-touch-icon.png",

@@ -2722,3 +2722,319 @@ is now an explicit “Choose this movie” button and poster/title open details.
    navigation have no horizontal overflow or overlap at the top of the page.
    An authenticated request to `/movies/external/27205` emitted the canonical
    `/movies/<uuid>` redirect target.
+
+---
+
+## Google first names in groups (post-phase-7 auth follow-up)
+
+Migration: `supabase/migrations/20260727225047_google_profile_first_names.sql`.
+
+Group member pills, movie-night presence controls and “added by” labels all
+already read `profiles.display_name`. They fell back to “Member” for Google
+users because Phase 0's provider-agnostic `handle_new_user()` inserted only the
+profile id and never copied OAuth metadata.
+
+The trigger now seeds `display_name` from Google's explicit, trimmed
+`given_name`. It checks `raw_app_meta_data` for the Google provider rather than
+copying similarly named metadata from magic-link or future OAuth providers.
+It deliberately does not split `full_name`: name order and mononyms make that
+guess unreliable.
+
+The migration also backfills existing Google profiles whose display name is
+null, empty or whitespace. Its predicate leaves every meaningful existing
+value untouched, so “You appear to groups as” remains authoritative after a
+user customizes it. A Google account without `given_name` keeps the existing
+manual-name path and “Member” fallback.
+
+No group UI or RLS policy changed. The original pgTAP fixture mirrored the
+`given_name` assumption; the production correction below replaces it with the
+metadata shape the hosted project actually returns.
+
+### Production correction: Google metadata has no `given_name`
+
+Migration: `supabase/migrations/20260727231028_google_profile_name_shape.sql`.
+
+The first migration's assumption was wrong for the hosted project. A read-only,
+aggregate inspection after deployment found six Google identities: zero
+carried `given_name`, while all six carried both `full_name` and `name`; four
+profiles therefore remained blank. No names or emails were read during that
+inspection.
+
+The replacement trigger and backfill use the first whitespace-delimited part
+of `full_name`, falling back to `name`. This is intentionally the minimum
+interpretation needed to meet the requested “first name” behavior with the
+metadata Google actually supplies here. The blank-profile predicate remains,
+so the correction backfills those four profiles without overwriting either of
+the two names already set manually.
+
+---
+
+## Install app option in the side menu (phase 7 follow-up)
+
+**No schema change.**
+
+```
+lib/pwa-install.ts                  new -- shared beforeinstallprompt/appinstalled state
+components/install-prompt.tsx       now consumes the shared hook instead of owning the event
+components/mobile-navigation.tsx    "Install app" row added to the "More" drawer
+```
+
+Phase 7's install prompt was deliberately kept out of Settings/menus so it
+"reads as proactive, not something a user has to go looking for." This adds a
+second, permanent entry point in the mobile "More" drawer for anyone who
+already dismissed the banner -- an addition to that decision, not a reversal:
+the banner is untouched, and the menu row ignores the banner's `localStorage`
+dismiss flag entirely.
+
+Same three-way gating as the banner: already standalone -> hidden; a captured
+`beforeinstallprompt` -> clickable row that calls `.prompt()`; iOS (no such
+event exists) -> a non-interactive row with the same "tap Share, then Add to
+Home Screen" text. Neither condition met -> hidden.
+
+**Why the event moved to a module-scope singleton.** Both surfaces need the
+*same* `beforeinstallprompt` event -- it can only be `.prompt()`'d once. Two
+independent `useState` copies (the original per-component design) would let
+one surface consume the event while the other kept showing a now-dead
+install affordance: install from the banner, cancel, and the menu row would
+still render "Install app" until a full page reload, `.prompt()`ing a
+consumed event and throwing `InvalidStateError` silently inside the click
+handler. `lib/pwa-install.ts` now holds the event at module scope and exposes
+it to both components via `useSyncExternalStore`, so `appinstalled` (or a
+completed prompt) clears it for both surfaces at once, no reload required.
+
+**Behavior change worth naming:** `e.preventDefault()` on `beforeinstallprompt`
+now runs unconditionally at module load, rather than only on the
+not-dismissed/not-iOS path the banner previously gated it behind. Necessary
+now that the menu row is a permanent surface independent of the banner's
+dismiss state -- Chrome's own mini-infobar staying suppressed is the intended
+outcome either way.
+
+### Verification
+
+1. `pnpm typecheck`, `pnpm lint`, `pnpm build` -- clean.
+2. Local Supabase magic-link sign-in, then forced the mobile "More" drawer
+   open via the DOM (desktop-width Chrome didn't hit the `sm` breakpoint in
+   this environment). A real `beforeinstallprompt` fired for the dev server
+   (valid manifest + service worker already satisfy Chrome's criteria) and
+   both the banner and the menu row picked it up from the shared state.
+   Dispatching a synthetic `appinstalled` event hid the menu row **and** the
+   banner simultaneously with no reload -- confirms the singleton fix, not
+   just that a row renders. Did not click through Chrome's real native
+   install-confirmation dialog, since that installs an actual app on the
+   host machine.
+
+---
+
+## TV shows join the catalog (post-phase-7 feature)
+
+Migration: `supabase/migrations/20260727200002_media_type_tv.sql`.
+
+SPEC §10 said "no TV shows" and CLAUDE.md said "Movies only." Both were wrong
+the moment this was asked for, and both are now amended: TV series are
+first-class catalog members, addable to personal lists and votable exactly
+like movies, with one restriction -- **group-owned lists stay movies-only**,
+because the recommender's candidate pool is drawn from group lists and is
+movie-shaped throughout (§4.2's runtime tie-break, theatre mode's
+`nowPlaying`/`upcoming`). No seasons, no episodes: a series is one row, one
+vote, one list entry, per the user's explicit "ignore its episodes logic."
+
+### One column, no new table
+
+`movies.media_type` (`movie | tv`, default `movie`) is the only schema
+addition. `movies.id`, `cacheMovie`, `searchMovies`, `/movies/[id]`,
+`movie_rating`/`movie_hype`, and `recommend_movies` are all untouched --
+renaming any of them to something TV-neutral would cascade into every FK,
+policy and SQL function for zero behavioural gain. `movies` is now "the
+catalog"; that's a naming note, not a migration.
+
+**No REVOKE/GRANT block, and that's not an omission.** This migration creates
+no table, and phase 0's `grant select on movies ... to authenticated` is
+table-wide, not column-scoped, so the new column is already covered.
+
+### External ids had to become self-describing, and the first design picked the wrong separator
+
+`movie_external_ids` is `primary key (provider, external_id)` with one
+provider name (`"tmdb"`). TMDB's movie and TV id spaces are independent and
+both start at 1 -- movie `1396` and tv `1396` are unrelated titles -- so a
+bare numeric `external_id` is structurally ambiguous, not occasionally so.
+Every lookup site (`lib/movies/cache.ts`'s `lookup()`, `app/search/actions.ts`,
+`app/movies/[id]/page.tsx`) keys on a bare string, so prefixing the id itself
+(`"movie-27205"`, `"tv-1396"`) was chosen over adding `media_type` to the PK:
+the prefix costs zero edits at any of those sites, the column would have
+forced one at each. `MovieDataProvider`'s signatures stay unchanged --
+`lib/providers/tmdb.ts`'s `parseExternalId`/`toExternalId` are the only place
+the prefix is created or read, dispatching to `/movie/` or `/tv/` internally.
+Existing `movie_external_ids` rows backfill with a `"movie-"` prefix
+(exact, not a guess: TV support did not exist before this migration, so every
+existing row already is one).
+
+**The separator was `:` first, and a real dev server run caught it before it
+shipped.** `/movies/external/[externalId]` redirected fine for `movie:27205`
+in isolation but 404'd for every id once tested end-to-end through Next's
+actual router: a colon in a dynamic route segment arrives at the page
+percent-encoded and *undecoded* -- `externalId` came through as the literal
+string `"movie%3A27205"`, which never matches the regex. Confirmed by
+temporarily logging the param on a live request, not inferred. A hyphen is an
+unreserved URL character and needs no encoding; switching to it fixed every
+call site (`tmdb.ts`, the resolver page, `lib/ingest/extract.ts`, the
+migration's backfill, both smoke scripts) in one pass, verified again against
+the same live dev server afterward -- the redirect digest changed from
+`NEXT_HTTP_ERROR_FALLBACK;404` to `NEXT_REDIRECT;replace;/movies/<uuid>` for
+both a movie and a TV id.
+
+### Enforcement is the RLS policy, not a trigger
+
+`list_items_insert_via_list` and `list_items_update_via_list` (phase 3's
+versions) gained one more clause: a group-owned list accepts the row only if
+the movie's `media_type = 'movie'`; personal lists are unaffected. This
+matches the schema's existing "narrowness of the write policy is the
+enforcement" pattern (the catalog tables in phase 0, `group_members` in
+phase 3) and fails the same `42501` the pgTAP suite already asserts
+elsewhere. A trigger was rejected: it would only buy a friendlier error
+message while duplicating the rule in a second place.
+
+### `/search/multi` replaces `/search/movie`, and the tradeoff was measured, not assumed
+
+TMDB's `/search/multi` blends movies and TV and tags each row `media_type`,
+but it also returns `person` results (cast/crew), which `MovieDataProvider`
+has no room for and which are filtered out in `tmdb.ts`. Measured against the
+live API before deciding this was acceptable:
+
+| query | `/search/movie` | `/search/multi` (movie+tv, people dropped) |
+|---|---|---|
+| "nolan" | 20 results | 4 of 20 (16 were people) |
+| "the office" | 20 results | 18 of 20 |
+| "inception" | 11 results | 13 of 13 |
+| "friends" | 20 results | 20 of 20 |
+
+Person-heavy queries lose real ground ("nolan"), but the surviving titles on
+that query were mostly "Facing Nolan"/"Apocalypse Nolan" noise, not
+Christopher Nolan's filmography. One round trip beats two against the ~20%
+`ECONNRESET` rate phase 1a measured, and every other sampled query held up
+fine or improved. `nowPlaying`/`upcoming` stay on `/movie/...` -- theatre
+mode is phase 9 and unbuilt, and neither needs TV.
+
+### The TMDB TV response shape genuinely differs, verified live against `/tv/1396`
+
+| movie field | TV equivalent |
+|---|---|
+| `title` / `original_title` | `name` / `original_name` |
+| `release_date` | `first_air_date` |
+| `runtime` (int) | `episode_run_time` (array -- **empty `[]` for Breaking Bad**) |
+| `keywords.keywords[]` | `keywords.results[]` |
+| `crew[job=="Director"]` | absent; creators are `created_by[]` |
+
+Getting any of these wrong is the exact silent failure phase 1a warned about
+for movies: a mapping row lands with `fetched_at` set and zero tags, and
+nothing ever re-fetches it. `scripts/tmdb-smoke.ts` now asserts non-zero
+keyword **and** person counts for every curated title, not just keywords --
+person is the one a `toTvTags` bug that missed `created_by` would zero out
+while leaving keywords intact. `findByImdbId` now reads `tv_results` when
+`movie_results` is empty; verified with `tt0903747` resolving to Breaking Bad.
+`getWatchProviders`/`getExternalIds` dispatch on the parsed media type
+(`/tv/{id}/...`), verified live returning `flatrate` providers and
+`imdb_id: "tt0903747"`.
+
+### TV ratings reach the group recommender, and that's by design
+
+`setRating`/`setWatched` call `rebuild_user_tag_weights()` unconditionally, so
+a `love` on Breaking Bad feeds Crime/Drama and its cast into
+`user_tag_weights` exactly like a movie would -- and `recommend_movies`
+reads that table when scoring *movie* candidates for a group night. This is
+the one path where TV reaches group recommendations despite group lists
+being movies-only, and it's intentional per the "treated just like movies"
+brief, confirmed with the user during design rather than assumed. No SQL in
+`recommend_movies` changed.
+
+### Copy: neutral where lists mix, unchanged where they can't
+
+`app/page.tsx` ("N titles", "Nothing on your list matches it yet", "Search
+movies & shows"), `components/search-form.tsx`'s placeholder, and
+`components/inbox-item.tsx`'s "Choose this title" all went neutral --
+personal lists and the Inbox can both hold TV now. Group screens
+(`app/groups/[id]/page.tsx`, movie night) keep "movies" verbatim: they
+genuinely can't hold anything else. `components/movie-card.tsx` grew an
+optional `mediaType` prop rendering `"· TV"` next to the year; omitted
+entirely (not wired up) on the group list and movie-night cards, since a
+badge that can never fire there is dead code, not a feature.
+
+`app/movies/[id]/page.tsx` reads `media_type` to swap "Movie details" for
+"Show details" and to drop the Letterboxd/Rotten Tomatoes rating links for
+TV -- both are film-only search links (Letterboxd has no TV catalog at all),
+so showing them for a series would be a working link to nothing relevant.
+IMDb stays for both, keyed off `getExternalIds`.
+
+### `searchMovies` filters TV before the list gets a look, not after
+
+`app/search/actions.ts` resolves whether the target list is group-owned
+*before* calling `provider.search`, then drops `mediaType === "tv"` results
+from the array before any of the existing `movie_external_ids`/`list_items`
+lookups run. The action previously only queried `lists` when `listId` was
+absent (resolving the caller's personal default); it now queries it in the
+passed-`listId` branch too, to read `owner_group_id`. Chosen over rendering
+TV results with a disabled "Add" button: no dead affordance, and confirmed
+live in Chrome -- the same "breaking bad" query that returns the series plus
+four movies at `/search` returns only the four movies at
+`/search?list=<groupListId>`.
+
+### Tests: a TV fixture with no tags, and a control alongside every negative
+
+`supabase/tests/rls.test.sql` gained a fourth fixture movie
+(`77777777-...`, `media_type = 'tv'`), deliberately given **no**
+`movie_tags` row so it doesn't perturb the `movie_tags` count assertion.
+Per the standing rule (this file, phase 0) that a negative needs a positive
+control on the same table: *"control: A can add a TV title to its own list"*
+(`lives_ok`, personal list) sits next to the new *"D cannot add a TV title
+to the group's list"* (`throws_ok`, `42501`). `plan(75)` → `plan(77)`; the
+`movies` count assertion (3 → 4) was the only other one perturbed --
+checked every `count(*) from list_items` assertion individually rather than
+assuming, since the new fixture and control both write into that table.
+Local run: 77/77.
+
+### Deploy-skew window, named rather than left unaddressed
+
+The backfill rewrites `movie_external_ids.external_id` in one migration
+transaction, but a deployed instance's in-memory code keeps looking up bare
+ids until it redeploys. At 4-6 users this is cosmetic: a miss just re-fetches
+cleanly under the new prefixed scheme, per phase 1a's write-order argument
+that a cache miss is always safe to repeat. Not worth a feature flag at this
+scale.
+
+### Verification
+
+1. `supabase db reset` -- all seven migrations apply clean, in the order the
+   remote actually stamped them (see below). `supabase test db` -- 77/77.
+2. `pnpm smoke:tmdb` -- all nine films plus two TV titles (Breaking Bad,
+   Game of Thrones) cache with non-zero keyword and person counts; a second
+   pass makes zero TMDB calls; zero orphaned `movies` rows; `findByImdbId`
+   still resolves `tt1375666` → `movie-27205`.
+3. `pnpm smoke:ingest` -- 11/11, including a new `themoviedb.org/tv/...` case
+   extracting `tv-1396`.
+4. `pnpm typecheck`, `pnpm lint`, `pnpm build` -- clean.
+5. Real magic-link session against the local stack + Mailpit, driven two ways:
+   - Raw authenticated requests confirmed the redirect digest
+     (`NEXT_REDIRECT;replace;/movies/<uuid>`) for both `movie-27205` and
+     `tv-1396` through `/movies/external/[externalId]`, and the TV detail
+     page rendering "Show details" with an IMDb link (`tt0903747`) and no
+     Letterboxd/Rotten Tomatoes rows. One `getExternalIds` call hit the
+     documented ~20% `ECONNRESET` rate mid-verification; three immediate
+     retries succeeded, confirming transient network flakiness rather than a
+     TV-specific bug.
+   - **Live Chrome, real clicks:** searched "breaking bad" at `/search` --
+     blended grid with a "· TV" badge on the three TV rows and none on the
+     movie rows; added Breaking Bad to the personal list and confirmed the
+     badge and hype control on `/`; created a group and searched "breaking
+     bad" from its `/search?list=...` -- **zero** TV rows in the results,
+     confirming the group-list filter live rather than by code reading alone.
+6. Applied to `vfkkpflenfpfrrygxmto` through the Supabase MCP, same route as
+   every prior phase. `apply_migration` stamped `20260727200002` -- earlier
+   than this migration's original local filename
+   (`20260728010000`, chosen before knowing the stamp), landing it between
+   phase 5 and the Google-profile pair rather than after them. The local file
+   was renamed to match, `db reset` and `test db` re-run to confirm the
+   reorder doesn't matter (this migration touches `movies`/`list_items` only,
+   nothing the profile trigger migrations depend on or vice versa), and
+   `supabase migration list` now shows local and remote agreeing on all seven
+   versions. `get_advisors(security)` shows the same four pre-existing WARNs
+   as before (three SECURITY DEFINER functions plus leaked-password
+   protection) and nothing new -- this migration added no function.

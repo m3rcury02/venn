@@ -19,18 +19,34 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(73);
+select plan(77);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
 -- handle_new_user, so each user arrives with a profile and a default list
 -- already created -- the tests assert against those rather than making their own.
 
-insert into auth.users (id, email) values
-  ('11111111-1111-1111-1111-111111111111', 'a@test.dev'),
-  ('22222222-2222-2222-2222-222222222222', 'b@test.dev'),
-  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'c@test.dev'),
-  ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'd@test.dev');
+insert into auth.users (id, email, raw_app_meta_data, raw_user_meta_data) values
+  ('11111111-1111-1111-1111-111111111111', 'a@test.dev', '{}'::jsonb, '{}'::jsonb),
+  ('22222222-2222-2222-2222-222222222222', 'b@test.dev', '{}'::jsonb, '{}'::jsonb),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'c@test.dev',
+   '{"provider":"google","providers":["google"]}'::jsonb,
+   '{"full_name":"Caroline Example","name":"Caroline Example"}'::jsonb),
+  ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'd@test.dev', '{}'::jsonb, '{}'::jsonb);
+
+select is(
+  (select display_name from profiles
+   where id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
+  'Caroline'::text,
+  'the first part of Google full_name seeds the profile display name'
+);
+
+select is(
+  (select display_name from profiles
+   where id = '11111111-1111-1111-1111-111111111111'),
+  null::text,
+  'a non-Google signup does not receive a guessed display name'
+);
 
 -- Three movies: list_items' primary key is (list_id, movie_id), so the group
 -- assertions below need distinct films to test the policy rather than the key.
@@ -38,6 +54,12 @@ insert into movies (id, title, year) values
   ('33333333-3333-3333-3333-333333333333', 'Test Movie', 2020),
   ('55555555-5555-5555-5555-555555555555', 'Second Movie', 2021),
   ('66666666-6666-6666-6666-666666666666', 'Third Movie', 2022);
+
+-- A TV title, deliberately given no movie_tags row: it exists only to exercise
+-- list_items_insert_via_list's media_type clause below, and a tag row here
+-- would perturb the "A can read movie tags" count.
+insert into movies (id, title, year, media_type) values
+  ('77777777-7777-7777-7777-777777777777', 'Test Show', 2023, 'tv');
 
 insert into tags (id, tag_type, tag_value) values (1, 'genre', 'sci-fi');
 insert into movie_tags (movie_id, tag_id) values
@@ -132,6 +154,15 @@ select lives_ok(
   'control: A can add an item to its own list'
 );
 
+-- Personal lists accept TV (SPEC §3); only group lists are movies-only.
+select lives_ok(
+  $$insert into list_items (list_id, movie_id, added_by)
+    select id, '77777777-7777-7777-7777-777777777777',
+           '11111111-1111-1111-1111-111111111111'
+    from lists where owner_user_id = '11111111-1111-1111-1111-111111111111'$$,
+  'control: A can add a TV title to its own list'
+);
+
 select lives_ok(
   $$insert into user_movie_status (user_id, movie_id, watched, hype)
     values ('11111111-1111-1111-1111-111111111111',
@@ -155,7 +186,7 @@ select is(
 -- The shared catalog cache is readable by any signed-in user.
 select is(
   (select count(*)::int from movies),
-  3,
+  4,
   'A can read the movie cache'
 );
 
@@ -562,6 +593,19 @@ select throws_ok(
   '42501',
   null,
   'D cannot attribute an add to C (added_by is pinned to auth.uid())'
+);
+
+-- The other clause list_items_insert_via_list checks: a group-owned list only
+-- accepts a movie. "control: D adds to the group list" above is the positive
+-- on this same table and policy.
+select throws_ok(
+  $$insert into list_items (list_id, movie_id, added_by)
+    select id, '77777777-7777-7777-7777-777777777777',
+           'dddddddd-dddd-dddd-dddd-dddddddddddd'
+    from lists where owner_group_id = '99999999-9999-9999-9999-999999999999'$$,
+  '42501',
+  null,
+  'D cannot add a TV title to the group''s list'
 );
 
 -- Documented decision, not an oversight: at 4-6 friends a per-adder delete rule

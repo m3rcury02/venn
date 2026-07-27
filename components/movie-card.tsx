@@ -2,12 +2,15 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { Poster } from "@/components/poster";
 import { LinkPending } from "@/components/ui/link-pending";
+import type { MediaType } from "@/lib/providers";
 
 type MovieCardProps = {
   title: string;
   year: number | null;
   posterUrl: string | null;
   href?: string;
+  /** Renders a small "TV" marker next to the year. Omit for movies. */
+  mediaType?: MediaType;
   children?: ReactNode;
   footer?: ReactNode;
 };
@@ -20,6 +23,7 @@ export function MovieCard({
   year,
   posterUrl,
   href,
+  mediaType,
   children,
   footer,
 }: MovieCardProps) {
@@ -69,7 +73,10 @@ export function MovieCard({
             title
           )}
         </p>
-        <p className="t-label mt-1 text-fg-faint">{year ?? "—"}</p>
+        <p className="t-label mt-1 text-fg-faint">
+          {year ?? "—"}
+          {mediaType === "tv" ? " · TV" : ""}
+        </p>
       </div>
 
       {footer ? <div>{footer}</div> : null}

@@ -26,7 +26,37 @@ export async function searchMovies(query: string, listId?: string): Promise<Sear
     supabase.auth.getClaims(),
   ]);
 
-  const results = await provider.search(trimmed, profile?.region ?? "IN");
+  const userId = claims?.claims?.sub;
+
+  // Resolve the target list up front, in both branches: a passed listId needs
+  // to be checked for group ownership, and an absent one still resolves to the
+  // caller's personal default.
+  let targetListId = listId;
+  let isGroupList = false;
+  if (targetListId) {
+    const { data: list } = await supabase
+      .from("lists")
+      .select("owner_group_id")
+      .eq("id", targetListId)
+      .maybeSingle();
+    isGroupList = list?.owner_group_id != null;
+  } else if (typeof userId === "string") {
+    const { data: list } = await supabase
+      .from("lists")
+      .select("id")
+      .eq("owner_user_id", userId)
+      .eq("is_default", true)
+      .single();
+    targetListId = list?.id;
+  }
+
+  const allResults = await provider.search(trimmed, profile?.region ?? "IN");
+  // Group lists are movies-only (SPEC §3, enforced in list_items' RLS): a TV
+  // result has nowhere to go from a group search, so it is dropped here rather
+  // than rendering with a dead "Add" button.
+  const results = isGroupList
+    ? allResults.filter((movie) => movie.mediaType === "movie")
+    : allResults;
   if (results.length === 0) return [];
 
   const { data: mappings, error: mappingError } = await supabase
@@ -43,18 +73,6 @@ export async function searchMovies(query: string, listId?: string): Promise<Sear
     (mappings ?? []).map((mapping) => [mapping.external_id, mapping.movie_id]),
   );
   const movieIds = [...movieIdByExternalId.values()];
-  const userId = claims?.claims?.sub;
-
-  let targetListId = listId;
-  if (!targetListId && typeof userId === "string") {
-    const { data: list } = await supabase
-      .from("lists")
-      .select("id")
-      .eq("owner_user_id", userId)
-      .eq("is_default", true)
-      .single();
-    targetListId = list?.id;
-  }
 
   const [itemsResult, statusesResult] = await Promise.all([
     targetListId && movieIds.length > 0

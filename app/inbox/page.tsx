@@ -6,7 +6,7 @@ import { buttonClass } from "@/components/ui/button";
 import { Screen } from "@/components/ui/screen";
 import { VennMark } from "@/components/venn-mark";
 import { extractCandidates } from "@/lib/ingest/extract";
-import { provider } from "@/lib/providers";
+import { provider, type MediaType } from "@/lib/providers";
 import { createClient } from "@/lib/supabase/server";
 
 // SPEC §7 screen 5. Everything here reads local rows: /api/ingest already
@@ -24,6 +24,7 @@ type MovieRow = {
   title: string;
   year: number | null;
   poster_path: string | null;
+  media_type: MediaType;
 };
 
 export default async function InboxPage() {
@@ -48,7 +49,7 @@ export default async function InboxPage() {
   const { data: rawMovies } = movieIds.length
     ? await supabase
         .from("movies")
-        .select("id, title, year, poster_path")
+        .select("id, title, year, poster_path, media_type")
         .in("id", movieIds)
     : { data: null };
 
@@ -87,6 +88,7 @@ export default async function InboxPage() {
                 id: movie.id,
                 title: movie.title,
                 year: movie.year,
+                mediaType: movie.media_type,
                 posterUrl: movie.poster_path
                   ? provider.getImageUrl(movie.poster_path, "w185")
                   : null,

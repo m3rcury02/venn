@@ -53,6 +53,11 @@ interface MovieDataProvider {
 }
 ```
 
+`externalId` is provider-scoped by media type (`"movie-27205"`, `"tv-1396"` for TMDB) —
+TMDB's movie and TV id spaces are independent and both start at 1, so a bare numeric id
+is ambiguous. `Movie` and `MovieSummary` both carry a `mediaType: "movie" | "tv"`.
+`nowPlaying`/`upcoming` (theatre mode, phase 9) stay movie-only.
+
 **Escape hatches, in order of viability:** TheTVDB (revenue-tiered, has movies), Watchmode or the Streaming Availability API (availability data only, both have free tiers).
 
 **OMDb is not an option** — its data licence is CC BY-NC 4.0, non-commercial on every tier including paid.
@@ -87,7 +92,7 @@ group_members         group_id, user_id, role, joined_at
 -- Catalog
 movies                id PK (uuid), title, original_title, year, poster_path,
                       backdrop_path, runtime, overview, rating_external,
-                      release_date, fetched_at
+                      release_date, media_type (movie|tv), fetched_at
 movie_external_ids    movie_id, provider, external_id
                       PK (provider, external_id)
                       UNIQUE (movie_id, provider)
@@ -146,6 +151,12 @@ notification_prefs    user_id, category, push, email
 - `lists` uses two nullable owner columns with a check constraint rather than a polymorphic `owner_type`/`owner_id` pair, so foreign keys are actually enforced.
 - `user_movie_status` allows `rating IS NULL` while watched — the vote is prompted, not blocking (§8).
 - `movies` and `movie_tags` are a **local cache**. Fetch once on first sighting, never per read.
+- `movies.media_type` distinguishes movies from TV series. A series is one row —
+  no season or episode modeling. **Group-owned lists (`owner_group_id` set) only
+  accept `media_type = 'movie'`**, enforced by `list_items`'s insert/update policies:
+  the recommender (§4) draws its candidate pool from group lists, and its scoring
+  (runtime tie-break, `nowPlaying`/`upcoming` candidate sourcing) is movie-shaped.
+  Personal lists accept both.
 
 **RLS on every table.** A user reads their own rows, plus lists that are public, or owned by a group they belong to, or owned by someone they follow where visibility = `followers` — minus anything in `list_hidden_from` or `blocks`.
 
@@ -171,7 +182,7 @@ Sum per tag into `user_tag_weights`, then divide by the user's rated-movie count
 The negative weight on `hate` is the important one — it's what stops the picker repeating a mistake the group already rejected.
 
 ### 4.2 Candidate pool
-- **home mode:** movies on any list in the group
+- **home mode:** movies on any list in the group (group lists are movies-only, §3)
 - **theatre mode:** `nowPlaying(region)` ∪ upcoming within N weeks, for the region shared by present members
 - Excluded: anything **any present member has watched**
 - **Widen:** if fewer than ~10 candidates, pull provider recommendations seeded by the group's top-rated films and flag them "not on your lists yet." This is the "most of the list is watched" case.
@@ -264,7 +275,9 @@ Generated from scoring components, no LLM:
 | IMDb (1–10) | ≤ 4 | 5–7 | ≥ 8 |
 
 - Letterboxd's separate "liked" file → **love**, regardless of stars.
-- Filter IMDb's export by title type — it includes TV, and this is movies-only.
+- IMDb's export includes TV — import both, mapping the export's title type to
+  `movies.media_type`. Letterboxd exports are films only, so every row imports as
+  `media_type = 'movie'`.
 - Watchlist entries import as **unwatched, no hype vote**.
 - Background job with progress. Unmatched rows go to a review queue.
 - **Rebuild `user_tag_weights` once at the end**, not per row.
@@ -330,7 +343,7 @@ Phases are built in order. **Do not build ahead of the current phase.** The curr
 
 ## 10. Non-Goals
 
-State these in agent prompts or they will get built unasked: no TV shows, no native app in v1, no comments or DMs, no LLM calls at runtime, no admin dashboard beyond a moderation view, no payments before phase 12, **no pgvector** — §4 is plain SQL by design.
+State these in agent prompts or they will get built unasked: no seasons or episodes for TV (a series is one title, §3), no TV on group lists (§3), no native app in v1, no comments or DMs, no LLM calls at runtime, no admin dashboard beyond a moderation view, no payments before phase 12, **no pgvector** — §4 is plain SQL by design.
 
 ---
 

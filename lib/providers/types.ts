@@ -1,6 +1,13 @@
 // SPEC §2's provider interface. Movie identity is provider-agnostic (§3): every
 // shape here uses `externalId`, and mapping that to an internal uuid is the
 // cache's job, not the provider's.
+//
+// `externalId` is provider-scoped by media type: TMDB's movie and TV id spaces
+// are independent and both start at 1, so a bare numeric id is ambiguous.
+// TMDB ids in this codebase are always `"movie-27205"` or `"tv-1396"` -- the
+// prefix/dispatch logic lives entirely in tmdb.ts, nowhere else parses it.
+
+export type MediaType = "movie" | "tv";
 
 export type TagType = "genre" | "keyword" | "person";
 
@@ -12,6 +19,7 @@ export type Tag = {
 /** Mirrors the `movies` table, plus the provider's own id. */
 export type Movie = {
   externalId: string;
+  mediaType: MediaType;
   title: string;
   originalTitle: string | null;
   year: number | null;
@@ -27,6 +35,7 @@ export type Movie = {
 /** What list endpoints return: no runtime or backdrop, those need a detail call. */
 export type MovieSummary = {
   externalId: string;
+  mediaType: MediaType;
   title: string;
   year: number | null;
   posterPath: string | null;

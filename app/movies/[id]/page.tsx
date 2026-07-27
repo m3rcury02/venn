@@ -10,6 +10,7 @@ import { Screen } from "@/components/ui/screen";
 import {
   PROVIDER_NAME,
   provider,
+  type MediaType,
   type WatchAvailability,
   type WatchProvider,
   type WatchProviderType,
@@ -27,6 +28,7 @@ type MovieDetailRow = {
   overview: string | null;
   rating_external: number | null;
   release_date: string | null;
+  media_type: MediaType;
   user_movie_status: {
     watched: boolean;
     rating: Rating | null;
@@ -114,7 +116,7 @@ export default async function MovieDetailPage({ params }: MovieDetailPageProps) 
     supabase
       .from("movies")
       .select(
-        "id, title, original_title, year, poster_path, backdrop_path, runtime, overview, rating_external, release_date, user_movie_status(watched, rating, hype)",
+        "id, title, original_title, year, poster_path, backdrop_path, runtime, overview, rating_external, release_date, media_type, user_movie_status(watched, rating, hype)",
       )
       .eq("id", id)
       .maybeSingle(),
@@ -185,7 +187,7 @@ export default async function MovieDetailPage({ params }: MovieDetailPageProps) 
   return (
     <Screen>
       <AppHeader
-        subtitle="Movie details"
+        subtitle={movie.media_type === "tv" ? "Show details" : "Movie details"}
         actions={
           <>
             <Link href="/" className={navLinkClass}>
@@ -247,7 +249,8 @@ export default async function MovieDetailPage({ params }: MovieDetailPageProps) 
           <section>
             <h2 className="t-label text-fg-faint">Synopsis</h2>
             <p className="t-body mt-4 max-w-3xl text-[17px] leading-7 text-fg-dim">
-              {movie.overview ?? "No synopsis is available for this movie."}
+              {movie.overview ??
+                `No synopsis is available for this ${movie.media_type === "tv" ? "show" : "movie"}.`}
             </p>
           </section>
 
@@ -274,7 +277,7 @@ export default async function MovieDetailPage({ params }: MovieDetailPageProps) 
                 <p className="t-body text-[14px] text-fg-dim">
                   {availabilityFailed
                     ? "Viewing availability is temporarily unavailable."
-                    : "Viewing availability is not available for this movie."}
+                    : `Viewing availability is not available for this ${movie.media_type === "tv" ? "show" : "movie"}.`}
                 </p>
               </Panel>
             ) : watchSections.length > 0 ? (
@@ -324,14 +327,21 @@ export default async function MovieDetailPage({ params }: MovieDetailPageProps) 
                   href={`https://www.imdb.com/title/${encodeURIComponent(imdbId)}/`}
                 />
               ) : null}
-              <ExternalRatingLink
-                label="Letterboxd"
-                href={letterboxdSearchUrl(query)}
-              />
-              <ExternalRatingLink
-                label="Rotten Tomatoes"
-                href={rottenTomatoesSearchUrl(query)}
-              />
+              {/* Letterboxd and Rotten Tomatoes' search links are film-only:
+                  Letterboxd has no TV catalog at all, and neither site is worth
+                  wiring in for shows without a real identifier. */}
+              {movie.media_type === "movie" ? (
+                <>
+                  <ExternalRatingLink
+                    label="Letterboxd"
+                    href={letterboxdSearchUrl(query)}
+                  />
+                  <ExternalRatingLink
+                    label="Rotten Tomatoes"
+                    href={rottenTomatoesSearchUrl(query)}
+                  />
+                </>
+              ) : null}
             </dl>
           </Panel>
 
