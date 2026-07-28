@@ -2,6 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppHeader, navLinkClass } from "@/components/app-header";
+import { DisplayNameForm } from "@/components/display-name-form";
 import {
   IngestTokenPanel,
   type TokenRow,
@@ -10,12 +11,13 @@ import { ShortcutSetup } from "@/components/shortcut-setup";
 import { Screen } from "@/components/ui/screen";
 import { createClient } from "@/lib/supabase/server";
 
-// SPEC §7 screen 11. Built with the ingest-token section only -- §5 says the
-// token is pasted "once, from Settings", so phase 5 owes the screen a home.
-// Phase 6 adds the iOS Shortcut steps and an Android install note, both of
-// which need the token or the endpoint already living here. Visibility
-// toggles, the notification matrix, blocks, export and delete all belong to
-// later phases and are not stubbed here.
+// SPEC §7 screen 11. §5 says the ingest token is pasted "once, from
+// Settings", so phase 5 owes the screen a home; phase 6 adds the iOS
+// Shortcut steps and an Android install note, both of which need the token
+// or the endpoint already living here. The display-name edit moved here from
+// /groups since it's profile-shaped, matching the "groups" line in screen
+// 11's scope. Visibility toggles, the notification matrix, blocks, export and
+// delete all belong to later phases and are not stubbed here.
 export default async function SettingsPage() {
   const supabase = await createClient();
 
@@ -28,6 +30,12 @@ export default async function SettingsPage() {
 
   const { data } = await supabase.auth.getClaims();
   if (!data?.claims) redirect("/login");
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("display_name")
+    .eq("id", data.claims.sub)
+    .single();
 
   // token_hash is absent from this select because it is absent from the grant:
   // authenticated holds SELECT on the other columns only. Asking for it here
@@ -54,6 +62,10 @@ export default async function SettingsPage() {
       />
 
       <h1 className="t-display text-[clamp(44px,13vw,96px)] text-fg">Settings</h1>
+
+      <section>
+        <DisplayNameForm current={profile?.display_name ?? null} />
+      </section>
 
       <section className="flex flex-col gap-4">
         <div className="flex flex-col gap-2">

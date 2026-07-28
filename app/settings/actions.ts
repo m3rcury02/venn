@@ -14,6 +14,38 @@ export type TokenFormState = {
   token?: string;
 };
 
+export type ProfileFormState = { error?: string };
+
+// Groups are where this name is seen -- member chips and "added by" on every
+// group page -- but the edit itself lives here with the rest of profile-shaped
+// settings (SPEC §7 screen 11). Onboarding (which also sets username and
+// display_name) is phase 8. profiles_update_own already permits this write.
+export async function setDisplayName(
+  _prev: ProfileFormState,
+  formData: FormData,
+): Promise<ProfileFormState> {
+  const displayName = String(formData.get("display_name") ?? "").trim();
+  if (!displayName) return { error: "Enter a name." };
+
+  const supabase = await createClient();
+  const { data: claims } = await supabase.auth.getClaims();
+  const userId = claims?.claims?.sub;
+  if (typeof userId !== "string") return { error: "Not signed in." };
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ display_name: displayName })
+    .eq("id", userId);
+
+  if (error) return { error: "Couldn't save that name." };
+
+  // The name appears on both screens: the form's own value here, and the member
+  // chips plus "added by" on every group page.
+  revalidatePath("/settings");
+  revalidatePath("/groups/[id]", "page");
+  return {};
+}
+
 export async function createIngestToken(
   _prev: TokenFormState,
   formData: FormData,

@@ -97,6 +97,7 @@
   --animate-beam-scan-b: beam-scan-b 1.5s ease-in-out infinite;
   --animate-breathe: breathe 1.8s ease-in-out infinite;
   --animate-drawer-in: drawer-in 0.22s cubic-bezier(0.22, 0.8, 0.3, 1) both;
+  --animate-sheet-in: sheet-in 0.22s cubic-bezier(0.22, 0.8, 0.3, 1) both;
 }
 
 @keyframes drawer-in {
@@ -105,6 +106,15 @@
   }
   to {
     transform: translateX(0);
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
   }
 }
 
@@ -222,6 +232,10 @@ body {
 @media (width < 40rem) {
   [data-mobile-nav] ~ [data-install-prompt] {
     --mobile-nav-offset: 4rem;
+  }
+
+  [data-group-fab] {
+    --group-fab-offset: 5rem;
   }
 }
 

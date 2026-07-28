@@ -1,12 +1,12 @@
 "use client";
 
 import { useActionState } from "react";
-import { setDisplayName, type GroupFormState } from "@/app/groups/actions";
+import { setDisplayName, type ProfileFormState } from "@/app/settings/actions";
 import { buttonClass } from "@/components/ui/button";
 import { errorClass, inputClass } from "@/components/ui/input";
 import { labelClass } from "@/components/ui/label";
 
-const initialState: GroupFormState = {};
+const initialState: ProfileFormState = {};
 
 export function DisplayNameForm({ current }: { current: string | null }) {
   const [state, formAction, pending] = useActionState(setDisplayName, initialState);

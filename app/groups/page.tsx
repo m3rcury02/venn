@@ -1,9 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppHeader, navLinkClass } from "@/components/app-header";
-import { CreateGroupForm } from "@/components/create-group-form";
-import { DisplayNameForm } from "@/components/display-name-form";
-import { JoinGroupForm } from "@/components/join-group-form";
+import { GroupActionsFab } from "@/components/group-actions-fab";
 import { Screen } from "@/components/ui/screen";
 import { VennMark } from "@/components/venn-mark";
 import { createClient } from "@/lib/supabase/server";
@@ -22,12 +20,6 @@ export default async function GroupsPage() {
   const { data } = await supabase.auth.getClaims();
   if (!data?.claims) redirect("/login");
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("display_name")
-    .eq("id", data.claims.sub)
-    .single();
-
   // Scoped to user_id: group_members_select_peers returns every member of every
   // group the caller is in, so without this the group appears once per member.
   const { data: rawMemberships } = await supabase
@@ -40,7 +32,7 @@ export default async function GroupsPage() {
   const groups = memberships ?? [];
 
   return (
-    <Screen width="narrow">
+    <Screen width="narrow" className="pb-28 sm:pb-24">
       <AppHeader
         subtitle={
           groups.length > 0
@@ -86,27 +78,13 @@ export default async function GroupsPage() {
         <div className="flex flex-col items-center gap-4 py-10 text-center">
           <VennMark size={40} />
           <p className="t-body max-w-sm text-[15px] text-fg-dim">
-            No groups yet. Start one and share the code, or paste a code someone
-            sent you.
+            No groups yet. Tap New group to start one and share the code, or
+            join with a code someone sent you.
           </p>
         </div>
       )}
 
-      <div className="flex flex-col gap-7 border-t border-hairline pt-9">
-        <section className="flex flex-col gap-2.5">
-          <h2 className="t-label text-fg-faint">Start a group</h2>
-          <CreateGroupForm />
-        </section>
-
-        <section className="flex flex-col gap-2.5">
-          <h2 className="t-label text-fg-faint">Join with a code</h2>
-          <JoinGroupForm />
-        </section>
-
-        <section>
-          <DisplayNameForm current={profile?.display_name ?? null} />
-        </section>
-      </div>
+      <GroupActionsFab />
     </Screen>
   );
 }

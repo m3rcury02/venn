@@ -52,32 +52,3 @@ export async function joinGroup(
   revalidatePath("/groups");
   redirect(`/groups/${groupId}`);
 }
-
-// Groups are the first screen where other people see you, and onboarding
-// (which sets username and display_name) is phase 8. profiles_update_own
-// already permits this write.
-export async function setDisplayName(
-  _prev: GroupFormState,
-  formData: FormData,
-): Promise<GroupFormState> {
-  const displayName = String(formData.get("display_name") ?? "").trim();
-  if (!displayName) return { error: "Enter a name." };
-
-  const supabase = await createClient();
-  const { data: claims } = await supabase.auth.getClaims();
-  const userId = claims?.claims?.sub;
-  if (typeof userId !== "string") return { error: "Not signed in." };
-
-  const { error } = await supabase
-    .from("profiles")
-    .update({ display_name: displayName })
-    .eq("id", userId);
-
-  if (error) return { error: "Couldn't save that name." };
-
-  // The name appears on both screens: the form's own value here, and the member
-  // chips plus "added by" on every group page.
-  revalidatePath("/groups");
-  revalidatePath("/groups/[id]", "page");
-  return {};
-}
