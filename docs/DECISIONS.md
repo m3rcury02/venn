@@ -3052,7 +3052,7 @@ deliberately" below Phase 3's write-up, are both reversed here for delete
 only. Leaving and renaming a group are untouched, and stay out of scope for
 the same reason they always were.
 
-Migration: `supabase/migrations/20260728084949_group_delete.sql`.
+Migration: `supabase/migrations/20260728093117_group_delete.sql`.
 
 ### The grant was the enforcement, and removing it is the whole change
 
