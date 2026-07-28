@@ -19,7 +19,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(77);
+select plan(82);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -731,6 +731,68 @@ select is(
      array['55555555-5555-5555-5555-555555555555']::uuid[])),
   0,
   'reroll: an excluded movie is not returned again'
+);
+
+-- ------------------------------------------------------- deleting a group
+
+-- Still impersonating D: a member, so D can SELECT the group and therefore
+-- count it -- unlike A, who is worth no delete negative here since
+-- groups_select_member already pins that A cannot see the group at all.
+
+delete from groups where id = '99999999-9999-9999-9999-999999999999';
+
+-- Not throws_ok: authenticated now holds the DELETE grant (see this phase's
+-- migration), so a non-owner is stopped by RLS filtering the row out of the
+-- delete's target set, which is silent -- the same shape as "A cannot update
+-- B's profile" above.
+select is(
+  (select count(*)::int from groups),
+  1,
+  'D (a member, not the owner) cannot delete the group'
+);
+
+-- The control the house rule requires: no negative above without a positive on
+-- the same table. C is the creator.
+set local request.jwt.claims = '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+
+-- Captured before the delete: once the group is gone, `lists` cascades away
+-- too, and `list_items where list_id in (select ... from lists where
+-- owner_group_id = ...)` would then match against an empty subquery and pass
+-- vacuously, proving nothing about the cascade at all.
+create temp table _deleted_group_list as
+  select id from lists where owner_group_id = '99999999-9999-9999-9999-999999999999';
+
+select lives_ok(
+  $$delete from groups where id = '99999999-9999-9999-9999-999999999999'$$,
+  'control: C, the group''s creator, can delete it'
+);
+
+-- Read outside RLS: a zero read as C would prove nothing once the delete has
+-- removed C's own group_members row -- it would pass even if the cascade had
+-- not fired. reset role is the idiom this file already uses to get back to the
+-- superuser; `set local role postgres` is not valid here since authenticated is
+-- not a member of that role.
+reset role;
+
+select is(
+  (select count(*)::int from group_members
+   where group_id = '99999999-9999-9999-9999-999999999999'),
+  0,
+  'cascade: deleting the group removes its membership'
+);
+
+select is(
+  (select count(*)::int from lists
+   where owner_group_id = '99999999-9999-9999-9999-999999999999'),
+  0,
+  'cascade: deleting the group removes its list'
+);
+
+select is(
+  (select count(*)::int from list_items
+   where list_id in (select id from _deleted_group_list)),
+  0,
+  'cascade: deleting the group removes its list''s items'
 );
 
 -- ------------------------------------------------------------ anon access

@@ -3038,3 +3038,128 @@ scale.
    versions. `get_advisors(security)` shows the same four pre-existing WARNs
    as before (three SECURITY DEFINER functions plus leaked-password
    protection) and nothing new -- this migration added no function.
+
+---
+
+## Deleting a group (post-phase-7 feature, revises Phase 3)
+
+Not a numbered phase -- requested directly, because an accidentally-created
+group had no way to go away. Phase 3's own grants comment said the quiet
+part out loud: *"No UPDATE or DELETE for anyone: renaming, leaving and
+deleting groups are out of scope this phase, and withholding the grant is
+how that stays true."* That sentence, and its restatement under "Deferred,
+deliberately" below Phase 3's write-up, are both reversed here for delete
+only. Leaving and renaming a group are untouched, and stay out of scope for
+the same reason they always were.
+
+Migration: `supabase/migrations/20260728084949_group_delete.sql`.
+
+### The grant was the enforcement, and removing it is the whole change
+
+`groups` carried `grant select, insert on groups to authenticated` and
+nothing else. The entire change is `grant delete on groups to authenticated`
+plus one policy -- no REVOKE block, because no table is created here and
+CLAUDE.md's REVOKE-then-GRANT rule doesn't apply (same reasoning
+`media_type_tv.sql` used). Phase 3 already ran `revoke all on groups ...`,
+and hosted default privileges only fire at table creation, so there was
+nothing to revoke a second time.
+
+### `created_by` is the predicate, not the member role
+
+`groups_delete_owner` checks `created_by = (select auth.uid())`, not a join
+against `group_members.role = 'owner'`. The two agree today --
+`handle_new_group` is the only writer of `role = 'owner'`, and there is no
+ownership transfer -- but `created_by` lives on the row being deleted, so
+the policy needs no join and can't drift from a membership row. No
+`is_group_owner()` helper was added alongside `is_group_member`: SECURITY
+DEFINER exists in this schema to escape RLS recursion or to read rows the
+caller can't otherwise SELECT (`is_group_member`, `join_group_by_code`);
+neither problem applies here, since the owner can already SELECT the group
+being deleted. A plain policy is the whole mechanism.
+
+### The cascade needed no grants of its own
+
+`ON DELETE CASCADE` runs as the system, not as the deleting role -- it isn't
+subject to that role's grants or RLS. Every FK into `groups` already
+cascades: `group_members.group_id` and `lists.owner_group_id` (both Phase
+3), and `list_items.list_id` into `lists` (Phase 0). Grepped every migration
+for `references groups` to confirm those are the only two, and that nothing
+else (no `movie_nights` -- Phase 11, unbuilt) points at `groups` yet. So
+`delete from groups` already cleanly removes a group's membership, its one
+list, and that list's items, with no additional DB work.
+
+### `.select()` on the delete would report a success as a failure
+
+`deleteGroup` (`app/groups/actions.ts`) does not chain `.select()` after the
+delete. By the time `RETURNING` would evaluate `groups_select_member`, the
+cascade has already removed the caller's own `group_members` row, so the
+returned row would be filtered out -- the same trap `createGroup`'s comment
+documents for `handle_new_group`'s AFTER trigger, mirrored here for the
+opposite direction. Checking only `error` avoids it. A non-owner's forged
+request is a silent no-op: RLS filters the row from the DELETE's target set,
+no error is raised, nothing changes -- the same shape as "A cannot update
+B's profile" in the RLS suite. Not worth a pre-flight ownership read, since
+the UI never renders the control for a non-owner in the first place.
+
+### UI: a danger zone, not a modal
+
+The delete control lives at the bottom of `/groups/[id]`
+(`components/delete-group-panel.tsx`), rendered only when
+`group.created_by === caller`, gated by reading the same column the policy
+checks rather than trusting `group_members.role` as a second source of
+truth. Confirmation is a two-step inline swap ("Delete group" → "Delete for
+everyone? / Cancel"), shaped on `RevokeButton`
+(`components/ingest-token-panel.tsx`) -- a `useActionState` form with a
+hidden `id` field. No native `<dialog>`: the app's two existing sheets
+(`mobile-navigation.tsx`, `group-actions-fab.tsx`) exist to host navigation
+or two forms apiece, which a single destructive button doesn't need, and no
+new dependency was worth asking for over one `useState`.
+
+### Deferred, deliberately
+
+Leaving a group and renaming a group remain out of scope -- neither table
+gained an UPDATE grant, and `group_members` still has none at all. The
+"last member to leave" question Phase 3 flagged stays closed, untouched,
+because a non-owner still has no way to leave a group at all.
+
+### Tests
+
+`supabase/tests/rls.test.sql` gained five assertions, appended at the very
+end of the impersonated block (immediately before `------ anon access`),
+since they destroy the shared group fixture (`99999999-...`) that the
+Phase 4 recommender assertions above depend on -- inserting them earlier
+would break everything after. `plan(77)` → `plan(82)`.
+
+Still impersonating D (a member, not the owner) when the block opens: D's
+delete matches no row (`select count(*) from groups` stays 1) -- not
+`throws_ok`, since `authenticated` now holds the DELETE grant and RLS
+filters the row silently rather than raising. Per the standing "no negative
+without a control on the same table" rule, C (the creator) then gets
+`lives_ok` on the same delete. The group's list id is captured into a temp
+table *before* the delete runs, because after the group is gone `lists`
+cascades away too, and a `list_items` assertion joined through
+`lists where owner_group_id = ...` would then match against an empty
+subquery and pass vacuously -- proving nothing about the cascade. The three
+cascade assertions (`group_members`, `lists`, `list_items`, all zero) run
+after `reset role`, not as C: a zero read through RLS proves nothing once
+the caller's own `group_members` row is gone, since it would pass even if
+the cascade hadn't fired. `reset role` is the idiom this file already uses
+to reach the superuser; `set local role postgres` isn't valid here, since
+`authenticated` isn't a member of that role.
+
+### Verification
+
+1. `supabase db reset` -- migration applies clean.
+2. `supabase test db` -- 82/82.
+3. `pnpm typecheck`, `pnpm lint`, `pnpm build` -- clean.
+4. Applied to `vfkkpflenfpfrrygxmto` through the Supabase MCP; local file
+   renamed to the stamped version, `db reset` + `test db` re-run to confirm
+   the reorder is harmless.
+5. `get_advisors(security)` -- no new findings from the added policy.
+6. `pnpm dev`, real signed-in session: the danger zone renders and deletes
+   correctly for the creator; a non-creator member sees no danger zone at
+   all; `/groups/<deleted id>` and `/groups/<deleted id>/night` both 404
+   rather than crash (the night page's `groups_select_member` gate returns
+   `notFound()` before ever reaching `recommend_movies`, so that RPC's
+   non-member guard is never hit); the other member's `/groups` list and
+   personal data are unaffected.

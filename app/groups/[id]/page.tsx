@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { AppHeader, navLinkClass } from "@/components/app-header";
+import { DeleteGroupPanel } from "@/components/delete-group-panel";
 import type { Status } from "@/components/list-filter";
 import { InviteCode } from "@/components/invite-code";
 import { MovieCard } from "@/components/movie-card";
@@ -49,7 +50,7 @@ export default async function GroupPage({ params }: GroupPageProps) {
   // 404s rather than leaking the group's name or its invite code.
   const { data: group } = await supabase
     .from("groups")
-    .select("id, name, invite_code")
+    .select("id, name, invite_code, created_by")
     .eq("id", id)
     .single();
   if (!group) notFound();
@@ -194,6 +195,10 @@ export default async function GroupPage({ params }: GroupPageProps) {
           ) : null}
         </div>
       )}
+
+      {group.created_by === claims.claims.sub ? (
+        <DeleteGroupPanel groupId={group.id} groupName={group.name} />
+      ) : null}
     </Screen>
   );
 }

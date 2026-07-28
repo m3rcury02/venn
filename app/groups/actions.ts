@@ -34,6 +34,30 @@ export async function createGroup(
   redirect(`/groups/${id}`);
 }
 
+export async function deleteGroup(
+  _prev: GroupFormState,
+  formData: FormData,
+): Promise<GroupFormState> {
+  const id = String(formData.get("id") ?? "");
+  if (!id) return { error: "Missing group." };
+
+  const supabase = await createClient();
+
+  // No .select() on this delete: groups_delete_owner is the enforcement, not
+  // this check, and a non-owner's forged request simply matches no row (same
+  // silent-no-op shape as "A cannot update B's profile" in the RLS suite). But
+  // for the real owner, the cascade removes their own group_members row before
+  // RETURNING would evaluate groups_select_member -- the same trap
+  // createGroup's comment above describes for handle_new_group's AFTER
+  // trigger -- so a successful delete would come back looking like a filtered,
+  // empty result. Checking `error` alone avoids that.
+  const { error } = await supabase.from("groups").delete().eq("id", id);
+  if (error) return { error: "Couldn't delete the group." };
+
+  revalidatePath("/groups");
+  redirect("/groups");
+}
+
 export async function joinGroup(
   _prev: GroupFormState,
   formData: FormData,
