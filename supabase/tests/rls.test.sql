@@ -19,7 +19,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(82);
+select plan(87);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -732,6 +732,85 @@ select is(
   0,
   'reroll: an excluded movie is not returned again'
 );
+
+-- -------------------------------------------------------- leaving a group
+
+-- This block switches request.jwt.claims but never the role, and it deliberately
+-- ends with D impersonated and back in the group. Both matter: the delete block
+-- below opens "still impersonating D" and reads `count(*) from groups` as D, so
+-- a stray `reset role` or a left-over C impersonation here would surface as a
+-- failure down there, looking unrelated.
+
+-- The owner first, while we are switching claims anyway. Not throws_ok:
+-- authenticated holds the DELETE grant on group_members now, so the
+-- `role <> 'owner'` clause stops C by filtering the row out of the delete's
+-- target set, silently. Non-vacuous -- C is still a member and can read the row.
+set local request.jwt.claims = '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+
+delete from group_members
+where group_id = '99999999-9999-9999-9999-999999999999'
+  and user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+
+select is(
+  (select count(*)::int from group_members
+   where group_id = '99999999-9999-9999-9999-999999999999'
+     and user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
+  1,
+  'C, the group''s owner, cannot leave its own group'
+);
+
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-dddd-dddd-dddddddddddd","role":"authenticated"}';
+
+select lives_ok(
+  $$delete from group_members
+    where group_id = '99999999-9999-9999-9999-999999999999'
+      and user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'$$,
+  'control: D, a member, can leave the group'
+);
+
+-- The user-visible consequence -- the group page 404s -- and self-controlling:
+-- only a real D could have made the delete above succeed. Asserting this rather
+-- than a row count read outside RLS is what keeps the block free of a role
+-- switch; is_group_member being false here is equivalent to the row being gone.
+select is(
+  (select count(*)::int from groups
+   where id = '99999999-9999-9999-9999-999999999999'),
+  0,
+  'after leaving, D can no longer read the group'
+);
+
+-- Leaving is recoverable, unlike deleting -- and this doubles as the fixture
+-- restore the delete block below depends on. Wrapped in an assertion rather
+-- than called bare: a naked `select` of a function would emit a row that is not
+-- TAP. D rejoins with role = 'member', exactly as before.
+select is(
+  (select public.join_group_by_code('TESTCODE')),
+  '99999999-9999-9999-9999-999999999999'::uuid,
+  'D can rejoin after leaving'
+);
+
+-- The policy's other clause, isolated. C's negative above is stopped by
+-- `role <> 'owner'` alone, so it says nothing about who may remove whom; D's
+-- row is role = 'member', which passes that clause and leaves
+-- `user_id = auth.uid()` as the only thing refusing C. That clause is the whole
+-- of what keeps removing another member unbuilt -- and the owner has no more
+-- power here than anyone else. A no-op, so the fixture survives for the delete
+-- block below.
+set local request.jwt.claims = '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+
+delete from group_members
+where group_id = '99999999-9999-9999-9999-999999999999'
+  and user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+
+select is(
+  (select count(*)::int from group_members
+   where group_id = '99999999-9999-9999-9999-999999999999'
+     and user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'),
+  1,
+  'C, the owner, cannot remove another member'
+);
+
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-dddd-dddd-dddddddddddd","role":"authenticated"}';
 
 -- ------------------------------------------------------- deleting a group
 

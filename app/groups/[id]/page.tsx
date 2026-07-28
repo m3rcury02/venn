@@ -4,6 +4,7 @@ import { AppHeader, navLinkClass } from "@/components/app-header";
 import { DeleteGroupPanel } from "@/components/delete-group-panel";
 import type { Status } from "@/components/list-filter";
 import { InviteCode } from "@/components/invite-code";
+import { LeaveGroupPanel } from "@/components/leave-group-panel";
 import { MovieCard } from "@/components/movie-card";
 import { RemoveFromListButton } from "@/components/remove-from-list-button";
 import { buttonClass } from "@/components/ui/button";
@@ -198,7 +199,9 @@ export default async function GroupPage({ params }: GroupPageProps) {
 
       {group.created_by === claims.claims.sub ? (
         <DeleteGroupPanel groupId={group.id} groupName={group.name} />
-      ) : null}
+      ) : (
+        <LeaveGroupPanel groupId={group.id} groupName={group.name} />
+      )}
     </Screen>
   );
 }

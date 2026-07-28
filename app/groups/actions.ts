@@ -58,6 +58,39 @@ export async function deleteGroup(
   redirect("/groups");
 }
 
+export async function leaveGroup(
+  _prev: GroupFormState,
+  formData: FormData,
+): Promise<GroupFormState> {
+  const id = String(formData.get("id") ?? "");
+  if (!id) return { error: "Missing group." };
+
+  const supabase = await createClient();
+  const { data: claims } = await supabase.auth.getClaims();
+  const userId = claims?.claims?.sub;
+  if (typeof userId !== "string") return { error: "Not signed in." };
+
+  // The user_id filter is not the enforcement -- group_members_delete_self is,
+  // and it would narrow this to the caller's own non-owner row anyway. It is
+  // here because a statement that reads "delete every member of this group" is
+  // worse for the next reader than one extra getClaims().
+  //
+  // No .select(), for the same reason deleteGroup gives above: RETURNING would
+  // evaluate group_members_select_peers after this row is gone, is_group_member
+  // would be false, and a successful leave would come back looking like an
+  // empty, filtered result. An owner's forged request is a silent no-op.
+  const { error } = await supabase
+    .from("group_members")
+    .delete()
+    .eq("group_id", id)
+    .eq("user_id", userId);
+
+  if (error) return { error: "Couldn't leave the group." };
+
+  revalidatePath("/groups");
+  redirect("/groups");
+}
+
 export async function joinGroup(
   _prev: GroupFormState,
   formData: FormData,

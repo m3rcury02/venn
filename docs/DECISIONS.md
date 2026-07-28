@@ -3163,3 +3163,187 @@ to reach the superuser; `set local role postgres` isn't valid here, since
    `notFound()` before ever reaching `recommend_movies`, so that RPC's
    non-member guard is never hit); the other member's `/groups` list and
    personal data are unaffected.
+
+---
+
+## Leaving a group (post-phase-7 feature, revises Phase 3)
+
+The other half of the deferral the entry above reversed. Delete gave the
+*creator* a way out; a member who joined by invite code still had none, so
+Phase 3's *"renaming, leaving and deleting groups are out of scope this
+phase, and withholding the grant is how that stays true"* is now reversed
+for leaving too, again on direct request. Renaming is the only third of that
+sentence still standing, and `groups` still holds no UPDATE grant.
+
+Migration: `supabase/migrations/20260728110640_group_leave.sql`.
+
+### "Member" means non-owner, and that is what closes the last-owner question
+
+`group_role` is a two-value enum `('owner','member')`, and `/groups` renders
+`{m.role}` verbatim as a badge, so "member" is already this codebase's word
+for *not the creator*. Read that way, the two exits partition the group
+exactly: the creator deletes (shipped in the entry above), everyone else
+leaves. Nobody is stranded and no third mechanism is needed.
+
+The Phase 3 note said leaving *"opens the last-owner question."* It does not
+open it here — it closes it, and by construction rather than by omission.
+The owner cannot leave, so a group keeps its owner until that owner deletes
+it; an ownerless or memberless group is unrepresentable. That is a stronger
+guarantee than the delete entry's version of the same claim, which rested
+only on nobody being able to leave at all.
+
+The alternative considered and rejected: let the owner leave, transferring
+ownership to the next-oldest member and deleting the group when the last
+member goes. That needs an UPDATE grant on `group_members`, a new SECURITY
+DEFINER function to carry the transfer, and it invents ownership transfer,
+which this schema deliberately does not have.
+
+### The predicate is on the row being deleted, same as `created_by` was
+
+`group_members_delete_self` is
+`using (user_id = (select auth.uid()) and role <> 'owner')`. That looks like
+a reversal of the delete entry's argument for preferring `groups.created_by`
+over a `group_members.role` join, and isn't: the principle there was *use the
+column that lives on the row being deleted*. There, the row was the group, so
+`created_by` was on-row and `role` would have been a join. Here the row being
+deleted **is** the membership row, so `role` is the on-row column and
+`created_by` would be the join. Same rule, opposite table.
+
+The two policies cannot drift apart about who the owner is, either:
+`handle_new_group` is the only writer of `role = 'owner'`, and it writes it
+for `new.created_by`.
+
+`<> 'owner'` rather than `= 'member'` so the predicate stays correct if
+`group_role` ever gains a third value. A plain policy again — the caller can
+already SELECT their own membership row through
+`group_members_select_peers`, so there is no recursion or unreadable row to
+justify SECURITY DEFINER.
+
+### The grant enables leaving, not kicking
+
+`grant delete on group_members to authenticated` is the widest part of this
+change, and the `user_id = (select auth.uid())` clause is the entirety of
+what keeps removing *another* member unbuilt. The owner has no more power
+here than anyone else: C cannot remove D, and that is asserted. No REVOKE
+block, for the reason `media_type_tv.sql` and `group_delete.sql` both state —
+no table is created, so CLAUDE.md's REVOKE-then-GRANT rule doesn't apply, and
+hosted default privileges only fire at table creation. `group_members` still
+has no INSERT or UPDATE grant, so its only write paths remain
+`handle_new_group` and `join_group_by_code`.
+
+### `.select()` on the delete would report a success as a failure
+
+The same trap as `deleteGroup`, one table over. `leaveGroup`
+(`app/groups/actions.ts`) chains no `.select()`: `RETURNING` would evaluate
+`group_members_select_peers` *after* the caller's own row is gone, at which
+point `is_group_member` is false and a successful leave comes back as an
+empty, filtered result. Checking `error` alone avoids it. An owner's forged
+POST is a silent no-op — RLS filters the row out of the delete's target set.
+
+The `.eq("user_id", userId)` filter is not the enforcement; the policy would
+narrow the statement to the caller's own non-owner row regardless. It is
+there because a statement that reads "delete every member of this group" is
+worse for the next reader than one extra `getClaims()`.
+
+### A leaver's movies stay, and their name stops resolving
+
+Nothing has an FK into `group_members` (grepped for `references
+group_members`; its PK is the composite `(group_id, user_id)`), so leaving
+cascades to nothing. In particular `list_items.added_by` references
+`profiles`, not membership — so the movies a leaver added stay on the
+group's list. That is the intent: the items belong to the group, and
+deleting them on the way out would silently destroy shared data.
+
+What does change is that their *name* stops resolving.
+`profiles_select_visible` exposes a profile only to shared-group peers, so
+once the membership row is gone, remaining members who share no other group
+with the leaver read `null` for `display_name`, and `added by <name>` falls
+back to `added by Member`. All three `profiles(...)` embeds already guard
+this with `?? "Member"` — `app/groups/[id]/page.tsx:129,162` and
+`app/groups/[id]/night/page.tsx:68` — so it is a cosmetic fallback, not a
+crash. Confirmed live, not just reasoned.
+
+### UI: membership, not a danger zone
+
+The control sits in the same slot as the delete panel — the bottom of
+`/groups/[id]` — as the else branch of the existing
+`group.created_by === caller` ternary, so exactly one of the two always
+renders. `components/leave-group-panel.tsx` is a sibling of
+`delete-group-panel.tsx` rather than a mode flag on it: the copy and the
+stakes differ enough that a flag would make the text conditional in three
+places for no gain.
+
+Two deliberate differences, both saying *this one is recoverable*: the
+heading is "Membership", not "Danger zone", and the idle trigger is
+`buttonClass("ghost")` rather than the `beam` warning fill, which is reserved
+for the click that actually destroys something (the confirm submit keeps
+`beam`). The copy names the recovery — *"You'll need the invite code to
+rejoin"* — since after leaving, the group page 404s and the code is the only
+way back.
+
+### Deferred, deliberately
+
+- **Renaming a group.** Still no UPDATE grant on `groups`; the last third of
+  Phase 3's sentence.
+- **Removing another member.** Blocked by the `user_id = auth.uid()` clause,
+  not merely unbuilt.
+- **Ownership transfer.** Still does not exist, and the owner-cannot-leave
+  rule is what makes its absence safe.
+
+### Tests
+
+`supabase/tests/rls.test.sql` gained five assertions, immediately before the
+group-delete block, since they need the group and both members alive and that
+block destroys the fixture. `plan(82)` → `plan(87)`.
+
+The block **never switches role, only `request.jwt.claims`**, and ends with D
+impersonated and back in the group. Both are load-bearing: the delete block
+below opens "still impersonating D" and reads `count(*) from groups` as D, so
+a stray `reset role` or a left-over C impersonation here would surface down
+there as a failure that looks unrelated to its cause.
+
+Assertions, in order: C cannot leave its own group (the `role <> 'owner'`
+clause; not `throws_ok`, since `authenticated` holds the DELETE grant now and
+RLS filters silently); `lives_ok` for D leaving — the control the standing
+"no negative without a positive on the same table" rule requires; D can no
+longer read the group afterwards, which is the user-visible 404 and is
+self-controlling, since only a real D could have made the delete succeed;
+D rejoins via `join_group_by_code('TESTCODE')`, which asserts that leaving is
+recoverable *and* doubles as the fixture restore (wrapped in `is()` rather
+than called bare, since a naked `select` of a function emits a non-TAP row);
+and finally C cannot remove D.
+
+That last one is why the C-removes-D shape was chosen over D-removes-C. D
+removing C is stopped by `role <> 'owner'` on its own, so it would say
+nothing about *who* may remove whom. D's row is `role = 'member'`, which
+passes that clause and leaves `user_id = auth.uid()` as the only thing
+refusing C — so the two negatives now pin one clause each. Verified by
+mutation: dropping either clause from the policy in a throwaway transaction
+drops the corresponding row count to 0, where the assertion demands 1.
+
+Asserting "D can no longer read the group" rather than reading the row count
+outside RLS is also what buys the no-`reset role` property — with the
+membership row gone, `is_group_member` false and no row are equivalent, so
+the weaker-looking read costs nothing.
+
+### Verification
+
+1. `supabase db reset` — migration applies clean.
+2. `supabase test db` — 87/87.
+3. `pnpm typecheck`, `pnpm lint`, `pnpm build` — clean.
+4. Policy mutation-tested in a rolled-back transaction, both clauses
+   independently pinned (above).
+5. Applied to `vfkkpflenfpfrrygxmto` through the Supabase MCP; local file
+   renamed to the stamped version (`20260728110640`), `db reset` + `test db`
+   re-run to confirm the reorder is harmless.
+6. `get_advisors(security)` — the same pre-existing WARNs, nothing new from
+   the added policy.
+7. `pnpm dev`, two real signed-in accounts: the joiner sees the Membership
+   panel (the owner sees only the Danger zone), "Leave group" swaps to the
+   confirm row, Cancel restores it, and Leave lands on `/groups` with the
+   group gone; `/groups/<id>` and `/groups/<id>/night` both 404 for them
+   afterwards rather than crashing. The joiner was given a display name
+   first, so the fallback was actually observable: the owner's view read
+   "added by Robin" before and "added by Member" after, with the movie still
+   on the list and Robin gone from the member chips. The joiner then rejoined
+   with the invite code, and both the group and "added by Robin" came back.
