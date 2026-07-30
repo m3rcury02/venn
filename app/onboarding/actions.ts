@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import type { Rating } from "@/app/status/actions";
+import type { Hype, Rating } from "@/app/status/actions";
 import { cacheMovie } from "@/lib/movies/cache";
 import { PROVIDER_NAME, provider } from "@/lib/providers";
 import { createClient } from "@/lib/supabase/server";
@@ -14,12 +14,19 @@ export type OnboardingMovie = {
   title: string;
   year: number | null;
   posterUrl: string | null;
+  releaseDate: string | null;
   rating: Rating | null;
+  hype: Hype | null;
 };
 
 export type OnboardingRatingResult = {
   ok: boolean;
   count: number;
+  message?: string;
+};
+
+export type OnboardingHypeResult = {
+  ok: boolean;
   message?: string;
 };
 
@@ -110,7 +117,7 @@ export async function loadPopularOnboarding(
     movieIds.length > 0
       ? await supabase
           .from("user_movie_status")
-          .select("movie_id, rating")
+          .select("movie_id, rating, hype")
           .eq("user_id", userId)
           .in("movie_id", movieIds)
       : { data: [], error: null };
@@ -120,6 +127,12 @@ export async function loadPopularOnboarding(
     (statuses ?? []).map((status) => [
       status.movie_id,
       (status.rating as Rating | null) ?? null,
+    ]),
+  );
+  const hypeByMovieId = new Map(
+    (statuses ?? []).map((status) => [
+      status.movie_id,
+      (status.hype as Hype | null) ?? null,
     ]),
   );
 
@@ -132,7 +145,9 @@ export async function loadPopularOnboarding(
       posterUrl: movie.posterPath
         ? provider.getImageUrl(movie.posterPath, "w185")
         : null,
+      releaseDate: movie.releaseDate,
       rating: movieId ? (ratingByMovieId.get(movieId) ?? null) : null,
+      hype: movieId ? (hypeByMovieId.get(movieId) ?? null) : null,
     };
   });
 }
@@ -175,6 +190,43 @@ export async function rateOnboardingMovie(
     .not("rating", "is", null);
 
   return { ok: true, count: count ?? 0 };
+}
+
+// For movies that haven't released yet -- rating implies "I watched this,"
+// which isn't possible for them. Hype votes don't count toward the ten
+// ratings complete_onboarding() requires (SPEC §4.5: cold start needs rated
+// movies, since only ratings feed user_tag_weights).
+export async function hypeOnboardingMovie(
+  externalId: string,
+  hype: Hype,
+): Promise<OnboardingHypeResult> {
+  if (!["dont_care", "hyped", "superhyped"].includes(hype)) {
+    return { ok: false, message: "Choose a hype level." };
+  }
+
+  const userId = await authenticatedUserId();
+  if (!userId) return { ok: false, message: "Not signed in." };
+
+  let movieId: string;
+  try {
+    movieId = await cacheMovie(externalId);
+  } catch {
+    return { ok: false, message: "Couldn't load that movie." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("user_movie_status").upsert({
+    user_id: userId,
+    movie_id: movieId,
+    watched: false,
+    rating: null,
+    hype,
+    watched_at: null,
+    updated_at: new Date().toISOString(),
+  });
+  if (error) return { ok: false, message: "Couldn't save that hype vote." };
+
+  return { ok: true };
 }
 
 export async function completeOnboarding(): Promise<{ error?: string }> {
