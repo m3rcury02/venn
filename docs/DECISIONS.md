@@ -3813,34 +3813,30 @@ candidate for D and obscured what the block was actually testing.
 6. Applied to `vfkkpflenfpfrrygxmto` through the Supabase MCP, same route as
    phases 0/3/4. `apply_migration` stamped `20260730163534` — which sorts
    **before** `20260730180000_phase8_onboarding_imports.sql`, even though
-   phase 8 shipped first.
+   phase 8 shipped first, and unlike phases 0/3 (whose remote-assigned
+   version landed *between* its neighbors) there was no ordering-safe rename
+   available here.
 
-   Unlike phases 0 and 3, the local file was **not** renamed to match.
-   Phases 0/3's rename landed the remote-assigned version *between* its
-   existing neighbors, so matching it was free. Here it would misorder the
-   migrations directory relative to true build order — phase 9 would appear
-   to precede phase 8 in the one place this repo's phase history is meant to
-   be legible. Every phase so far has reached remote through `apply_migration`
-   directly (§0: "the CLI has no stored session here"), never `supabase db
-   push`, so the rename's actual benefit — stopping a future `db push` from
-   re-running an already-applied migration — is a latent risk this project
-   hasn't hit yet, not an active one. Preserving the directory's chronological
-   truth won out. `20260730190000_phase9_theatre.sql` stays as filed; the
-   remote's internal version tag simply differs, the same kind of cosmetic
-   local/remote mismatch phase 0 documented for its migration's SQL text after
-   the REVOKE block was applied separately.
+   Renaming the local file to match would have misordered the migrations
+   directory relative to true build order. Leaving the mismatch undocumented
+   would have been worse than cosmetic: a future `supabase db push` compares
+   by *version*, so it would see `20260730190000` as unapplied, attempt to
+   re-run it, and fail hard (`create type release_type` already exists,
+   `drop function ... recommend_movies(uuid, uuid[], uuid[])` has nothing to
+   drop) — the opposite of phase 0's SQL-text mismatch, which stayed inert
+   specifically because *its* version matched.
 
-   Confirmed the two are the same *schema* despite the differing version
-   string: local and remote were compared directly on `movie_releases`
-   (columns, nullability, RLS policy name, grants to `authenticated` and
-   `service_role`) and on `recommend_movies` (`pg_get_functiondef`, byte-for-
-   byte identical). `supabase db reset` still applies all twelve migrations
-   clean and `supabase test db` still passes 119/119 regardless of which
-   filename ordering is on disk at the time, since nothing phase 9 touches
-   (`movies`, `list_items`, `lists`, `group_members`, `user_movie_status`,
-   `user_tag_weights`, `movie_tags`, `tags`, `is_group_member`) depends on
-   anything phase 8 introduced (`profiles.onboarded_at`, `imports`,
-   `import_rows`) — both orderings were exercised and both passed.
+   Fixed at the root instead: the remote's tracking row is metadata, not
+   schema, so `supabase_migrations.schema_migrations.version` was updated
+   directly from `20260730163534` to `20260730190000` to match the filename —
+   no DDL touched, verified by re-selecting the row and confirming the schema
+   (`movie_releases` columns/nullability/RLS policy/grants, and
+   `recommend_movies` via `pg_get_functiondef`) is unchanged and still
+   byte-for-byte identical to local. `supabase migration list` now shows
+   phase 9 after phase 8 on both sides, and `20260730190000_phase9_theatre.sql`
+   is both the true build-order position and the exact version remote has
+   recorded. `supabase db reset` and `supabase test db` (119/119) were
+   re-verified against the corrected local ordering.
 
 ### Not exercised
 
