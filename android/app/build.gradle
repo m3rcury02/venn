@@ -1,0 +1,87 @@
+plugins {
+    id 'com.android.application'
+}
+
+def signingDirectory = System.getenv('VENN_ANDROID_SIGNING_DIR') ?:
+        "${System.getProperty('user.home')}/.config/venn"
+def keystorePath = System.getenv('VENN_ANDROID_KEYSTORE_PATH') ?:
+        "${signingDirectory}/android-release.jks"
+def passwordFilePath = System.getenv('VENN_ANDROID_KEYSTORE_PASSWORD_FILE') ?:
+        "${signingDirectory}/android-release.password"
+def storePasswordValue = System.getenv('VENN_ANDROID_KEYSTORE_PASSWORD')
+if (!storePasswordValue && file(passwordFilePath).exists()) {
+    storePasswordValue = file(passwordFilePath).text.trim()
+}
+def keyAliasValue = System.getenv('VENN_ANDROID_KEY_ALIAS') ?: 'venn'
+def keyPasswordValue = System.getenv('VENN_ANDROID_KEY_PASSWORD') ?: storePasswordValue
+def releaseSigningAvailable = file(keystorePath).exists() && storePasswordValue
+
+android {
+    namespace = 'com.m3rcury02.venn'
+    compileSdk = 37
+
+    buildFeatures {
+        resValues = true
+    }
+
+    defaultConfig {
+        applicationId = 'com.m3rcury02.venn'
+        minSdk = 24
+        targetSdk = 37
+        versionCode = 1
+        versionName = '1.0.0'
+
+        resValue 'string', 'appName', 'Venn'
+        resValue 'string', 'launcherName', 'Venn'
+        resValue 'string', 'launchUrl', 'https://venn-roan.vercel.app/'
+        resValue 'string', 'hostName', 'venn-roan.vercel.app'
+        resValue 'string', 'webManifestUrl', 'https://venn-roan.vercel.app/manifest.webmanifest'
+        resValue 'string', 'providerAuthority', 'com.m3rcury02.venn.fileprovider'
+        resValue 'string', 'shareTarget', '{\\"action\\":\\"https://venn-roan.vercel.app/share\\",\\"method\\":\\"POST\\",\\"enctype\\":\\"multipart/form-data\\",\\"params\\":{\\"title\\":\\"title\\",\\"text\\":\\"text\\",\\"url\\":\\"url\\"}}'
+        resValue 'integer', 'splashScreenFadeOutDuration', '300'
+        resValue 'string', 'generatorApp', 'bubblewrap-cli'
+        resValue 'string', 'fallbackType', 'customtabs'
+        resValue 'string', 'orientation', 'default'
+
+        resValue 'color', 'colorPrimary', '#000000'
+        resValue 'color', 'colorPrimaryDark', '#000000'
+        resValue 'color', 'navigationColor', '#000000'
+        resValue 'color', 'navigationColorDark', '#000000'
+        resValue 'color', 'navigationDividerColor', '#000000'
+        resValue 'color', 'navigationDividerColorDark', '#000000'
+        resValue 'color', 'backgroundColor', '#000000'
+    }
+
+    signingConfigs {
+        release {
+            if (releaseSigningAvailable) {
+                storeFile = file(keystorePath)
+                storePassword = storePasswordValue
+                keyAlias = keyAliasValue
+                keyPassword = keyPasswordValue
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled = true
+            if (releaseSigningAvailable) {
+                signingConfig = signingConfigs.release
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    lint {
+        checkReleaseBuilds = true
+    }
+}
+
+dependencies {
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.7.2'
+}

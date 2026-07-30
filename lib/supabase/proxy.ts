@@ -25,6 +25,10 @@ import { NextResponse, type NextRequest } from "next/server";
 // happens to be current -- if that fetch gets redirected to /login instead of
 // the real offline page, every future offline navigation on this device would
 // render the login screen from cache rather than the offline shell.
+//
+// /.well-known/assetlinks.json must also be readable without a session. Android
+// fetches it to verify that the signed native wrapper may open this origin as a
+// Trusted Web Activity; a login redirect would make verification fail.
 const PUBLIC_PATHS = [
   "/login",
   "/auth",
@@ -33,6 +37,7 @@ const PUBLIC_PATHS = [
   "/manifest.webmanifest",
   "/sw.js",
   "/offline",
+  "/.well-known/assetlinks.json",
 ];
 
 export async function updateSession(request: NextRequest) {

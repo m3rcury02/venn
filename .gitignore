@@ -20,6 +20,16 @@
 # production
 /build
 
+# Android build output and local signing
+/android/.gradle/
+/android/**/build/
+/android/local.properties
+/android/*.apk
+/android/*.aab
+/android/*.jks
+/android/*.keystore
+/android/app/src/main/res/drawable-*/ic_notification_icon.png
+
 # misc
 .DS_Store
 *.pem
