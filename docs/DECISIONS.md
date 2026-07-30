@@ -3347,3 +3347,84 @@ the weaker-looking read costs nothing.
    "added by Robin" before and "added by Member" after, with the movie still
    on the list and Robin gone from the member chips. The joiner then rejoined
    with the invite code, and both the group and "added by Robin" came back.
+
+---
+
+## Android TWA Quick Settings search (post-phase-7 distribution feature)
+
+**No schema change.** This revises §1's distribution choice and §10's native
+non-goal narrowly: Venn still has one web UI, but Android users may install a
+signed Trusted Web Activity wrapper to gain an OS-level Quick Settings tile.
+It is not a React Native or Capacitor rewrite.
+
+### One web product, one native seam
+
+`android/` is a Bubblewrap-generated TWA project that is now maintained
+directly. The package is `com.m3rcury02.venn`; the verified origin remains
+`https://venn-roan.vercel.app`. Android Browser Helper owns the browser
+session and renders the deployed Next.js app, so catalog searches and adds
+still use the existing `/search` UI and server-side provider boundary.
+
+The only custom native behavior is `SearchTileService`. Its action intent
+targets `LauncherActivity` with `/search` as the HTTPS data URI. Android
+Browser Helper already respects an incoming verified URL, which avoids a
+second search implementation and keeps auth in the web session.
+
+The tile is an action, not a toggle: it always reports active and opens
+search. Locked devices use `unlockAndRun`; Android 14+ uses the required
+`PendingIntent` overload, while Android 7–13 use the older overload behind
+the runtime SDK check.
+
+### Tile discovery
+
+Android 13 introduced `StatusBarManager.requestAddTileService`, so the first
+normal launcher start requests the tile once and then launches the TWA from
+the system callback. The result is persisted whether the user accepts,
+declines, or already has the tile. Deep links, shares, and tile launches do
+not trigger the prompt. Android 7–12 expose the service in the Quick Settings
+editor but cannot show the system add prompt.
+
+No notification delegation was retained. The generated notification
+permission and delegation service were unrelated to search and would have
+expanded the wrapper's permissions without a current requirement.
+
+### Trust and signing
+
+The release certificate is a private RSA-4096 key outside the repository.
+Gradle reads it from `~/.config/venn` by default or from explicit
+`VENN_ANDROID_*` environment variables. `.gitignore` excludes Android
+keystores and build artifacts.
+
+`public/.well-known/assetlinks.json` binds the production origin to the
+package and certificate SHA-256 fingerprint. It is explicitly public in the
+Supabase auth proxy because Android fetches it without a Venn session. The
+same fingerprint is recorded in `twa-manifest.json` for operator visibility.
+The private key and password are never committed.
+
+Web releases remain normal Vercel deployments and need no APK update. Native
+changes require a higher `versionCode`, the same package ID, and the same
+signing key; friends can install the replacement APK in place. The exact
+build, install, backup, and manual tile steps live in `android/README.md`.
+
+### Toolchain
+
+The wrapper pins Android Gradle Plugin 9.3.1, Gradle 9.6.1, Android SDK 37,
+Java 17 bytecode, Android Browser Helper 2.7.2, and minimum Android API 24.
+AGP 9's built-in Kotlin support compiles the two native Kotlin classes
+without a separate Kotlin Gradle plugin.
+
+### Verification
+
+1. `pnpm typecheck`, `pnpm lint`, and `pnpm build` — clean.
+2. `lintRelease assembleRelease --warning-mode all` — clean with the pinned
+   API 37 SDK; the release APK is generated successfully.
+3. `apksigner verify --print-certs` — one valid RSA signer, and its SHA-256
+   digest exactly matches `assetlinks.json`.
+4. `aapt dump badging` — package `com.m3rcury02.venn`, version code 1,
+   minimum API 24, target/compile API 37.
+5. A local production server returns `/.well-known/assetlinks.json` as
+   unauthenticated `200 application/json` with bytes identical to the public
+   file.
+6. Real-device prompt, tile placement, and TWA verification remain a device
+   check after this web change is deployed. The old production deployment
+   still redirects the asset-link URL to `/login`, as expected until then.

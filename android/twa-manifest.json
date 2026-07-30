@@ -1,0 +1,63 @@
+{
+  "packageId": "com.m3rcury02.venn",
+  "host": "venn-roan.vercel.app",
+  "name": "Venn",
+  "launcherName": "Venn",
+  "display": "standalone",
+  "themeColor": "#000000",
+  "themeColorDark": "#000000",
+  "navigationColor": "#000000",
+  "navigationColorDark": "#000000",
+  "navigationDividerColor": "#000000",
+  "navigationDividerColorDark": "#000000",
+  "backgroundColor": "#000000",
+  "enableNotifications": false,
+  "startUrl": "/",
+  "iconUrl": "https://venn-roan.vercel.app/icon-512.png",
+  "maskableIconUrl": "https://venn-roan.vercel.app/icon-maskable-512.png",
+  "monochromeIconUrl": "https://venn-roan.vercel.app/icon-monochrome.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "~/.config/venn/android-release.jks",
+    "alias": "venn"
+  },
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://venn-roan.vercel.app/manifest.webmanifest",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://venn-roan.vercel.app/",
+  "minSdkVersion": 24,
+  "shareTarget": {
+    "action": "https://venn-roan.vercel.app/share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
+  "orientation": "default",
+  "fingerprints": [
+    {
+      "name": "private-release",
+      "value": "CF:1F:CB:29:E9:BD:04:9D:1E:9B:ED:FB:46:55:39:02:32:72:31:21:F3:30:5D:CC:7D:89:75:12:4F:EE:3C:6E"
+    }
+  ],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": [],
+  "protocolHandlers": [],
+  "fileHandlers": [],
+  "launchHandlerClientMode": "",
+  "displayOverride": [],
+  "appVersion": "1.0.0"
+}

@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.m3rcury02.venn",
+      "sha256_cert_fingerprints": [
+        "CF:1F:CB:29:E9:BD:04:9D:1E:9B:ED:FB:46:55:39:02:32:72:31:21:F3:30:5D:CC:7D:89:75:12:4F:EE:3C:6E"
+      ]
+    }
+  }
+]

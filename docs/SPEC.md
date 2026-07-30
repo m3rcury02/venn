@@ -10,7 +10,7 @@ Shared movie lists and group recommendations. Personal libraries, friend groups,
 
 | Area | Choice | Notes |
 |---|---|---|
-| Distribution | PWA, installable | No dev account. Native iOS wrapper later via Capacitor if the data justifies it |
+| Distribution | Installable PWA + private Android TWA | The TWA adds Android Quick Settings search without duplicating the web UI. Native iOS wrapper later via Capacitor if the data justifies it |
 | Frontend | Next.js on Vercel | Hobby tier during development — see §2 |
 | Backend | Supabase free tier | Postgres, Google OAuth (primary) + magic-link (secondary) auth, RLS |
 | Movie data | TMDB, behind a swappable provider interface | See §2 |
@@ -343,7 +343,7 @@ Phases are built in order. **Do not build ahead of the current phase.** The curr
 
 ## 10. Non-Goals
 
-State these in agent prompts or they will get built unasked: no seasons or episodes for TV (a series is one title, §3), no TV on group lists (§3), no native app in v1, no comments or DMs, no LLM calls at runtime, no admin dashboard beyond a moderation view, no payments before phase 12, **no pgvector** — §4 is plain SQL by design.
+State these in agent prompts or they will get built unasked: no seasons or episodes for TV (a series is one title, §3), no TV on group lists (§3), no separate native UI in v1 (the Android TWA is only a signed wrapper around the web app), no comments or DMs, no LLM calls at runtime, no admin dashboard beyond a moderation view, no payments before phase 12, **no pgvector** — §4 is plain SQL by design.
 
 ---
 
