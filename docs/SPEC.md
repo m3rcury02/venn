@@ -292,11 +292,18 @@ Generated from scoring components, no LLM:
 4. **Group List** — who added what
 5. **Inbox** — pending shares, candidate picker
 6. **Movie Night** — mode (home/theatre) → who's present (checklist or join link) → Top 3 with reasons → pick → logs night, prompts confirmations
-7. **Movie Detail** — poster, overview, runtime, where to watch, vote control (rating if watched, hype if not)
+7. **Movie Detail** — poster, overview, runtime, where to watch, global hype/love percentages, vote control (rating if watched, hype if not)
 8. **Profile** — public username, public lists, follow button
 9. **Discover** — search users, browse public lists and groups
 10. **Stats** — watch history, hype-vs-reality
 11. **Settings** — groups, ingest token + shortcut install, visibility toggles, notification matrix, blocks, export, delete account
+
+**Movie-detail global percentages use current votes.** "Hyped" is
+`hyped | superhyped` divided by all non-null hype votes (including
+`dont_care`); "Loved" is `love` divided by all non-null watched ratings. The
+two pools are independent, round to whole percentages, and show no percentage
+when their relevant pool is empty. When a user marks a title watched, their
+cleared hype vote leaves the hype pool and their rating enters the rating pool.
 
 ---
 

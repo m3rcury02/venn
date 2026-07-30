@@ -3444,3 +3444,69 @@ without a separate Kotlin Gradle plugin.
 6. Real-device prompt, tile placement, and TWA verification remain a device
    check after the v1.0.1 APK is installed. Production Digital Asset Links
    already report `linked: true`.
+
+---
+
+## Global movie vote percentages (post-phase-7 feature)
+
+Migration:
+`supabase/migrations/20260730115115_global_movie_vote_percentages.sql`.
+
+Movie and TV detail pages now show two global, current-vote aggregates:
+
+- **Hyped** = `hyped | superhyped` divided by every non-null hype vote,
+  including `dont_care`.
+- **Loved** = `love` divided by every non-null watched rating.
+
+The denominators stay separate because the status constraint makes hype an
+unwatched signal and ratings a watched signal. Combining them would make each
+percentage depend on how many voters happened to have watched the title rather
+than on the relevant choice. Both values round to whole percentages and return
+null when their own pool is empty. There is no minimum sample threshold and no
+historical reconstruction: marking a title watched clears its current hype, as
+Phase 2 already decided.
+
+### The aggregate is the privacy boundary
+
+`get_movie_vote_percentages(p_movie_id uuid)` is `SECURITY DEFINER` because
+`user_movie_status` remains readable only by its row owner. It returns exactly
+two nullable integers -- no user ids, individual votes, or exact sample counts
+-- and rejects a missing `auth.uid()`. Execution is revoked from `public`,
+`anon`, `authenticated` and `service_role`, then granted back only to
+`authenticated`, preserving the explicit local/hosted grant parity established
+in Phases 0 and 4.
+
+No policy was widened, and no table or index was added.
+`user_movie_status_movie_id_idx` already serves the function's only predicate.
+
+### Detail-page refresh stays inside Supabase
+
+The initial aggregate is fetched with the existing authenticated movie-detail
+queries. `MovieDetailStatus` owns both the new "Venn voters" panel and the
+existing personal-status panel; after a detail-page status change, it calls
+only the aggregate RPC and replaces the two displayed values. It does not
+refresh the whole server route, because doing so would repeat the page's live
+TMDB external-id and watch-availability requests after every vote. A failed
+aggregate refresh retains the last rendered values rather than replacing them
+with zero.
+
+The panel shows percentages without sample counts. Its empty states distinguish
+"No hype votes yet" from "No ratings yet", since either pool can be empty while
+the other has data. The shared detail route means the same behavior applies to
+movies and TV series, matching the catalog rule.
+
+### Verification
+
+1. `supabase db reset` applied all ten migrations cleanly.
+2. `supabase test db` -- **93/93**. Coverage includes `hyped`,
+   `superhyped`, `dont_care`, `like` in the Loved denominator, separate
+   rating/hype pools, empty pools, whole-number rounding, cross-user
+   aggregation while raw peer rows remain hidden, and anonymous denial.
+3. `pnpm typecheck`, `pnpm lint`, and `pnpm build` -- clean.
+4. A real local magic-link session rendered a seeded detail page at 390px wide
+   with **100% Hyped** and **67% Loved**, the viewer's Very hyped control, both
+   independent panels, and no horizontal overflow.
+5. Real DOM clicks changed that viewer to Meh and then cleared the vote. The
+   aggregate panel moved **100% → 0% → No hype votes yet** while Loved remained
+   67%, confirming that the post-vote browser RPC refreshes server-derived
+   percentages rather than recomputing them from local state.
