@@ -2,7 +2,10 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { Hype, Rating } from "@/app/status/actions";
 import { AppHeader, navLinkClass } from "@/components/app-header";
-import { MovieDetailStatus } from "@/components/movie-detail-status";
+import {
+  MovieDetailStatus,
+  type MovieVotePercentages,
+} from "@/components/movie-detail-status";
 import { Poster } from "@/components/poster";
 import { buttonClass } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
@@ -112,29 +115,39 @@ export default async function MovieDetailPage({ params }: MovieDetailPageProps) 
   const userId = claims?.claims?.sub;
   if (typeof userId !== "string") redirect("/login");
 
-  const [movieResult, profileResult, mappingResult] = await Promise.all([
-    supabase
-      .from("movies")
-      .select(
-        "id, title, original_title, year, poster_path, backdrop_path, runtime, overview, rating_external, release_date, media_type, user_movie_status(watched, rating, hype)",
-      )
-      .eq("id", id)
-      .maybeSingle(),
-    supabase.from("profiles").select("region").eq("id", userId).maybeSingle(),
-    supabase
-      .from("movie_external_ids")
-      .select("external_id")
-      .eq("movie_id", id)
-      .eq("provider", PROVIDER_NAME)
-      .maybeSingle(),
-  ]);
+  const [movieResult, profileResult, mappingResult, percentagesResult] =
+    await Promise.all([
+      supabase
+        .from("movies")
+        .select(
+          "id, title, original_title, year, poster_path, backdrop_path, runtime, overview, rating_external, release_date, media_type, user_movie_status(watched, rating, hype)",
+        )
+        .eq("id", id)
+        .maybeSingle(),
+      supabase.from("profiles").select("region").eq("id", userId).maybeSingle(),
+      supabase
+        .from("movie_external_ids")
+        .select("external_id")
+        .eq("movie_id", id)
+        .eq("provider", PROVIDER_NAME)
+        .maybeSingle(),
+      supabase.rpc("get_movie_vote_percentages", { p_movie_id: id }),
+    ]);
 
   if (movieResult.error) throw movieResult.error;
   if (profileResult.error) throw profileResult.error;
   if (mappingResult.error) throw mappingResult.error;
+  if (percentagesResult.error) throw percentagesResult.error;
   if (!movieResult.data) notFound();
 
   const movie = movieResult.data as unknown as MovieDetailRow;
+  const percentages =
+    (
+      percentagesResult.data as unknown as MovieVotePercentages[] | null
+    )?.[0] ?? {
+      hyped_percent: null,
+      loved_percent: null,
+    };
   const region = profileResult.data?.region ?? "IN";
   const externalId = mappingResult.data?.external_id ?? null;
 
@@ -345,14 +358,13 @@ export default async function MovieDetailPage({ params }: MovieDetailPageProps) 
             </dl>
           </Panel>
 
-          <Panel>
-            <MovieDetailStatus
-              movieId={movie.id}
-              initialWatched={status?.watched ?? false}
-              initialRating={status?.rating ?? null}
-              initialHype={status?.hype ?? null}
-            />
-          </Panel>
+          <MovieDetailStatus
+            movieId={movie.id}
+            initialWatched={status?.watched ?? false}
+            initialRating={status?.rating ?? null}
+            initialHype={status?.hype ?? null}
+            initialPercentages={percentages}
+          />
         </aside>
       </div>
     </Screen>

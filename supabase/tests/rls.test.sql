@@ -19,7 +19,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(87);
+select plan(93);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -90,6 +90,15 @@ insert into user_movie_status (user_id, movie_id, watched, rating)
 values ('cccccccc-cccc-cccc-cccc-cccccccccccc',
         '33333333-3333-3333-3333-333333333333', true, 'hate');
 
+-- Global-percentage fixtures on a movie outside the group candidate pool:
+-- `hyped` is positive and `dont_care` stays in the hype denominator. Neither
+-- row affects tag weights because both are unwatched.
+insert into user_movie_status (user_id, movie_id, watched, hype) values
+  ('22222222-2222-2222-2222-222222222222',
+   '66666666-6666-6666-6666-666666666666', false, 'hyped'),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+   '66666666-6666-6666-6666-666666666666', false, 'dont_care');
+
 -- Phase 4. Also exercises the path the migration's backfill uses.
 select public._rebuild_tag_weights('cccccccc-cccc-cccc-cccc-cccccccccccc');
 
@@ -128,6 +137,15 @@ select is(
   -6::numeric,
   'weights: hate -2 x genre 3 / 1 rated movie'
 );
+
+-- Added after C's weight assertion so this tagless TV rating cannot change
+-- Phase 4's deliberately exact denominator above. It exists only to pin that a
+-- `like` remains in the global Loved denominator.
+insert into user_movie_status (user_id, movie_id, watched, rating) values
+  ('22222222-2222-2222-2222-222222222222',
+   '77777777-7777-7777-7777-777777777777', true, 'love'),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+   '77777777-7777-7777-7777-777777777777', true, 'like');
 
 -- --------------------------------------------------- controls: A as itself
 
@@ -181,6 +199,41 @@ select is(
    where user_id = '11111111-1111-1111-1111-111111111111'),
   'superhyped',
   'control: A''s update actually landed'
+);
+
+-- The aggregate sees all current votes even though the caller can select only
+-- its own user_movie_status rows. Movie 33333333 has A's superhype plus B/C's
+-- love/hate ratings: the two pools stay independent.
+select results_eq(
+  $$select hyped_percent, loved_percent
+    from public.get_movie_vote_percentages(
+      '33333333-3333-3333-3333-333333333333')$$,
+  $$values (100, 50)$$,
+  'global percentages combine private votes in separate hype and rating pools'
+);
+
+select results_eq(
+  $$select hyped_percent, loved_percent
+    from public.get_movie_vote_percentages(
+      '66666666-6666-6666-6666-666666666666')$$,
+  $$values (50, null::int)$$,
+  'hyped includes hyped votes while dont-care remains in the denominator'
+);
+
+select results_eq(
+  $$select hyped_percent, loved_percent
+    from public.get_movie_vote_percentages(
+      '77777777-7777-7777-7777-777777777777')$$,
+  $$values (null::int, 50)$$,
+  'liked remains in the Loved denominator'
+);
+
+select results_eq(
+  $$select hyped_percent, loved_percent
+    from public.get_movie_vote_percentages(
+      '55555555-5555-5555-5555-555555555555')$$,
+  $$values (null::int, null::int)$$,
+  'a movie with no relevant votes returns null percentages'
 );
 
 -- The shared catalog cache is readable by any signed-in user.
@@ -661,6 +714,14 @@ select lives_ok(
   'control: D rates a movie'
 );
 
+select results_eq(
+  $$select hyped_percent, loved_percent
+    from public.get_movie_vote_percentages(
+      '33333333-3333-3333-3333-333333333333')$$,
+  $$values (100, 67)$$,
+  'global percentages round to the nearest whole percent'
+);
+
 -- The zero-argument wrapper, which is what app/status/actions.ts calls. It
 -- reads auth.uid() internally: the only user it can rebuild is the caller.
 select lives_ok(
@@ -918,6 +979,14 @@ select throws_ok(
   '42501',
   null,
   'anon cannot read ingest tokens'
+);
+
+select throws_ok(
+  $$select * from public.get_movie_vote_percentages(
+      '33333333-3333-3333-3333-333333333333')$$,
+  '42501',
+  null,
+  'anon cannot read global vote percentages'
 );
 
 reset role;
