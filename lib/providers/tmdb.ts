@@ -197,6 +197,7 @@ function toMovieSummary(item: TmdbMovieListItem): MovieSummary {
     posterPath: item.poster_path,
     overview: item.overview || null,
     ratingExternal: item.vote_average || null,
+    releaseDate,
   };
 }
 
@@ -211,6 +212,7 @@ function toTvSummary(item: TmdbTvListItem): MovieSummary {
     posterPath: item.poster_path,
     overview: item.overview || null,
     ratingExternal: item.vote_average || null,
+    releaseDate,
   };
 }
 

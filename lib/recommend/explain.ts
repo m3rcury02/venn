@@ -24,7 +24,17 @@ export type Recommendation = {
 // most directly identifies whose vote it was.
 const MIN_PERSON_COUNT = 2;
 
-export function explain(pick: Recommendation): string[] {
+/**
+ * Theatre mode's release-status line, passed in by the night page rather than
+ * carried on `Recommendation` -- it's a property of the candidate's
+ * movie_releases row, not of the scoring this type otherwise describes.
+ *
+ * When present it replaces "Nobody here has seen it" (phase 9): every theatre
+ * candidate is unwatched by construction, so that line is trivially true and
+ * identical on all three picks. Release status is the thing actually worth
+ * saying instead.
+ */
+export function explain(pick: Recommendation, releaseLabel?: string): string[] {
   const reasons: string[] = [];
   const present = pick.present_count;
   const solo = present === 1;
@@ -53,9 +63,19 @@ export function explain(pick: Recommendation): string[] {
     reasons.push(`Matches: ${pick.match_tags.join(", ")}`);
   }
 
-  if (pick.seen_count === 0) {
+  if (releaseLabel) {
+    reasons.push(releaseLabel);
+  } else if (pick.seen_count === 0) {
     reasons.push("Nobody here has seen it");
   }
 
   return reasons;
+}
+
+/** Renders a movie_releases row into explain()'s releaseLabel. */
+export function releaseLabel(releaseType: "theatrical" | "upcoming", releaseDate: string | null) {
+  if (releaseType === "theatrical") return "In cinemas";
+  if (!releaseDate) return "Coming soon";
+  const date = new Date(`${releaseDate}T00:00:00Z`);
+  return `Out ${date.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })}`;
 }

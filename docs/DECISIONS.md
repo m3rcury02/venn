@@ -1,6 +1,6 @@
 # Decisions
 
-**Current phase: 8**
+**Current phase: 9**
 
 Append after every phase: what changed, and why.
 
@@ -3601,3 +3601,228 @@ chosen provider title.
 6. A real local magic-link session ended at `/onboarding` and rendered the
    username/region step. Its cookie was redirected from `/settings` back to
    onboarding, while the same request without a cookie redirected to `/login`.
+
+---
+
+## Phase 9 — theatre mode: same picker, release-status filter
+
+Migration: `supabase/migrations/20260730190000_phase9_theatre.sql`.
+
+§4.2 defines theatre mode's candidate pool as `nowPlaying(region)` union
+upcoming within N weeks. Phase 0 deferred `movie_releases` here explicitly;
+`nowPlaying`/`upcoming` have existed on `MovieDataProvider` since phase 1a with
+nothing calling them. This phase wires that pool into the existing recommender
+and picker UI — same scoring, same explanations, same reroll, a different
+candidate source.
+
+**Decided this session, no spec default existed for any of them:** the
+upcoming window is 4 weeks; when present members' regions disagree, the caller's
+own region is used and a note is shown, rather than refusing to pick; and
+theatre mode swaps §4.4's "Nobody here has seen it" (trivially true for every
+theatre candidate, since none of them can be watched yet) for a release-status
+line — "In cinemas" or "Out 14 Aug".
+
+### `movie_releases`, and why it departs from §3's column list
+
+```
+movie_releases  movie_id, region, release_date, release_type, fetched_at
+                PK (movie_id, region, release_type)
+```
+
+Two departures, both load-bearing:
+
+- **`release_date` is nullable**, though it isn't in §3's text. Phase 1a's own
+  documented trap: TMDB sends `""`, not null, for an unknown date;
+  `toReleaseDate` coerces that to null. A `NOT NULL` column would throw on
+  exactly that title and fail the entire refresh over one film with no known
+  date.
+- **`fetched_at`** isn't in §3's column list at all. It's the freshness signal
+  `lib/movies/theatre.ts` reads to decide "serve from cache" vs "hit TMDB
+  again" — the same role `movies.fetched_at` plays for the main catalog, just
+  never previously needed by a table with more than one row per movie.
+
+`release_type` is a two-value enum (`theatrical`, `upcoming`), one per list
+endpoint — not TMDB's finer 1–6 release-type taxonomy, which lives behind
+`/movie/{id}/release_dates`, a per-title call §4.2 never asked for. Worth
+knowing: the list endpoints' `release_date` is TMDB's *primary* release date,
+not strictly a region-specific one, even filtered by `region=`. Good enough for
+a "when's it out" line; not a source of truth for exact regional release dates.
+
+Grants and RLS follow the catalog pattern exactly (`movies`/`movie_tags`):
+REVOKE-then-GRANT, `select` to `authenticated` with `using (true)`, full DML to
+`service_role` only, no write policy for anyone else — the same "absence is the
+enforcement" argument phase 0 made for the catalog tables.
+
+### `recommend_movies`: dropped and recreated, not overloaded
+
+A `p_candidates uuid[] default null` parameter was added. `NULL` is home mode
+(candidates from group-owned lists, byte-identical to phase 4's query, now
+split out as a `pool` CTE feeding `candidates`); non-null is the theatre-mode
+override — the caller-supplied set entirely replaces the group-list pool.
+
+This required a `DROP FUNCTION` and full recreate, not a second overload:
+PostgREST resolves an `rpc()` call by the exact set of named parameters
+supplied, so a 3-arg and 4-arg `recommend_movies` coexisting would make the
+existing 3-arg call from the night page ambiguous. Grants do not survive a
+`DROP`, so `revoke`/`grant execute` were reissued verbatim on the new
+4-argument signature.
+
+No membership guard was added on `p_candidates`, unlike `p_present`. The
+function's privacy boundary is its *return shape* (aggregates only, no
+per-member row), and a member could already put an arbitrary title in front of
+this function by adding it to the group list — `p_candidates` grants no new
+capability the caller didn't already have.
+
+### `lib/movies/theatre.ts`: the cache, and its one silent-bug risk
+
+`theatreCandidates(region)` reads `movie_releases` for the region; if the
+newest `fetched_at` is inside `TTL_HOURS` (12), it returns those rows with
+**zero TMDB calls**. Otherwise it calls `nowPlaying`/`upcoming`, resolves
+external ids against `movie_external_ids` in one bulk query, and runs
+uncached titles through `cacheMovie` — `nowPlaying` first, capped at
+`MAX_NEW_TITLES` (24) so a cold region can't blow a serverless request's time
+budget.
+
+**Delete-then-insert, not upsert-plus-diff, is the correctness argument.** A
+refresh recomputes the *complete* wanted set for the region every time, so
+anything not in that set — most importantly a film that has left cinemas and
+dropped out of `nowPlaying` — has to be removed, or the region's pool grows
+monotonically while the freshness check keeps reporting "fresh" over titles
+that closed months ago. This was verified against real state, not just argued:
+`pnpm smoke:theatre` plants a row for Inception (a 2010 release, certainly not
+in any current `nowPlaying`/`upcoming` response) with a forced-stale
+`fetched_at`, triggers a refresh, and confirms the row is gone.
+
+**The cap and the TTL would otherwise contradict each other.** A capped
+refresh only resolves `MAX_NEW_TITLES` of however many titles are actually
+wanted; stamping those rows `fetched_at = now()` would mark the whole region
+"fresh" for the full TTL, silently freezing the pool at a partial set for 12
+hours. Instead, a truncated refresh stamps `now() - TTL_HOURS + 1 minute`, so
+the region reads fresh for one more minute and then a subsequent render
+retries — the remainder (now mostly already cached) resolves on that pass.
+Observed directly in `pnpm smoke:theatre`'s own live run: a cold `IN` region
+wanted 39 titles, the first refresh capped at 24 and returned 23 (one title's
+cache attempt evidently failed silently, which is by design — a per-title
+failure inside the concurrency-limited batch is swallowed and just leaves that
+title unresolved for the next pass, not the whole refresh), and the *second*
+refresh (triggered by `smoke:theatre`'s own forced-staleness step) picked up
+the rest and landed at the full 39. Convergence in two renders, exactly as
+designed, not merely as argued.
+
+### Does theatre-mode scoring actually differentiate?
+
+This was the open risk flagged before implementation: theatre candidates carry
+no hype votes and no ratings from anyone (nothing has been watched yet by
+construction), and new/upcoming releases are exactly where TMDB keyword
+coverage is thinnest — phase 1a's own baseline table measured 5–22 keywords
+per film, but only on *established* titles. If `taste` collapsed toward
+uniform for thin-tag new releases, the tie-break (`seen_count` — always 0 in
+theatre mode — then `rating_external`, then `runtime`) would end up doing all
+the ordering, and "three plausible films rendered" would prove nothing about
+whether the recommender ran at all.
+
+Checked directly against the real cached catalog from `smoke:theatre`'s own
+run (not synthetic tags): two throwaway users were given opposite ratings on
+two real, already-cached, genre-disjoint films (`Spirited Away` —
+Animation/Family/Fantasy — loved by one, hated by the other; `The Dark Knight`
+— Action/Crime/Drama — the reverse), `_rebuild_tag_weights` was called for
+each exactly as `setRating` does in production, and `recommend_movies` was
+called once per user (present alone) against two real theatre candidates with
+disjoint genres of their own (`Minions & Monsters`, Animation/Family-leaning;
+`DC`, Action/Drama-leaning). The ordering flipped cleanly: the
+animation-preferring user's top pick was `Minions & Monsters` (score 1 vs 0),
+the action-preferring user's top pick was `DC` (score 1 vs 0, reversed).
+**Confirmed, not a documented limitation** — real TMDB genre tags on real
+theatre candidates carry enough signal for the scorer to differentiate.
+
+### UI: mode lives in the URL, same as `present`
+
+`app/groups/[id]/night/page.tsx` gained a `mode` searchParam (`home` |
+`theatre`, default `home`, so every pre-phase-9 URL still works unchanged).
+`components/night-mode-picker.tsx` is a new pair of chips modelled directly on
+`present-picker.tsx`'s existing pattern — server-rendered, no client JS, mode
+shareable in the URL. `present-picker.tsx` itself gained a `mode` prop so that
+toggling presence doesn't silently drop back to home mode (its `hrefFor` now
+preserves `mode` alongside `present`); the `NightMode` type lives there rather
+than in the new component, since `present-picker.tsx` was already the night
+page's URL-state helper file.
+
+Switching mode itself drops `exclude` — the previous three rerolled picks are
+no longer the previous three of anything once the candidate pool changes,
+exactly the same reasoning `PresentPicker` already applied to presence
+changes.
+
+**`p_candidates` is always a real array in the theatre branch, never `null`.**
+`NULL` is the function's home/theatre switch, so a cold or empty theatre
+region that accidentally passed `null` would silently fall through to the
+home-mode group-list pool and render the wrong picks under the Theatre tab —
+it would typecheck and show three plausible films while being entirely wrong.
+The night page always calls `.map(c => c.movieId)` on the (possibly empty)
+theatre candidate array.
+
+`lib/recommend/explain.ts`'s `explain()` gained an optional second parameter,
+`releaseLabel`; passing one drops the seen-count line and substitutes the
+label. Because the label rides in the existing `reasons: string[]` return,
+`NightPickHero` and `MovieCard` needed no changes at all.
+
+### Deferred, deliberately
+
+- **`movie_nights` / `movie_night_attendees` / `watch_confirmations`.** §9's
+  phase-9 row stops at "release-status filter." Mode stays transient UI state
+  in the URL, same as phase 4 left "who's present."
+- **§4.2's widen step** for theatre mode specifically. Already out of scope per
+  phase 4's own note; nothing here changes that.
+- **A per-title `/movie/{id}/release_dates` call** for finer release-type
+  granularity or true region-scoped dates. Not asked for by §4.2, and would
+  cost a third TMDB call per candidate.
+
+### Tests
+
+`supabase/tests/rls.test.sql`, now **119** pgTAP assertions (was 113). Six new:
+a positive control (D can read the region cache — load-bearing per phase 0's
+rule, no negative without one), three negatives pinning `movie_releases`' "no
+write policy at all" (`insert`/`update`/`delete` all `42501`), the
+`p_candidates` membership guard mirrored from `p_present`, and one proving
+`p_candidates` overrides the group-list pool entirely (two freshly-inserted
+movies, on no list in the fixture group, both come back — that they appear at
+all is what proves the override, not a filter on top of the existing pool).
+Fixtures for this block use fresh movie ids rather than the file's earlier
+ones: `55555555…` was already imported as D's watched rating earlier in the
+same run (phase 8's block), which would have made it an invalid theatre
+candidate for D and obscured what the block was actually testing.
+
+### Verification
+
+1. `supabase db reset` → all twelve migrations apply clean. `supabase test db`
+   → **119/119**.
+2. `pnpm typecheck`, `pnpm lint`, `pnpm build` — clean.
+3. `pnpm smoke:theatre` (new) — pass: cold refresh hits TMDB and writes rows
+   matching what it returns; a second call inside the TTL makes zero TMDB
+   calls; a planted stale/orphaned row is deleted by the next refresh; every
+   upcoming row falls inside the 4-week window. See above for what this run
+   also incidentally proved about the cap/TTL convergence.
+4. The taste-differentiation check above, against real cached data from the
+   `smoke:theatre` run.
+5. Live browser click-through (Claude-in-Chrome) against a real local
+   magic-link session: toggled Home → Theatre, got a real TMDB-cached pick
+   with "In cinemas" reasons and no seen-count line, rerolled to a new pick,
+   toggled presence off and back on (URL correctly preserved `mode=theatre`
+   throughout), toggled back to Home (returned to the unchanged, unrelated
+   home pool). No console errors on either a fresh load or a reload with
+   console tracking active from the start.
+6. Applied to `vfkkpflenfpfrrygxmto` through the Supabase MCP, same route as
+   phases 0/3/4. `apply_migration` stamped `20260730163534`, and the local file
+   was renamed from `20260730190000` to match so a later `supabase db push`
+   does not try to re-run it — same reasoning phase 0 documented.
+
+   That stamp sorts **before** `20260730180000_phase8_onboarding_imports.sql`,
+   so the migrations directory now lists phase 9 ahead of phase 8 in filename
+   order, even though phase 8 shipped first. This is cosmetic, not a
+   dependency problem: phase 9's migration touches `movies`, `list_items`,
+   `lists`, `group_members`, `user_movie_status`, `user_tag_weights`,
+   `movie_tags`, `tags` and `is_group_member` — nothing phase 8 introduced
+   (`profiles.onboarded_at`, `imports`, `import_rows`). Verified, not just
+   argued: `supabase db reset` applies all twelve migrations clean in this
+   new order, and `supabase test db` still passes 119/119. Local and remote
+   were then compared directly (columns, RLS policy, grants, and
+   `pg_get_functiondef` on `recommend_movies`) and matched exactly.

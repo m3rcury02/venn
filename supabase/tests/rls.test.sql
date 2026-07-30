@@ -19,7 +19,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(113);
+select plan(119);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -966,6 +966,88 @@ select results_eq(
     where id = 'a8000000-0000-0000-0000-000000000001'$$,
   $$values (2, 2, 0)$$,
   'the completed import records exact progress'
+);
+
+-- ------------------------------------------------ theatre mode (phase 9)
+
+-- Fresh movies, not the earlier fixture ones: 55555555 was imported as D's
+-- watched rating a few assertions ago (see 'an imported match is added to
+-- D''s personal list' above), which would make it ineligible as a theatre
+-- candidate for D and mask what this block is actually testing. Written
+-- outside RLS because movie_releases is a service-role-only cache with no
+-- authenticated write path at all -- there is no other way to create a row.
+reset role;
+
+insert into movies (id, title, year) values
+  ('90000001-0000-0000-0000-000000000001', 'Now Showing', 2026),
+  ('90000002-0000-0000-0000-000000000002', 'Coming Soon', 2026);
+
+insert into movie_releases (movie_id, region, release_date, release_type) values
+  ('90000001-0000-0000-0000-000000000001', 'IN', '2026-07-25', 'theatrical'),
+  ('90000002-0000-0000-0000-000000000002', 'IN', '2026-08-20', 'upcoming');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-dddd-dddd-dddddddddddd","role":"authenticated"}';
+
+-- Positive control, load-bearing per phase 0's rule: no negative on a table
+-- without a control proving a real read succeeds first.
+select is(
+  (select count(*)::int from movie_releases where region = 'IN'),
+  2,
+  'control: D can read the region release cache'
+);
+
+select throws_ok(
+  $$insert into movie_releases (movie_id, region, release_date, release_type)
+    values ('90000001-0000-0000-0000-000000000001', 'US', now()::date, 'theatrical')$$,
+  '42501',
+  null,
+  'D cannot write to the release cache directly'
+);
+
+select throws_ok(
+  $$update movie_releases set release_date = now()::date$$,
+  '42501',
+  null,
+  'D cannot update the release cache directly'
+);
+
+select throws_ok(
+  $$delete from movie_releases$$,
+  '42501',
+  null,
+  'D cannot delete from the release cache directly'
+);
+
+-- Same membership guard as p_present, exercised through the new argument:
+-- without it a caller could pass any uuid as "present" regardless of which
+-- pool scored the picks.
+select throws_ok(
+  $$select * from public.recommend_movies(
+      '99999999-9999-9999-9999-999999999999',
+      array['11111111-1111-1111-1111-111111111111']::uuid[],
+      '{}'::uuid[],
+      array['90000001-0000-0000-0000-000000000001']::uuid[])$$,
+  '42501',
+  null,
+  'D cannot blend a non-member''s taste into a theatre-mode pick either'
+);
+
+-- Neither fresh movie is on any list in this group, and p_candidates is
+-- non-null -- so both coming back is what proves the caller-supplied set
+-- overrides the group-list pool entirely, rather than merely filtering it.
+select results_eq(
+  $$select movie_id from public.recommend_movies(
+      '99999999-9999-9999-9999-999999999999',
+      array['cccccccc-cccc-cccc-cccc-cccccccccccc',
+            'dddddddd-dddd-dddd-dddd-dddddddddddd']::uuid[],
+      '{}'::uuid[],
+      array['90000001-0000-0000-0000-000000000001',
+            '90000002-0000-0000-0000-000000000002']::uuid[])
+    order by movie_id$$,
+  $$values ('90000001-0000-0000-0000-000000000001'::uuid),
+           ('90000002-0000-0000-0000-000000000002'::uuid)$$,
+  'p_candidates overrides the group-list pool with the caller-supplied set'
 );
 
 -- -------------------------------------------------------- leaving a group

@@ -41,6 +41,10 @@ export type MovieSummary = {
   posterPath: string | null;
   overview: string | null;
   ratingExternal: number | null;
+  /** ISO yyyy-mm-dd, or null when TMDB sends no date. Theatre mode (phase 9)
+   *  filters upcoming() results to a window before ever caching them, which
+   *  needs this without a separate detail call. */
+  releaseDate: string | null;
 };
 
 export type WatchProviderType = "flatrate" | "rent" | "buy";

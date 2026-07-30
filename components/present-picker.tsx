@@ -11,6 +11,11 @@ import { LinkPending } from "@/components/ui/link-pending";
 
 export type Member = { id: string; name: string };
 
+// Phase 9: which candidate pool the night page reads from. Defined here,
+// rather than in night-mode-picker.tsx, because this file is already the
+// night page's URL-state helper and PresentPicker's own hrefFor needs it below.
+export type NightMode = "home" | "theatre";
+
 // Absent param means everyone is present. An empty one means nobody is -- which
 // is why this cannot just be `?.split(",") ?? all`.
 export function parsePresent(raw: string | undefined, memberIds: string[]): string[] {
@@ -30,18 +35,24 @@ export function PresentPicker({
   groupId,
   members,
   present,
+  mode,
 }: {
   groupId: string;
   members: Member[];
   present: string[];
+  /** Carried through so toggling presence doesn't silently drop back to home
+   *  mode. Omitted from home mode's URL, same as `present` when everyone's here. */
+  mode?: NightMode;
 }) {
   const here = new Set(present);
 
   function hrefFor(next: string[]) {
-    const base = `/groups/${groupId}/night`;
+    const params = new URLSearchParams();
     // All present is the default, so it needs no param.
-    if (next.length === members.length) return base;
-    return `${base}?present=${next.join(",")}`;
+    if (next.length !== members.length) params.set("present", next.join(","));
+    if (mode === "theatre") params.set("mode", mode);
+    const qs = params.toString();
+    return `/groups/${groupId}/night${qs ? `?${qs}` : ""}`;
   }
 
   return (
