@@ -62,7 +62,11 @@ allow their browser or file manager to install unknown apps.
   prompt to add **Search Venn**. Accepting or declining continues into Venn.
 - Android 7 through 12: open Quick Settings, choose Edit, and drag **Search
   Venn** into the active tiles.
-- If the Android 13+ prompt was declined, use the same manual Edit flow.
+- If the Android 13+ prompt was declined, open Venn Settings and choose
+  **Add Quick Settings tile** under Quick access. That option remains
+  available if the tile is removed later.
+- If the setup button cannot open the native prompt, update to Venn Android
+  v1.0.1 or newer and use the manual Edit flow as a fallback.
 
 The tile opens the existing `/search` experience, so authentication, search,
 and adding a title to the personal list remain web features.

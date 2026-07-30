@@ -3365,7 +3365,7 @@ directly. The package is `com.m3rcury02.venn`; the verified origin remains
 session and renders the deployed Next.js app, so catalog searches and adds
 still use the existing `/search` UI and server-side provider boundary.
 
-The only custom native behavior is `SearchTileService`. Its action intent
+The primary custom native behavior is `SearchTileService`. Its action intent
 targets `LauncherActivity` with `/search` as the HTTPS data URI. Android
 Browser Helper already respects an incoming verified URL, which avoids a
 second search implementation and keeps auth in the web session.
@@ -3383,6 +3383,22 @@ the system callback. The result is persisted whether the user accepts,
 declines, or already has the tile. Deep links, shares, and tile launches do
 not trigger the prompt. Android 7–12 expose the service in the Quick Settings
 editor but cannot show the system add prompt.
+
+Declining that first prompt suppresses future unsolicited prompts, but it no
+longer makes the decision permanent. Android requests to `/settings` render a
+Quick access section whose explicit button opens
+`venn://quick-settings` through a package-scoped Chrome intent.
+`QuickSettingsSetupActivity` retries the placement API on Android 13+ and
+reports added/already-added/fallback results with a toast. Android 7–12 get
+the manual Edit instructions because no supported placement API exists there.
+The control stays visible after success so it also recovers from a tile being
+removed later.
+
+The browser fallback returns to `/settings?tileSetup=requires-app`; this
+turns an absent or outdated wrapper into an update message instead of a dead
+button. iOS and desktop never render the section. The first-launch activity
+and explicit setup activity share one tile-request helper so their package,
+component, label, and icon cannot drift.
 
 No notification delegation was retained. The generated notification
 permission and delegation service were unrelated to search and would have
@@ -3420,11 +3436,11 @@ without a separate Kotlin Gradle plugin.
    API 37 SDK; the release APK is generated successfully.
 3. `apksigner verify --print-certs` — one valid RSA signer, and its SHA-256
    digest exactly matches `assetlinks.json`.
-4. `aapt dump badging` — package `com.m3rcury02.venn`, version code 1,
+4. `aapt dump badging` — package `com.m3rcury02.venn`, version code 2,
    minimum API 24, target/compile API 37.
 5. A local production server returns `/.well-known/assetlinks.json` as
    unauthenticated `200 application/json` with bytes identical to the public
    file.
 6. Real-device prompt, tile placement, and TWA verification remain a device
-   check after this web change is deployed. The old production deployment
-   still redirects the asset-link URL to `/login`, as expected until then.
+   check after the v1.0.1 APK is installed. Production Digital Asset Links
+   already report `linked: true`.

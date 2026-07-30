@@ -1,8 +1,5 @@
 package com.m3rcury02.venn
 
-import android.app.StatusBarManager
-import android.content.ComponentName
-import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.Bundle
 import androidx.annotation.RequiresApi
@@ -20,7 +17,7 @@ class LauncherActivity : TrustedLauncherActivity() {
             requestSearchTile &&
             !isFinishing
         ) {
-            requestSearchTile()
+            promptForSearchTile()
         }
     }
 
@@ -33,23 +30,17 @@ class LauncherActivity : TrustedLauncherActivity() {
             !preferences().getBoolean(TILE_PROMPTED_KEY, false)
 
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
-    private fun requestSearchTile() {
-        val statusBarManager = getSystemService(StatusBarManager::class.java)
-
-        try {
-            statusBarManager.requestAddTileService(
-                ComponentName(this, SearchTileService::class.java),
-                getString(R.string.search_tile_label),
-                Icon.createWithResource(this, R.drawable.ic_search_tile),
-                mainExecutor,
-            ) {
+    private fun promptForSearchTile() {
+        requestSearchTilePlacement(
+            onResult = {
                 preferences().edit().putBoolean(TILE_PROMPTED_KEY, true).apply()
                 launchTwa()
-            }
-        } catch (_: RuntimeException) {
-            preferences().edit().putBoolean(TILE_PROMPTED_KEY, true).apply()
-            launchTwa()
-        }
+            },
+            onFailure = {
+                preferences().edit().putBoolean(TILE_PROMPTED_KEY, true).apply()
+                launchTwa()
+            },
+        )
     }
 
     private fun preferences() =
