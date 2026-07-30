@@ -105,6 +105,22 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".QuickSettingsSetupActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:label="@string/search_tile_label"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="quick-settings"
+                    android:scheme="venn" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".SearchTileService"
             android:exported="true"

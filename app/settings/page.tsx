@@ -8,8 +8,13 @@ import {
   type TokenRow,
 } from "@/components/ingest-token-panel";
 import { ShortcutSetup } from "@/components/shortcut-setup";
+import { buttonClass } from "@/components/ui/button";
 import { Screen } from "@/components/ui/screen";
 import { createClient } from "@/lib/supabase/server";
+
+type SettingsPageProps = {
+  searchParams: Promise<{ tileSetup?: string }>;
+};
 
 // SPEC §7 screen 11. §5 says the ingest token is pasted "once, from
 // Settings", so phase 5 owes the screen a home; phase 6 adds the iOS
@@ -18,7 +23,7 @@ import { createClient } from "@/lib/supabase/server";
 // /groups since it's profile-shaped, matching the "groups" line in screen
 // 11's scope. Visibility toggles, the notification matrix, blocks, export and
 // delete all belong to later phases and are not stubbed here.
-export default async function SettingsPage() {
+export default async function SettingsPage({ searchParams }: SettingsPageProps) {
   const supabase = await createClient();
 
   // Derived from the request rather than a new env var: correct on localhost
@@ -27,6 +32,16 @@ export default async function SettingsPage() {
   const host = requestHeaders.get("host") ?? "localhost:3000";
   const protocol = host.startsWith("localhost") ? "http" : "https";
   const ingestEndpoint = `${protocol}://${host}/api/ingest`;
+  const isAndroid = /android/i.test(requestHeaders.get("user-agent") ?? "");
+  const fallbackUrl = `${protocol}://${host}/settings?tileSetup=requires-app`;
+  const tileSetupIntent =
+    "intent://quick-settings#Intent;" +
+    "scheme=venn;" +
+    "package=com.m3rcury02.venn;" +
+    "action=android.intent.action.VIEW;" +
+    "category=android.intent.category.BROWSABLE;" +
+    `S.browser_fallback_url=${encodeURIComponent(fallbackUrl)};end`;
+  const tileSetup = (await searchParams).tileSetup;
 
   const { data } = await supabase.auth.getClaims();
   if (!data?.claims) redirect("/login");
@@ -66,6 +81,33 @@ export default async function SettingsPage() {
       <section>
         <DisplayNameForm current={profile?.display_name ?? null} />
       </section>
+
+      {isAndroid ? (
+        <section className="flex flex-col items-start gap-4">
+          <div className="flex flex-col gap-2">
+            <h2 className="t-label text-fg-faint">Quick access</h2>
+            <p className="t-body max-w-md text-[15px] text-fg-dim">
+              Add Search Venn to Quick Settings to jump straight into search
+              from anywhere on your phone.
+            </p>
+          </div>
+
+          <a href={tileSetupIntent} className={buttonClass("ghost")}>
+            Add Quick Settings tile
+          </a>
+
+          {tileSetup === "requires-app" ? (
+            <p className="t-body max-w-md text-[15px] text-beam-a" role="status">
+              Install or update to Venn Android v1.0.1 to use this button.
+            </p>
+          ) : null}
+
+          <p className="t-body max-w-md text-[14px] text-fg-faint">
+            If Android doesn&rsquo;t show a prompt, swipe down twice, tap Edit,
+            then drag Search Venn into your active tiles.
+          </p>
+        </section>
+      ) : null}
 
       <section className="flex flex-col gap-4">
         <div className="flex flex-col gap-2">
