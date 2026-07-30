@@ -110,7 +110,14 @@ async function main() {
   });
   if (phantomError) throw phantomError;
 
-  await theatreCandidates(REGION);
+  const refreshed = await theatreCandidates(REGION);
+
+  // Positive control: without this, an empty refresh (e.g. a bad TMDB
+  // response) would also make the phantom-count check below pass — the
+  // phantom would be gone because everything is gone, not because
+  // delete-on-refresh worked. Same "no negative without a control" rule the
+  // pgTAP suite enforces.
+  check(refreshed.length > 0, "control: the refresh still returns real candidates");
 
   const { count: phantomCount, error: phantomCheckError } = await db
     .from("movie_releases")

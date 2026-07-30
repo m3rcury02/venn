@@ -3811,18 +3811,42 @@ candidate for D and obscured what the block was actually testing.
    home pool). No console errors on either a fresh load or a reload with
    console tracking active from the start.
 6. Applied to `vfkkpflenfpfrrygxmto` through the Supabase MCP, same route as
-   phases 0/3/4. `apply_migration` stamped `20260730163534`, and the local file
-   was renamed from `20260730190000` to match so a later `supabase db push`
-   does not try to re-run it — same reasoning phase 0 documented.
+   phases 0/3/4. `apply_migration` stamped `20260730163534` — which sorts
+   **before** `20260730180000_phase8_onboarding_imports.sql`, even though
+   phase 8 shipped first.
 
-   That stamp sorts **before** `20260730180000_phase8_onboarding_imports.sql`,
-   so the migrations directory now lists phase 9 ahead of phase 8 in filename
-   order, even though phase 8 shipped first. This is cosmetic, not a
-   dependency problem: phase 9's migration touches `movies`, `list_items`,
-   `lists`, `group_members`, `user_movie_status`, `user_tag_weights`,
-   `movie_tags`, `tags` and `is_group_member` — nothing phase 8 introduced
-   (`profiles.onboarded_at`, `imports`, `import_rows`). Verified, not just
-   argued: `supabase db reset` applies all twelve migrations clean in this
-   new order, and `supabase test db` still passes 119/119. Local and remote
-   were then compared directly (columns, RLS policy, grants, and
-   `pg_get_functiondef` on `recommend_movies`) and matched exactly.
+   Unlike phases 0 and 3, the local file was **not** renamed to match.
+   Phases 0/3's rename landed the remote-assigned version *between* its
+   existing neighbors, so matching it was free. Here it would misorder the
+   migrations directory relative to true build order — phase 9 would appear
+   to precede phase 8 in the one place this repo's phase history is meant to
+   be legible. Every phase so far has reached remote through `apply_migration`
+   directly (§0: "the CLI has no stored session here"), never `supabase db
+   push`, so the rename's actual benefit — stopping a future `db push` from
+   re-running an already-applied migration — is a latent risk this project
+   hasn't hit yet, not an active one. Preserving the directory's chronological
+   truth won out. `20260730190000_phase9_theatre.sql` stays as filed; the
+   remote's internal version tag simply differs, the same kind of cosmetic
+   local/remote mismatch phase 0 documented for its migration's SQL text after
+   the REVOKE block was applied separately.
+
+   Confirmed the two are the same *schema* despite the differing version
+   string: local and remote were compared directly on `movie_releases`
+   (columns, nullability, RLS policy name, grants to `authenticated` and
+   `service_role`) and on `recommend_movies` (`pg_get_functiondef`, byte-for-
+   byte identical). `supabase db reset` still applies all twelve migrations
+   clean and `supabase test db` still passes 119/119 regardless of which
+   filename ordering is on disk at the time, since nothing phase 9 touches
+   (`movies`, `list_items`, `lists`, `group_members`, `user_movie_status`,
+   `user_tag_weights`, `movie_tags`, `tags`, `is_group_member`) depends on
+   anything phase 8 introduced (`profiles.onboarded_at`, `imports`,
+   `import_rows`) — both orderings were exercised and both passed.
+
+### Not exercised
+
+`app/groups/[id]/night/page.tsx`'s `regionMismatch` branch (present members
+whose regions disagree) was never driven by a real multi-region group — the
+browser check above used a single-member group, so the note line rendered zero
+times. The logic reads straightforwardly from the present-members' `region`
+column, but treat it as unverified rather than implicitly covered by "live
+click-through."
