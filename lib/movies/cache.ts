@@ -18,7 +18,7 @@ type Db = ReturnType<typeof createServiceClient>;
 export async function cacheMovie(externalId: string): Promise<string> {
   const db = createServiceClient();
 
-  const cached = await lookup(db, externalId);
+  const cached = await lookup(db, PROVIDER_NAME, externalId);
   if (cached) return cached;
 
   const [movie, tags] = await Promise.all([
@@ -26,6 +26,51 @@ export async function cacheMovie(externalId: string): Promise<string> {
     provider.getTags(externalId),
   ]);
 
+  return persistMovie(db, movie, tags);
+}
+
+/**
+ * Caches a full provider record the caller already resolved. Imports use this
+ * after findByImdbId so the detail call made by that lookup is not repeated.
+ */
+export async function cacheResolvedMovie(movie: Movie): Promise<string> {
+  const db = createServiceClient();
+  const cached = await lookup(db, PROVIDER_NAME, movie.externalId);
+  if (cached) return cached;
+
+  const tags = await provider.getTags(movie.externalId);
+  return persistMovie(db, movie, tags);
+}
+
+/**
+ * Resolves and caches an IMDb id, recording the exact IMDb mapping so repeated
+ * imports skip the provider lookup entirely.
+ */
+export async function cacheMovieByImdbId(imdbId: string): Promise<string | null> {
+  const normalized = imdbId.trim().toLowerCase();
+  if (!/^tt\d+$/.test(normalized)) return null;
+
+  const db = createServiceClient();
+  const cached = await lookup(db, "imdb", normalized);
+  if (cached) return cached;
+
+  const movie = await provider.findByImdbId(normalized);
+  if (!movie) return null;
+
+  const movieId = await cacheResolvedMovie(movie);
+  const { error } = await db.from("movie_external_ids").insert({
+    movie_id: movieId,
+    provider: "imdb",
+    external_id: normalized,
+  });
+
+  if (!error) return movieId;
+  if (error.code !== "23505") throw error;
+
+  return (await lookup(db, "imdb", normalized)) ?? movieId;
+}
+
+async function persistMovie(db: Db, movie: Movie, tags: Tag[]): Promise<string> {
   const movieId = await insertMovie(db, movie);
   await insertTags(db, movieId, tags);
 
@@ -36,7 +81,7 @@ export async function cacheMovie(externalId: string): Promise<string> {
   const { error } = await db.from("movie_external_ids").insert({
     movie_id: movieId,
     provider: PROVIDER_NAME,
-    external_id: externalId,
+    external_id: movie.externalId,
   });
 
   if (error) {
@@ -44,7 +89,7 @@ export async function cacheMovie(externalId: string): Promise<string> {
     // ours is an orphan -- return the id that actually got mapped.
     if (error.code !== "23505") throw error;
 
-    const winner = await lookup(db, externalId);
+    const winner = await lookup(db, PROVIDER_NAME, movie.externalId);
     if (!winner) throw error;
     return winner;
   }
@@ -52,11 +97,15 @@ export async function cacheMovie(externalId: string): Promise<string> {
   return movieId;
 }
 
-async function lookup(db: Db, externalId: string): Promise<string | null> {
+async function lookup(
+  db: Db,
+  providerName: string,
+  externalId: string,
+): Promise<string | null> {
   const { data, error } = await db
     .from("movie_external_ids")
     .select("movie_id")
-    .eq("provider", PROVIDER_NAME)
+    .eq("provider", providerName)
     .eq("external_id", externalId)
     .maybeSingle();
 

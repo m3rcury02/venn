@@ -9,11 +9,14 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "smoke:tmdb": "node --env-file=.env.local --import tsx scripts/tmdb-smoke.ts",
-    "smoke:ingest": "node --import tsx scripts/ingest-smoke.ts"
+    "smoke:ingest": "node --import tsx scripts/ingest-smoke.ts",
+    "smoke:imports": "node --import tsx scripts/import-smoke.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",
     "@supabase/supabase-js": "^2.110.8",
+    "csv-parse": "^7.0.1",
+    "fflate": "^0.8.3",
     "next": "16.2.12",
     "react": "19.2.4",
     "react-dom": "19.2.4"

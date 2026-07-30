@@ -82,6 +82,19 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         <DisplayNameForm current={profile?.display_name ?? null} />
       </section>
 
+      <section className="flex flex-col items-start gap-4">
+        <div className="flex flex-col gap-2">
+          <h2 className="t-label text-fg-faint">Library imports</h2>
+          <p className="t-body max-w-md text-[15px] text-fg-dim">
+            Bring ratings, watched titles, likes, and watchlists from IMDb or
+            Letterboxd into your personal list.
+          </p>
+        </div>
+        <Link href="/settings/imports" className={buttonClass("ghost")}>
+          Import a library
+        </Link>
+      </section>
+
       {isAndroid ? (
         <section className="flex flex-col items-start gap-4">
           <div className="flex flex-col gap-2">

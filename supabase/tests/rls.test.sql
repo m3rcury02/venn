@@ -19,7 +19,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(93);
+select plan(113);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -794,6 +794,180 @@ select is(
   'reroll: an excluded movie is not returned again'
 );
 
+-- ------------------------------------ D: onboarding and imports (phase 8)
+
+select throws_ok(
+  $$update profiles set onboarded_at = now()
+    where id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'$$,
+  '42501',
+  null,
+  'D cannot mark onboarding complete directly'
+);
+
+select lives_ok(
+  $$update profiles
+    set username = 'dee_test', region = 'IN'
+    where id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'$$,
+  'control: D can save its onboarding profile fields'
+);
+
+select throws_ok(
+  $$select public.complete_onboarding()$$,
+  '22023',
+  null,
+  'onboarding cannot complete with fewer than ten ratings'
+);
+
+-- Insert the extra catalog rows outside RLS. The authenticated control below
+-- still writes every status row through D's real policy.
+reset role;
+
+insert into movies (id, title, year) values
+  ('80000001-0000-0000-0000-000000000001', 'Onboarding 1', 2001),
+  ('80000002-0000-0000-0000-000000000002', 'Onboarding 2', 2002),
+  ('80000003-0000-0000-0000-000000000003', 'Onboarding 3', 2003),
+  ('80000004-0000-0000-0000-000000000004', 'Onboarding 4', 2004),
+  ('80000005-0000-0000-0000-000000000005', 'Onboarding 5', 2005),
+  ('80000006-0000-0000-0000-000000000006', 'Onboarding 6', 2006),
+  ('80000007-0000-0000-0000-000000000007', 'Onboarding 7', 2007),
+  ('80000008-0000-0000-0000-000000000008', 'Onboarding 8', 2008),
+  ('80000009-0000-0000-0000-000000000009', 'Onboarding 9', 2009);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-dddd-dddd-dddddddddddd","role":"authenticated"}';
+
+select lives_ok(
+  $$insert into user_movie_status (user_id, movie_id, watched, rating)
+    select
+      'dddddddd-dddd-dddd-dddd-dddddddddddd',
+      id,
+      true,
+      'like'::movie_rating
+    from movies
+    where id::text like '8000000%'$$,
+  'control: D can add the nine remaining onboarding ratings'
+);
+
+select lives_ok(
+  $$select public.complete_onboarding()$$,
+  'control: D completes onboarding after ten ratings'
+);
+
+select ok(
+  (select onboarded_at is not null from profiles
+   where id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'),
+  'onboarding completion stamps the protected profile field'
+);
+
+select lives_ok(
+  $$insert into imports (id, user_id, source, total)
+    values (
+      'a8000000-0000-0000-0000-000000000001',
+      'dddddddd-dddd-dddd-dddd-dddddddddddd',
+      'imdb',
+      2
+    )$$,
+  'control: D can create its own import'
+);
+
+select lives_ok(
+  $$insert into import_rows (
+      id, import_id, row_number, imdb_id, title, year, watched, rating
+    ) values
+      (
+        'a8100000-0000-0000-0000-000000000001',
+        'a8000000-0000-0000-0000-000000000001',
+        1, 'tt-import-1', 'Imported Rating', 2020, true, 'love'
+      ),
+      (
+        'a8100000-0000-0000-0000-000000000002',
+        'a8000000-0000-0000-0000-000000000001',
+        2, 'tt-import-2', 'Imported Watchlist', 2021, false, null
+      )$$,
+  'control: D can enqueue rows under its own import'
+);
+
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+select is(
+  (select count(*)::int from imports
+   where id = 'a8000000-0000-0000-0000-000000000001'),
+  0,
+  'A cannot read D''s import'
+);
+
+select is(
+  (select count(*)::int from import_rows
+   where import_id = 'a8000000-0000-0000-0000-000000000001'),
+  0,
+  'A cannot read D''s import rows'
+);
+
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-dddd-dddd-dddddddddddd","role":"authenticated"}';
+
+select lives_ok(
+  $$update imports set status = 'processing'
+    where id = 'a8000000-0000-0000-0000-000000000001'$$,
+  'control: D can start its own import'
+);
+
+select lives_ok(
+  $$select public.apply_import_match(
+      'a8100000-0000-0000-0000-000000000001',
+      '55555555-5555-5555-5555-555555555555')$$,
+  'control: D can apply a matched rating row'
+);
+
+select is(
+  (select count(*)::int
+   from list_items li
+   join lists l on l.id = li.list_id
+   where l.owner_user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
+     and li.movie_id = '55555555-5555-5555-5555-555555555555'),
+  1,
+  'an imported match is added to D''s personal list'
+);
+
+select results_eq(
+  $$select watched, rating::text, watched_at
+    from user_movie_status
+    where user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
+      and movie_id = '55555555-5555-5555-5555-555555555555'$$,
+  $$values (true, 'love'::text, null::timestamptz)$$,
+  'an imported rating wins and keeps its historical watch date unknown'
+);
+
+select lives_ok(
+  $$select public.apply_import_match(
+      'a8100000-0000-0000-0000-000000000002',
+      '33333333-3333-3333-3333-333333333333')$$,
+  'control: D can apply a matched watchlist row'
+);
+
+select results_eq(
+  $$select watched, rating::text
+    from user_movie_status
+    where user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
+      and movie_id = '33333333-3333-3333-3333-333333333333'$$,
+  $$values (true, 'love'::text)$$,
+  'a watchlist import does not downgrade an existing watched rating'
+);
+
+select is(
+  (select public.finish_import(
+    'a8000000-0000-0000-0000-000000000001')::text),
+  'completed'::text,
+  'a fully matched import completes'
+);
+
+select results_eq(
+  $$select processed, matched, jsonb_array_length(unmatched_rows)
+    from imports
+    where id = 'a8000000-0000-0000-0000-000000000001'$$,
+  $$values (2, 2, 0)$$,
+  'the completed import records exact progress'
+);
+
 -- -------------------------------------------------------- leaving a group
 
 -- This block switches request.jwt.claims but never the role, and it deliberately
@@ -987,6 +1161,20 @@ select throws_ok(
   '42501',
   null,
   'anon cannot read global vote percentages'
+);
+
+select throws_ok(
+  $$select count(*) from imports$$,
+  '42501',
+  null,
+  'anon cannot read imports'
+);
+
+select throws_ok(
+  $$select count(*) from import_rows$$,
+  '42501',
+  null,
+  'anon cannot read import rows'
 );
 
 reset role;

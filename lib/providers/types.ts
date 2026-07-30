@@ -70,6 +70,11 @@ export type MovieExternalIds = {
   imdbId: string | null;
 };
 
+export type Region = {
+  code: string;
+  name: string;
+};
+
 export type ImageSize =
   | "w92"
   | "w154"
@@ -83,6 +88,8 @@ export type ImageSize =
 
 export interface MovieDataProvider {
   search(query: string, region: string): Promise<MovieSummary[]>;
+  popular(region: string, page: number): Promise<MovieSummary[]>;
+  regions(): Promise<Region[]>;
   getMovie(externalId: string): Promise<Movie>;
   getTags(externalId: string): Promise<Tag[]>;
   getExternalIds(externalId: string): Promise<MovieExternalIds>;

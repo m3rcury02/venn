@@ -304,6 +304,28 @@ export const tmdb: MovieDataProvider = {
     });
   },
 
+  async popular(region, page) {
+    const { results } = await get<{ results: TmdbMovieListItem[] }>(
+      "/movie/popular",
+      { region, page: String(page) },
+    );
+
+    return results.map(toMovieSummary);
+  },
+
+  async regions() {
+    const countries = await get<
+      { iso_3166_1: string; english_name: string; native_name: string }[]
+    >("/configuration/countries");
+
+    return countries
+      .map((country) => ({
+        code: country.iso_3166_1,
+        name: country.english_name || country.native_name || country.iso_3166_1,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  },
+
   getMovie,
 
   async getTags(externalId) {

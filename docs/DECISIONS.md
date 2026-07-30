@@ -1,6 +1,6 @@
 # Decisions
 
-**Current phase: 7**
+**Current phase: 8**
 
 Append after every phase: what changed, and why.
 
@@ -3510,3 +3510,94 @@ movies and TV series, matching the catalog rule.
    aggregate panel moved **100% → 0% → No hype votes yet** while Loved remained
    67%, confirming that the post-vote browser RPC refreshes server-derived
    percentages rather than recomputing them from local state.
+
+---
+
+## Phase 8 — onboarding and library imports
+
+Migration:
+`supabase/migrations/20260730180000_phase8_onboarding_imports.sql`.
+
+### Onboarding is a database-enforced gate
+
+`profiles.onboarded_at` is the durable completion marker. Every authenticated
+app request whose profile has no marker is redirected to `/onboarding`; public
+auth, ingest, share, PWA, and offline routes keep their existing exemptions.
+Existing ratings count toward the ten-title requirement, so returning users do
+not have to rate the same films again.
+
+The first screen collects only username and region. It preserves an existing
+display name and uses the username as a fallback only when the display name is
+blank. Regions come from the provider's country configuration rather than a
+hand-maintained subset. The second screen pages through region-aware popular
+movies and records `hate`, `like`, or `love` as watched ratings without adding
+those titles to the default list.
+
+The browser cannot write `onboarded_at`: Phase 0's table-wide profile UPDATE
+grant is replaced with the same editable profile columns minus that marker.
+`complete_onboarding()` checks the authenticated profile and counts ten
+non-null ratings inside one `SECURITY DEFINER` function, rebuilds tag weights,
+then stamps the marker. This keeps a client-side redirect or forged update from
+bypassing the taste baseline.
+
+### Imports are durable normalized work, not uploaded archives
+
+Two owner-only RLS tables back the workflow:
+
+- `imports` holds source, state, exact progress, the final unmatched summary,
+  errors, and timestamps.
+- `import_rows` holds only normalized matching and status data. Raw IMDb CSVs
+  and Letterboxd ZIP contents stay in the browser.
+
+Both tables follow the required REVOKE-first grant pattern. Only one
+`uploading` or `processing` import may exist per user, enforced by a partial
+unique index. Rows are uploaded in batches of 200, then a root-layout runner
+processes one durable row per request while any authenticated Venn screen is
+open. Navigation does not stop it, and the next app session resumes the oldest
+processing job. No external queue or Phase 9 infrastructure was introduced.
+
+`csv-parse` and `fflate` are the two approved focused dependencies. IMDb accepts
+official ratings and watchlist CSVs, resolves exact IMDb ids through the
+provider, imports movies and TV series, and skips episodes, games, and podcasts.
+Letterboxd accepts the official account-export ZIP and merges `ratings.csv`,
+`watched.csv`, `watchlist.csv`, and `likes/films.csv`. Its precedence is liked,
+rating, watched, then watchlist; the liked file therefore maps to `love`
+regardless of stars. Letterboxd rows are movies only and match automatically
+only when one provider result has the normalized title, year, and media type.
+Everything ambiguous enters the manual review queue with candidate suggestions
+and provider-backed search.
+
+Rating thresholds are exactly SPEC §6. Every matched title is added to the
+user's personal default list. Imported watched/rating state wins over an
+existing Venn state and carries `watched_at = null`, because neither export is
+being treated as a reliable viewing-date source. A watchlist row is the one
+exception: it never downgrades an already-watched title. All automatic matches
+finish through `finish_import()`, which locks the job and rebuilds
+`user_tag_weights` exactly once. A later user-selected review match rebuilds
+weights immediately so a partially reviewed library is not stale.
+
+Provider calls remain server-side and still flow exclusively through
+`lib/providers/`. `cacheMovieByImdbId()` records a provider=`imdb` mapping after
+the exact lookup, so repeated imports can resolve without another find request.
+Manual review validates row ownership through RLS before loading or caching the
+chosen provider title.
+
+### Verification
+
+1. `supabase db reset` applies all eleven migrations cleanly, and
+   `supabase migration list` confirms the linked project is at the same Phase 8
+   migration.
+2. `supabase test db` — **113/113**. The 20 Phase 8 assertions cover the
+   protected onboarding marker, the ten-rating gate, owner-only import rows,
+   cross-user isolation, atomic list/status application, unknown watch dates,
+   watchlist non-downgrade behavior, exact completion counts, and anonymous
+   denial.
+3. `pnpm smoke:imports` — **13 assertions** across IMDb ratings/watchlist and a
+   Letterboxd export ZIP, including quoted commas, unsupported IMDb episodes,
+   media-type mapping, deduplication, and Letterboxd precedence.
+4. `pnpm smoke:tmdb` — pass, including an exact IMDb-to-TMDB movie resolution,
+   matching internal cache id, and zero-provider-call warm cache behavior.
+5. `pnpm typecheck`, `pnpm lint`, and `pnpm build` — clean.
+6. A real local magic-link session ended at `/onboarding` and rendered the
+   username/region step. Its cookie was redirected from `/settings` back to
+   onboarding, while the same request without a cookie redirected to `/login`.
