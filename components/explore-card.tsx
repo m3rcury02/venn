@@ -79,7 +79,15 @@ export function ExploreCardView({
         className="absolute inset-0 bg-gradient-to-t from-ink via-ink/75 to-ink/25"
       />
 
-      <div className="relative flex flex-col justify-center px-3 sm:px-6">
+      {/* The screen and its placard share one column. On wide viewports
+          aspect-video's width-driven height alone can exceed the card, so the
+          column is capped: it may use all but 28rem of the viewport height
+          (3.3rem for the AppHeader above the feed, 24.7rem that the placard
+          always needs -- transport, title, meta, both action rows). max()
+          floors the cap so a very short window cannot crush the column past a
+          reading width. Below the cap the column is full width and phones are
+          unchanged. */}
+      <div className="relative mx-auto flex w-full max-w-[max(calc((100dvh_-_28rem)_*_16_/_9),24rem)] flex-col justify-center px-3 sm:px-6">
         <div className="relative aspect-video w-full overflow-hidden rounded-card border border-hairline bg-ink">
           <TrailerFrame
             trailerKey={card.trailerKey}

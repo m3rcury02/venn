@@ -56,10 +56,14 @@ export function ExploreFeed({ initialCards }: { initialCards: ExploreCard[] }) {
     // 4rem must stay in sync with the tab bar spacer h-16 at
     // components/mobile-navigation.tsx:182. The --mobile-nav-offset variable
     // looks right but is scoped to [data-mobile-nav] ~ [data-install-prompt]
-    // in app/globals.css:232-235 and does not reach here.
+    // in app/globals.css:232-235 and does not reach here. On sm+ there is no
+    // tab bar, but the AppHeader (components/app-header.tsx) sits above the
+    // feed in normal flow at a rendered 52.7px, so the sm class subtracts
+    // 3.3rem -- without it the feed is 52.7px taller than the viewport and
+    // the bottom of every card clips.
     <div
       ref={containerRef}
-      className="h-[calc(100dvh-4rem)] snap-y snap-mandatory overflow-y-scroll sm:h-dvh"
+      className="h-[calc(100dvh-4rem)] snap-y snap-mandatory overflow-y-scroll sm:h-[calc(100dvh_-_3.3rem)]"
     >
       {cards.map((card, index) => (
         <ExploreCardView
