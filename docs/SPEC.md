@@ -297,6 +297,7 @@ Generated from scoring components, no LLM:
 9. **Discover** — search users, browse public lists and groups
 10. **Stats** — watch history, hype-vs-reality
 11. **Settings** — groups, ingest token + shortcut install, visibility toggles, notification matrix, blocks, export, delete account
+12. **Explore** (post-phase-9 feature) — full-screen vertical trailer feed at `/explore`: one film per screen, its YouTube trailer autoplaying muted, the app's vote controls beneath. Votes write `user_movie_status` exactly as search does, feeding `user_tag_weights` and therefore the group recommender. Distinct from screen 9 **Discover**: Discover is the phase-10 people directory (search users, browse public lists and groups); Explore is browsing films you don't already know the name of.
 
 **Movie-detail global percentages use current votes.** "Hyped" is
 `hyped | superhyped` divided by all non-null hype votes (including
@@ -342,6 +343,7 @@ Phases are built in order. **Do not build ahead of the current phase.** The curr
 | 7 | PWA polish — icons, install prompt, offline shell | v1 |
 | 8 | 10-movie onboarding, IMDb import, Letterboxd import | v2 |
 | 9 | Theatre mode — same picker, release-status filter | v2 |
+| 9.5 | Explore — vertical trailer feed at `/explore`. Built out of band, after phase 9, with explicit approval; SPEC §7 screen 12. Not part of phase 10. | v2 |
 | 10 | Public profiles, follows, visibility toggles, blocks | v2 |
 | 11 | Notification matrix, moderation, analytics, deletion + export, legal pages | v2 |
 | 12 | Hype-vs-reality stats, joinable groups, monetization | v3 |

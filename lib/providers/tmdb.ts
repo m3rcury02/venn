@@ -118,6 +118,15 @@ type TmdbFindResult = {
   tv_results: TmdbTvListItem[];
 };
 
+type TmdbVideo = {
+  key: string;
+  site: string;
+  type: string;
+  official: boolean;
+};
+
+type TmdbVideos = { videos: { results: TmdbVideo[] } };
+
 // ----------------------------------------------------------------- fetching
 
 async function get<T>(
@@ -216,7 +225,20 @@ function toTvSummary(item: TmdbTvListItem): MovieSummary {
   };
 }
 
-function toMovieDetail(detail: TmdbMovieDetail): Movie {
+// TMDB returns teasers, clips, featurettes and behind-the-scenes in the same
+// list. Order is not guaranteed, so pick explicitly rather than taking [0].
+function toTrailerKey(results: TmdbVideo[]): string | null {
+  const youtube = results.filter((v) => v.site === "YouTube");
+  return (
+    youtube.find((v) => v.type === "Trailer" && v.official)?.key ??
+    youtube.find((v) => v.type === "Trailer")?.key ??
+    youtube.find((v) => v.type === "Teaser")?.key ??
+    youtube[0]?.key ??
+    null
+  );
+}
+
+function toMovieDetail(detail: TmdbMovieDetail & TmdbVideos): Movie {
   const releaseDate = toReleaseDate(detail.release_date);
 
   return {
@@ -225,10 +247,11 @@ function toMovieDetail(detail: TmdbMovieDetail): Movie {
     backdropPath: detail.backdrop_path,
     runtime: detail.runtime || null,
     releaseDate,
+    trailerKey: toTrailerKey(detail.videos?.results ?? []),
   };
 }
 
-function toTvDetail(detail: TmdbTvDetail): Movie {
+function toTvDetail(detail: TmdbTvDetail & TmdbVideos): Movie {
   const releaseDate = toReleaseDate(detail.first_air_date);
 
   return {
@@ -237,6 +260,7 @@ function toTvDetail(detail: TmdbTvDetail): Movie {
     backdropPath: detail.backdrop_path,
     runtime: detail.episode_run_time[0] || null,
     releaseDate,
+    trailerKey: toTrailerKey(detail.videos?.results ?? []),
   };
 }
 
@@ -283,9 +307,20 @@ function toTvTags(detail: TmdbTvDetailWithTags): Tag[] {
 async function getMovie(externalId: string): Promise<Movie> {
   const { mediaType, id } = parseExternalId(externalId);
 
+  // append_to_response rides along on the detail call that was happening
+  // anyway -- no extra round trip. Same argument the phase 9 migration makes
+  // at its lines 22-26 about not paying a third call per candidate.
   return mediaType === "movie"
-    ? toMovieDetail(await get<TmdbMovieDetail>(`/movie/${id}`))
-    : toTvDetail(await get<TmdbTvDetail>(`/tv/${id}`));
+    ? toMovieDetail(
+        await get<TmdbMovieDetail & TmdbVideos>(`/movie/${id}`, {
+          append_to_response: "videos",
+        }),
+      )
+    : toTvDetail(
+        await get<TmdbTvDetail & TmdbVideos>(`/tv/${id}`, {
+          append_to_response: "videos",
+        }),
+      );
 }
 
 export const tmdb: MovieDataProvider = {
@@ -345,6 +380,16 @@ export const tmdb: MovieDataProvider = {
       append_to_response: "keywords,credits",
     });
     return toTvTags(detail);
+  },
+
+  // Backfill path for titles already in the cache: /videos alone, without
+  // re-running the whole detail+tags fetch that getMovie/getTags make.
+  async getTrailerKey(externalId) {
+    const { mediaType, id } = parseExternalId(externalId);
+    const { results } = await get<{ results: TmdbVideo[] }>(
+      `/${mediaType}/${id}/videos`,
+    );
+    return toTrailerKey(results);
   },
 
   async getExternalIds(externalId): Promise<MovieExternalIds> {

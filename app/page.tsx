@@ -83,6 +83,9 @@ export default async function Home({ searchParams }: HomeProps) {
             <Link href="/groups" className={navLinkClass}>
               Groups
             </Link>
+            <Link href="/explore" className={navLinkClass}>
+              Explore
+            </Link>
             <Link href="/search" className={navLinkClass}>
               Search
             </Link>

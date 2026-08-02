@@ -44,6 +44,9 @@ export default async function GroupsPage() {
             <Link href="/" className={navLinkClass}>
               My list
             </Link>
+            <Link href="/explore" className={navLinkClass}>
+              Explore
+            </Link>
             <Link href="/search" className={navLinkClass}>
               Search
             </Link>

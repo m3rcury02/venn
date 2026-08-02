@@ -30,6 +30,8 @@ export type Movie = {
   ratingExternal: number | null;
   /** ISO yyyy-mm-dd. */
   releaseDate: string | null;
+  /** YouTube video key for the title's trailer, null when the provider has none. */
+  trailerKey: string | null;
 };
 
 /** What list endpoints return: no runtime or backdrop, those need a detail call. */
@@ -96,6 +98,7 @@ export interface MovieDataProvider {
   regions(): Promise<Region[]>;
   getMovie(externalId: string): Promise<Movie>;
   getTags(externalId: string): Promise<Tag[]>;
+  getTrailerKey(externalId: string): Promise<string | null>;
   getExternalIds(externalId: string): Promise<MovieExternalIds>;
   getWatchProviders(
     externalId: string,

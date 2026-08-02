@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { isIos, isStandalone, useDeferredInstallPrompt } from "@/lib/pwa-install";
 import { VennMark } from "@/components/venn-mark";
 
-const APP_PATHS = ["/search", "/groups", "/inbox", "/settings", "/movies"];
+const APP_PATHS = ["/explore", "/search", "/groups", "/inbox", "/settings", "/movies"];
 
 function isAppPath(pathname: string) {
   return pathname === "/" || APP_PATHS.some((path) => pathname.startsWith(path));
@@ -17,6 +17,15 @@ function MyListIcon() {
   return (
     <svg aria-hidden viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-current">
       <path d="M6 5.5h12M6 12h12M6 18.5h8" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ExploreIcon() {
+  return (
+    <svg aria-hidden viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-current">
+      <rect x="3.5" y="3.5" width="17" height="17" strokeWidth="1.8" />
+      <path d="M10 9v6l5-3z" strokeWidth="1.8" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -154,6 +163,7 @@ export function MobileNavigation() {
   if (!isAppPath(pathname)) return null;
 
   const myListActive = pathname === "/";
+  const exploreActive = pathname.startsWith("/explore");
   const searchActive = pathname.startsWith("/search");
   const groupsActive = pathname.startsWith("/groups");
   const moreActive =
@@ -185,9 +195,12 @@ export function MobileNavigation() {
         aria-label="Primary navigation"
         className="fixed inset-x-0 bottom-0 z-40 border-t border-hairline bg-ink/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md sm:hidden"
       >
-        <div className="mx-auto grid max-w-lg grid-cols-4">
+        <div className="mx-auto grid max-w-lg grid-cols-5">
           <TabLink href="/" label="My list" active={myListActive}>
             <MyListIcon />
+          </TabLink>
+          <TabLink href="/explore" label="Explore" active={exploreActive}>
+            <ExploreIcon />
           </TabLink>
           <TabLink href="/search" label="Search" active={searchActive}>
             <SearchIcon />

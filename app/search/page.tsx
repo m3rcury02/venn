@@ -39,9 +39,14 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
               Back to group
             </Link>
           ) : (
-            <Link href="/" className={navLinkClass}>
-              My list
-            </Link>
+            <>
+              <Link href="/" className={navLinkClass}>
+                My list
+              </Link>
+              <Link href="/explore" className={navLinkClass}>
+                Explore
+              </Link>
+            </>
           )
         }
         mobileActions={

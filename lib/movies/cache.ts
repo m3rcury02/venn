@@ -129,6 +129,11 @@ async function insertMovie(db: Db, movie: Movie): Promise<string> {
       rating_external: movie.ratingExternal,
       release_date: movie.releaseDate,
       media_type: movie.mediaType,
+      trailer_key: movie.trailerKey,
+      // Stamped whenever a movie row is minted, because getMovie now always asks
+      // for videos. A null key here therefore means "no trailer exists", not
+      // "not looked yet" -- which is exactly what the backfill needs to skip it.
+      trailer_fetched_at: new Date().toISOString(),
     })
     .select("id")
     .single();

@@ -3846,3 +3846,96 @@ browser check above used a single-member group, so the note line rendered zero
 times. The logic reads straightforwardly from the present-members' `region`
 column, but treat it as unverified rather than implicitly covered by "live
 click-through."
+
+## Explore — the trailer feed at `/explore` (post-phase-9 feature)
+
+Migrations:
+`supabase/migrations/20260802120000_explore_trailers.sql`,
+`supabase/migrations/20260802130000_explore_grants.sql`.
+
+### Why out of band, and how SPEC was amended
+
+Explore is not in SPEC §9's build order (phase 9 is theatre mode; phase 10 is
+public profiles). It was approved to build now as a post-phase feature because
+Venn had no way to browse films you don't already know the name of — search
+needs a query, the list needs a name, the recommender needs a group. SPEC §7
+gains screen 12 ("Explore") with an explicit note that it is distinct from
+screen 9 "Discover" (the phase-10 people directory), and §9 gains build-order
+row 9.5 recording it as a built-out-of-band feature. The spec was amended in
+place, not contradicted.
+
+### `trailer_key` and `trailer_fetched_at` are two columns, not one
+
+`trailer_key is null` is ambiguous between "this film has no trailer on the
+provider" and "nobody has looked yet". The second column makes the backfill
+cheap: it only ever queries rows with `trailer_fetched_at is null`, and stamps
+its work even when the answer is null, so trailer-less titles are looked up
+once, not on every feed page. This is the same role `fetched_at` plays on
+`movie_releases` and on `movies` itself. Since `getMovie` now always asks for
+videos, every freshly minted row is stamped at insert; the backfill exists for
+rows cached before this feature landed.
+
+### Trailer data rides the detail call; `getTags` stays untouched
+
+`videos` is added via `append_to_response` on the existing detail request —
+zero extra HTTP round trips, the same argument phase 9's migration makes about
+not paying a third call per candidate. `getTags` was deliberately left alone:
+it is a separate call to the same endpoint with its own append list, and it
+returns `Tag[]`, which has no room for a trailer key. `getTrailerKey` exists as
+the dedicated backfill path for cached titles.
+
+### The YouTube iframe is a new external surface
+
+The Explore card embeds `youtube-nocookie.com` (the privacy domain) in a muted,
+autoplaying iframe. This is the repo's first third-party embed. Two rules bound
+it: autoplay is muted only, and the IFrame Player API was rejected as an
+external script — unmuting therefore remounts the iframe and restarts the
+trailer from the top, which is an accepted tradeoff (the sound toggle is a
+transport control, and restarting a trailer is not a defect). The IFrame Player
+API is the documented upgrade path if resume-on-unmute ever matters.
+
+### The screen and the placard
+
+The card is a projection with a placard under it: blurred backdrop floods the
+card with the film's own palette, the sharp 16:9 trailer is the screen, and
+every vote control sits below it. Controls never overlay the video — this
+app's system is "a dark room, two projector beams, and a screen", and you do
+not put buttons on the screen. The blurred backdrop is what makes the black
+around a 16:9 video load-bearing rather than dead space; without it the letterbox
+would be empty, with it the letterbox is lit by the film's own colour.
+
+### Reduced motion and save-data opt out of autoplay
+
+Both preferences are read on mount (they do not exist during SSR) and suppress
+the iframe entirely, showing the sharp poster in the same frame — no layout
+shift — with an explicit play button whose tap mounts the same embed. This is
+the app's only place where the user's OS-level motion preference changes what
+plays automatically.
+
+### Vote semantics are search's, unchanged
+
+`ExploreCardActions` ports `SearchMovieActions`'s state machine wholesale:
+same toggle flows (`addToList`/`removeFromList`/`addWatchedToList`/`setWatched`)
+and the same watched→rating / unwatched→hype handoff. The one difference is
+that the Explore pool is always pre-cached, so `VoteControl` renders
+immediately instead of waiting for a list row. `setRating`'s UPDATE-only
+behaviour stays safe for the same reason search's is: the rating control only
+exists on a watched card, and watched rows are created by `setWatched` or
+`addWatchedToList` before the rating can be tapped.
+
+### `explore_grants`: service_role reads for the feed
+
+`exploreFeed` reads the caller's `user_movie_status`, default list, and
+`list_items` through the service client — phase 5 granted exactly `select on
+lists` and `insert on list_items` for ingest's needs and nothing on
+`user_movie_status`, so the feed could not read vote rows ("their absence was a
+real bug", in phase 5's own words, happened here again). The second migration
+grants SELECT only, on `user_movie_status` and `list_items`, with no REVOKE —
+these tables already carry their phase-0 authenticated grants, which the
+repo's revoke-then-grant rule (written for new tables) must not disturb. All
+user writes — votes, list membership — still go through the authenticated
+client and RLS; the service key gains read access to vote rows in the same
+trust domain phase 5 already accepted for profiles and lists, and the feed
+filters by a user_id that server actions resolve from the session, never from
+client input. The smoke script's test vote inserts through the user's own
+token-bearing client for the same reason.
