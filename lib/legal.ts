@@ -1,2 +1,2 @@
-export const CONTACT_EMAIL = "REPLACE_ME@example.com";
+export const CONTACT_EMAIL = "gunal2002@gmail.com";
 export const LAST_UPDATED = "2026-08-05";
