@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { loadExploreFeed } from "@/app/explore/actions";
+import { loadExploreFeed, registerExploreDisinterest } from "@/app/explore/actions";
 import { ExploreCardView } from "@/components/explore-card";
 import type { ExploreCard } from "@/lib/movies/explore";
 
@@ -12,6 +12,7 @@ export function ExploreFeed({ initialCards }: { initialCards: ExploreCard[] }) {
   const [muted, setMuted] = useState(true);
   const [isPending, startTransition] = useTransition();
   const containerRef = useRef<HTMLDivElement>(null);
+  const registeredDisinterests = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const container = containerRef.current;
@@ -36,6 +37,26 @@ export function ExploreFeed({ initialCards }: { initialCards: ExploreCard[] }) {
     container.querySelectorAll("[data-card]").forEach((el) => observer.observe(el));
     return () => observer.disconnect();
   }, [cards.length]);
+
+  useEffect(() => {
+    // When activeIndex advances, any cards prior to activeIndex have been scrolled past.
+    for (let i = 0; i < activeIndex; i++) {
+      const card = cards[i];
+      if (!card) continue;
+      if (
+        !registeredDisinterests.current.has(card.movieId) &&
+        !card.watched &&
+        card.rating === null &&
+        card.hype === null
+      ) {
+        registeredDisinterests.current.add(card.movieId);
+        registerExploreDisinterest(card.movieId).catch(() => {
+          // Background tracking failure is ignored silently
+        });
+      }
+    }
+  }, [activeIndex, cards]);
+
 
   useEffect(() => {
     if (isPending) return;

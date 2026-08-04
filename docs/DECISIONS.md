@@ -4295,7 +4295,12 @@ Migrations: `supabase/migrations/20260805150000_phase12_hype_history.sql`, `supa
 - The public groups directory is not filtered by `blocks` (a group contains multiple members; blocking one member should not hide an entire group).
 - No non-member preview page for public groups (instant join makes preview redundant).
 
-### Test Suite
+### Explore Scroll-Past Disinterest & Recommender Weighting
 
-`supabase/tests/rls.test.sql` updated to **193** assertions (7 for `hype_history`, 10 for joinable groups — `join_public_group`'s two outcomes each get a return-value assertion and a `group_members` side-effect assertion, since the return value alone can't distinguish "inserted the right row" from "inserted nothing and returned it anyway"). Verified via `supabase db reset && supabase test db`: `Files=1, Tests=193, Result: PASS`.
+- **`scrolled_past_at` Column**: Added `scrolled_past_at timestamptz` to `user_movie_status` (`supabase/migrations/20260805170000_explore_scroll_past.sql`).
+- **Explicit "Meh" (0.25) vs Implicit Scroll-Past (0.1)**:
+  - An explicit click on the "Meh" button sets `hype = 'dont_care'`, which scores `0.25` in the recommender algorithm (§4.3 step 3).
+  - Scrolling past a card in `/explore` without voting sets `scrolled_past_at = now()`, leaving `hype` and `rating` `null`. In `recommend_movies`, `scrolled_past_at is not null` receives a lower score (`0.1`), reflecting that the user didn't even bother voting for it.
+- **Feed Paging & Tiered Ordering**: `exploreFeed` in `lib/movies/explore.ts` filters out hard exclusions (`watched`, `rating != null`, `hype != null`) completely, while placing soft-disinterested (`scrolled_past_at != null`) titles at the tail of the release pool after all fresh unseen titles (`[...freshReleaseIds, ...scrolledReleaseIds]`). Fresh titles always load first on `/explore`, while scrolled-past titles remain in the candidate pool as overflow rather than being permanently hard-excluded.
+
 

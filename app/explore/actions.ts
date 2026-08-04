@@ -22,3 +22,35 @@ export async function loadExploreFeed(page: number): Promise<ExploreCard[]> {
 
   return exploreFeed(userId, profile?.region ?? "IN", safePage);
 }
+
+export async function registerExploreDisinterest(movieId: string): Promise<void> {
+  if (typeof movieId !== "string" || !movieId) return;
+  const supabase = await createClient();
+
+  const { data: claims } = await getClaims(supabase);
+  const userId = claims?.claims?.sub;
+  if (typeof userId !== "string") return;
+
+  const { data: existing } = await supabase
+    .from("user_movie_status")
+    .select("watched, rating, hype, scrolled_past_at")
+    .eq("user_id", userId)
+    .eq("movie_id", movieId)
+    .maybeSingle();
+
+  // If the user already has an active vote or hype status, leave it intact
+  if (existing && (existing.watched || existing.rating !== null || existing.hype !== null)) {
+    return;
+  }
+
+  await supabase.from("user_movie_status").upsert({
+    user_id: userId,
+    movie_id: movieId,
+    watched: false,
+    rating: null,
+    scrolled_past_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+}
+
+

@@ -59,6 +59,7 @@ type StatusRow = {
   watched: boolean;
   rating: Rating | null;
   hype: Hype | null;
+  scrolled_past_at: string | null;
 };
 
 export async function exploreFeed(
@@ -68,6 +69,31 @@ export async function exploreFeed(
 ): Promise<ExploreCard[]> {
   const db = createServiceClient();
   const safePage = Number.isInteger(page) && page > 0 ? page : 1;
+
+  // ---------------------------------------------------------- status & list
+
+  const { data: userStatuses, error: statusError } = await db
+    .from("user_movie_status")
+    .select("movie_id, watched, rating, hype, scrolled_past_at")
+    .eq("user_id", userId);
+  if (statusError) throw statusError;
+
+  const statusRows = (userStatuses as StatusRow[] | null) ?? [];
+
+  // Hard exclusions: movies the user explicitly watched, rated, or hyped (hyped, superhyped, or explicit dont_care vote)
+  const hardExcludedIds = new Set(
+    statusRows
+      .filter((s) => s.watched || s.rating != null || s.hype != null)
+      .map((s) => s.movie_id),
+  );
+
+  // Soft disinterest: scrolled-past movies where user didn't vote (deprioritized, placed after fresh titles)
+  const softDisinterestIds = new Set(
+    statusRows
+      .filter((s) => !s.watched && s.rating == null && s.hype == null && s.scrolled_past_at != null)
+      .map((s) => s.movie_id),
+  );
+
 
   // ---------------------------------------------------------- the pool
 
@@ -80,15 +106,23 @@ export async function exploreFeed(
     releaseIds = [];
   }
 
+  // Filter out hard exclusions (watched / rated / hyped)
+  const availableReleaseIds = releaseIds.filter((id) => !hardExcludedIds.has(id));
+
+  // Fresh unseen titles first, followed by soft-disinterested (scrolled-past) titles at the tail
+  const freshReleaseIds = availableReleaseIds.filter((id) => !softDisinterestIds.has(id));
+  const scrolledReleaseIds = availableReleaseIds.filter((id) => softDisinterestIds.has(id));
+  const watchableReleaseIds = [...freshReleaseIds, ...scrolledReleaseIds];
+
   // Both sources yield (movieId, externalId) pairs: releases resolve theirs
   // via the batched mapping query below, popular overflow resolves them while
   // caching, and the trailer backfill and the card actions both need the
   // provider id.
   let pool: { movieId: string; externalId: string }[] = [];
 
-  const releasePages = Math.ceil(releaseIds.length / PAGE_SIZE);
+  const releasePages = Math.ceil(watchableReleaseIds.length / PAGE_SIZE);
   if (safePage <= releasePages) {
-    const pageIds = releaseIds.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+    const pageIds = watchableReleaseIds.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
     const { data: mappings, error } = await db
       .from("movie_external_ids")
@@ -109,35 +143,17 @@ export async function exploreFeed(
     // Source 2 -- popular overflow. The TMDB page restarts after the releases
     // span: the feed pages past `releasePages` are popular page 1, 2, ... so
     // the most popular titles are the first overflow, not skipped forever.
-    pool = await popularOverflow(db, region, safePage - releasePages);
+    const overflowPool = await popularOverflow(db, region, safePage - releasePages);
+    const availableOverflow = overflowPool.filter((p) => !hardExcludedIds.has(p.movieId));
+    const freshOverflow = availableOverflow.filter((p) => !softDisinterestIds.has(p.movieId));
+    const scrolledOverflow = availableOverflow.filter((p) => softDisinterestIds.has(p.movieId));
+    pool = [...freshOverflow, ...scrolledOverflow];
   }
 
+
   if (pool.length === 0) return [];
-  const poolIds = pool.map((p) => p.movieId);
+  const pageIds = pool.slice(0, PAGE_SIZE).map((p) => p.movieId);
 
-  // ---------------------------------------------------- status & list
-
-  const { data: statuses, error: statusError } = await db
-    .from("user_movie_status")
-    .select("movie_id, watched, rating, hype")
-    .eq("user_id", userId)
-    .in("movie_id", poolIds);
-  if (statusError) throw statusError;
-
-  // A *cleared* vote (row exists, both columns null, not watched) must not
-  // exclude -- it means the user deliberately un-voted. Only a live vote
-  // (watched, or either vote column set) removes a title from the feed.
-  const votedMovieIds = new Set(
-    ((statuses as StatusRow[] | null) ?? [])
-      .filter((s) => s.watched || s.rating != null || s.hype != null)
-      .map((s) => s.movie_id),
-  );
-  const watchable = poolIds.filter((id) => !votedMovieIds.has(id));
-  if (watchable.length === 0) return [];
-
-  // One page of watchable cards; leftovers stay on TMDB's side and are never
-  // served, which is fine -- the feed dedupes client-side and pages are cheap.
-  const pageIds = watchable.slice(0, PAGE_SIZE);
 
   const { data: movies, error: moviesError } = await db
     .from("movies")
@@ -206,8 +222,9 @@ export async function exploreFeed(
   });
 
   const statusByMovieId = new Map(
-    ((statuses as StatusRow[] | null) ?? []).map((s) => [s.movie_id, s]),
+    ((userStatuses as StatusRow[] | null) ?? []).map((s) => [s.movie_id, s]),
   );
+
 
   return pageIds.flatMap((movieId) => {
     const movie = movieById.get(movieId);
