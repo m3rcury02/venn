@@ -294,6 +294,7 @@ export default async function MovieDetailPage({ params }: MovieDetailPageProps) 
                       <ReportButton
                         targetType="list_item"
                         targetId={n.list_id}
+                        targetMovieId={movie.id}
                         label="Report note"
                         className="t-label text-xs text-fg-faint hover:text-fg"
                       />

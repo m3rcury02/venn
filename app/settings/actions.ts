@@ -157,6 +157,16 @@ export async function deleteAccount(
     return { error: "Not signed in." };
   }
 
+  // Sign out on the user-scoped client *before* deleting the auth user, same
+  // as app/auth/signout/route.ts does on a normal logout. getClaims() verifies
+  // the JWT signature against the project JWKS, not a live session -- it
+  // doesn't check whether the user still exists, so a deleted user's token
+  // stays "valid" until it expires. Without this, the next navigation on this
+  // browser finds valid claims, a profiles query that returns nothing, and
+  // proxy.ts redirects to /onboarding, which cannot complete because
+  // handle_new_user never fired for a user that no longer exists.
+  await supabase.auth.signOut();
+
   const service = createServiceClient();
   const { error } = await service.auth.admin.deleteUser(userId);
 

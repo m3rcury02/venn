@@ -57,7 +57,7 @@ async function finishIfReady(
       .maybeSingle();
 
     if (imp) {
-      captureServer(userId, "import_completed", {
+      await captureServer(userId, "import_completed", {
         source: imp.source,
         total: imp.total,
         matched: imp.matched,

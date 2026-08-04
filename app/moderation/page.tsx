@@ -19,6 +19,7 @@ type ReportRow = {
   reporter_id: string;
   target_type: "user" | "list" | "list_item";
   target_id: string;
+  target_movie_id: string | null;
   reason: string;
   status: "open" | "actioned" | "dismissed";
   created_at: string;
@@ -37,7 +38,7 @@ export default async function ModerationPage() {
   const service = createServiceClient();
   const { data: rawReports, error } = await service
     .from("reports")
-    .select("id, reporter_id, target_type, target_id, reason, status, created_at, profiles!reports_reporter_id_fkey(username, display_name)")
+    .select("id, reporter_id, target_type, target_id, target_movie_id, reason, status, created_at, profiles!reports_reporter_id_fkey(username, display_name)")
     .eq("status", "open")
     .order("created_at", { ascending: false });
 
@@ -71,7 +72,8 @@ export default async function ModerationPage() {
                 <Panel key={report.id} className="flex flex-col gap-3">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-hairline pb-2">
                     <span className="t-label text-xs text-fg-faint">
-                      Target: <strong className="text-fg">{report.target_type}</strong> ({report.target_id})
+                      Target: <strong className="text-fg">{report.target_type}</strong> ({report.target_id}
+                      {report.target_movie_id ? `, movie ${report.target_movie_id}` : ""})
                     </span>
                     <span className="t-label text-xs text-fg-faint">
                       {new Date(report.created_at).toLocaleDateString()}

@@ -65,7 +65,7 @@ export async function addToList(
 
   if (!error) {
     const mediaType = externalId.startsWith("tv-") ? "tv" : "movie";
-    captureServer(userId, "movie_added", { media_type: mediaType });
+    await captureServer(userId, "movie_added", { media_type: mediaType });
   }
 
   const { data: vote, error: voteError } = await supabase

@@ -8,11 +8,14 @@ import { inputClass } from "@/components/ui/input";
 export function ReportButton({
   targetType,
   targetId,
+  targetMovieId,
   label = "Report",
   className,
 }: {
   targetType: TargetType;
   targetId: string;
+  /** Required when targetType is "list_item" -- list_items has no single-column id. */
+  targetMovieId?: string;
   label?: string;
   className?: string;
 }) {
@@ -47,7 +50,7 @@ export function ReportButton({
     setError(null);
 
     startTransition(async () => {
-      const res = await submitReport(targetType, targetId, reason);
+      const res = await submitReport(targetType, targetId, reason, targetMovieId);
       if (res.ok) {
         setIsReported(true);
         setIsOpen(false);

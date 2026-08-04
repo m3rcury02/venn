@@ -44,15 +44,20 @@ export async function logNight(
 
   const groupName = group?.name || "your group";
 
-  for (const attendeeId of present) {
-    if (attendeeId !== me) {
-      sendPush(attendeeId, "night_invite", {
-        title: "Movie night invite",
-        body: `You were invited to a movie night in ${groupName}`,
-        url: `/groups/${groupId}/night`,
-      });
-    }
-  }
+  // Awaited together: an un-awaited sendPush can be dropped mid-flight when a
+  // serverless function's response returns before the underlying fetches
+  // complete. sendPush never throws, so this cannot fail the caller.
+  await Promise.all(
+    present
+      .filter((attendeeId) => attendeeId !== me)
+      .map((attendeeId) =>
+        sendPush(attendeeId, "night_invite", {
+          title: "Movie night invite",
+          body: `You were invited to a movie night in ${groupName}`,
+          url: `/groups/${groupId}/night`,
+        }),
+      ),
+  );
 
   revalidatePath(`/groups/${groupId}`);
   revalidatePath(`/groups/${groupId}/night`);

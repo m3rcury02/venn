@@ -45,7 +45,7 @@ export async function deleteReportedContent(reportId: string): Promise<Moderatio
   const service = createServiceClient();
   const { data: report, error: reportError } = await service
     .from("reports")
-    .select("id, target_type, target_id")
+    .select("id, target_type, target_id, target_movie_id")
     .eq("id", reportId)
     .single();
 
@@ -54,10 +54,20 @@ export async function deleteReportedContent(reportId: string): Promise<Moderatio
   }
 
   if (report.target_type === "list_item") {
+    // list_items' primary key is (list_id, movie_id) -- scoping the delete by
+    // list_id alone would remove every item in the list, not just the
+    // reported note. target_movie_id is the migration's added half of the key
+    // and is guaranteed non-null for 'list_item' reports by a check
+    // constraint, but this action refuses to run without it regardless.
+    if (!report.target_movie_id) {
+      return { ok: false, error: "This report is missing its movie reference." };
+    }
+
     const { error: deleteError } = await service
       .from("list_items")
       .delete()
-      .eq("list_id", report.target_id);
+      .eq("list_id", report.target_id)
+      .eq("movie_id", report.target_movie_id);
 
     if (deleteError) return { ok: false, error: deleteError.message };
   } else if (report.target_type === "list") {

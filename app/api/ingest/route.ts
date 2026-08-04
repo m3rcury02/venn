@@ -94,9 +94,17 @@ export async function POST(request: Request) {
   }
 
   const source = toSource(body.source);
-  captureServer(userId, "ingest_received", { source });
 
-  after(() => resolveInBackground(db, row.id, userId, text));
+  // after(), not a bare un-awaited call: it keeps the function alive until the
+  // callback's returned promise settles even though the response has already
+  // gone out, which `captureServer(...)` on its own does not guarantee in a
+  // serverless runtime. The callback must be async and its promise awaited
+  // internally -- returning without awaiting would let after() see a
+  // synchronously-resolved callback and finish before either fetch completes.
+  after(async () => {
+    await captureServer(userId, "ingest_received", { source });
+    await resolveInBackground(db, row.id, userId, text);
+  });
 
   return NextResponse.json({ id: row.id, status: "pending" });
 }

@@ -44,7 +44,10 @@ export async function setWatched(movieId: string, watched: boolean): Promise<boo
   const { error: rebuildError } = await supabase.rpc("rebuild_user_tag_weights");
 
   if (!rebuildError) {
-    captureServer(userId, "vote_cast", { kind: "watched" });
+    // Awaited: an un-awaited call here can be dropped mid-flight when a
+    // serverless function's response returns before the underlying fetch
+    // completes.
+    await captureServer(userId, "vote_cast", { kind: "watched" });
 
     if (watched) {
       try {
@@ -72,17 +75,20 @@ export async function setWatched(movieId: string, watched: boolean): Promise<boo
               .select("user_id")
               .eq("movie_night_id", night.id);
 
-            if (attendees) {
-              for (const att of attendees) {
-                if (att.user_id !== userId) {
+            // Collected and awaited together, same reasoning as above --
+            // sendPush never throws, so this cannot turn a successful
+            // "mark watched" into a failure.
+            await Promise.all(
+              (attendees ?? [])
+                .filter((att) => att.user_id !== userId)
+                .map((att) =>
                   sendPush(att.user_id, "watch_confirmation", {
                     title: "Did you watch?",
                     body: `Confirm whether you watched ${movieTitle}`,
                     url: "/",
-                  });
-                }
-              }
-            }
+                  }),
+                ),
+            );
           }
         }
       } catch {
@@ -116,7 +122,7 @@ export async function setRating(movieId: string, rating: Rating | null): Promise
   // only weights it can touch are the caller's.
   await supabase.rpc("rebuild_user_tag_weights");
 
-  captureServer(userId, "vote_cast", { kind: "rating" });
+  await captureServer(userId, "vote_cast", { kind: "rating" });
 
   revalidatePath("/");
 }
@@ -143,7 +149,7 @@ export async function setHype(movieId: string, hype: Hype | null): Promise<void>
     updated_at: new Date().toISOString(),
   });
 
-  captureServer(userId, "vote_cast", { kind: "hype" });
+  await captureServer(userId, "vote_cast", { kind: "hype" });
 
   revalidatePath("/");
 }

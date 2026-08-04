@@ -242,7 +242,10 @@ export async function completeOnboarding(): Promise<{ error?: string }> {
   if (error) return { error: "Rate ten movies before continuing." };
 
   if (userId) {
-    captureServer(userId, "onboarding_completed");
+    // Awaited, and before redirect() below: redirect() throws to unwind the
+    // action immediately, so an un-awaited call here races the throw and can
+    // be dropped before its fetch completes.
+    await captureServer(userId, "onboarding_completed");
   }
 
   revalidatePath("/", "layout");

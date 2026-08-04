@@ -10,6 +10,7 @@ export async function submitReport(
   targetType: TargetType,
   targetId: string,
   reason: string,
+  targetMovieId?: string,
 ): Promise<ReportActionResult> {
   const supabase = await createClient();
   const { data: claims } = await getClaims(supabase);
@@ -28,10 +29,18 @@ export async function submitReport(
     return { ok: false, error: "Invalid target type." };
   }
 
+  // `list_items` has no single-column id -- a 'list_item' report needs both
+  // the list id (target_id) and the movie id to name one row. The reports
+  // table's check constraint enforces this pairing at the database too.
+  if (targetType === "list_item" && !targetMovieId) {
+    return { ok: false, error: "Missing movie reference for this report." };
+  }
+
   const { error } = await supabase.from("reports").insert({
     reporter_id: me,
     target_type: targetType,
     target_id: targetId,
+    target_movie_id: targetType === "list_item" ? targetMovieId : null,
     reason: trimmedReason,
   });
 

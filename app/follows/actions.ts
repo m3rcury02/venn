@@ -37,7 +37,10 @@ export async function followUser(targetUserId: string): Promise<FollowActionResu
   const followerName = followerProfile?.display_name || followerProfile?.username || "Someone";
   const url = followerProfile?.username ? `/u/${followerProfile.username}` : "/discover";
 
-  sendPush(targetUserId, "new_follower", {
+  // Awaited: an un-awaited call here can be dropped mid-flight when a
+  // serverless function's response returns and the runtime is recycled
+  // before the underlying fetch to the push service completes.
+  await sendPush(targetUserId, "new_follower", {
     title: "New follower",
     body: `${followerName} started following you`,
     url,

@@ -67,9 +67,11 @@ export async function POST(request: Request) {
     return NextResponse.redirect(url, { status: 303 });
   }
 
-  captureServer(userId, "ingest_received", { source: "android_share" });
-
-  after(() => resolveInBackground(db, row.id, userId, combined));
+  // after(), not a bare un-awaited call: see app/api/ingest/route.ts for why.
+  after(async () => {
+    await captureServer(userId, "ingest_received", { source: "android_share" });
+    await resolveInBackground(db, row.id, userId, combined);
+  });
 
   return NextResponse.redirect(url, { status: 303 });
 }

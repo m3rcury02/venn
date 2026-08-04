@@ -19,7 +19,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(172);
+select plan(176);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -1614,6 +1614,56 @@ select throws_ok(
   '42501',
   null,
   'authenticated user cannot update reports'
+);
+
+-- 1a. Post-review fix: 'list_item' reports need target_movie_id, since
+-- list_items has no single-column id -- the original schema let a 'list_item'
+-- report name only a list_id, and app/moderation/actions.ts's delete on that
+-- shape removed every item in the list instead of one note.
+select throws_ok(
+  $$insert into reports (reporter_id, target_type, target_id, reason)
+    values ('22222222-2222-2222-2222-222222222222', 'list_item',
+            (select id from lists where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff' and is_default),
+            'Bad note')$$,
+  '23514',
+  null,
+  'list_item report without target_movie_id is rejected by the check constraint'
+);
+
+select lives_ok(
+  $$insert into reports (reporter_id, target_type, target_id, target_movie_id, reason)
+    values ('22222222-2222-2222-2222-222222222222', 'list_item',
+            (select id from lists where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff' and is_default),
+            '33333333-3333-3333-3333-333333333333', 'Bad note on movie A')$$,
+  'list_item report with target_movie_id succeeds'
+);
+
+-- The bug this fixes: two different notes in the same list used to share one
+-- target_id with no way to tell them apart, so the second report in a list
+-- was silently swallowed as a duplicate (23505) rather than recorded. With
+-- target_movie_id in the unique index, a second note in the same list is a
+-- distinct target and must be reportable.
+select lives_ok(
+  $$insert into reports (reporter_id, target_type, target_id, target_movie_id, reason)
+    values ('22222222-2222-2222-2222-222222222222', 'list_item',
+            (select id from lists where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff' and is_default),
+            '55555555-5555-5555-5555-555555555555', 'Bad note on movie B')$$,
+  'a second, different list_item report in the same list is not treated as a duplicate'
+);
+
+-- A true duplicate -- same reporter, same list, same movie -- is still caught
+-- by the widened unique index. NULLS NOT DISTINCT is what makes this
+-- assertion, and the equivalent one for 'user'/'list' reports, mean anything:
+-- without it every NULL target_movie_id would compare as distinct and this
+-- insert would succeed instead of violating the index.
+select throws_ok(
+  $$insert into reports (reporter_id, target_type, target_id, target_movie_id, reason)
+    values ('22222222-2222-2222-2222-222222222222', 'list_item',
+            (select id from lists where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff' and is_default),
+            '33333333-3333-3333-3333-333333333333', 'Reporting the same note again')$$,
+  '23505',
+  null,
+  'a true duplicate list_item report (same list, same movie) is still rejected'
 );
 
 -- 2. movie_nights & movie_night_attendees

@@ -171,6 +171,7 @@ export default async function GroupPage({ params }: GroupPageProps) {
                           <ReportButton
                             targetType="list_item"
                             targetId={list.id}
+                            targetMovieId={item.movie_id}
                             label="Report"
                             className="t-label text-[10px] text-fg-faint hover:text-fg"
                           />
