@@ -10,6 +10,7 @@ import { VennMark } from "@/components/venn-mark";
 import { VoteControl } from "@/components/vote-control";
 import { WatchedToggle } from "@/components/watched-toggle";
 import { provider, type MediaType } from "@/lib/providers";
+import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
 // No generated database.types.ts (see docs/DECISIONS.md phase 1a) -- postgrest-js
@@ -37,17 +38,26 @@ export default async function Home({ searchParams }: HomeProps) {
   const supabase = await createClient();
 
   // getClaims() verifies the JWT signature; never trust getSession() here.
-  const { data } = await supabase.auth.getClaims();
+  const { data } = await getClaims(supabase);
   if (!data?.claims) redirect("/login");
 
-  // Scoped to owner_user_id, not is_default alone: since phase 3 the lists
-  // policy also returns group lists, and .single() would throw on two rows.
-  const { data: list } = await supabase
-    .from("lists")
-    .select("id")
-    .eq("owner_user_id", data.claims.sub)
-    .eq("is_default", true)
-    .single();
+  // list and the inbox badge count are independent reads, run together rather
+  // than serially -- only list_items below actually depends on list.
+  const [{ data: list }, { count: pendingCount }] = await Promise.all([
+    // Scoped to owner_user_id, not is_default alone: since phase 3 the lists
+    // policy also returns group lists, and .single() would throw on two rows.
+    supabase
+      .from("lists")
+      .select("id")
+      .eq("owner_user_id", data.claims.sub)
+      .eq("is_default", true)
+      .single(),
+    // head: true -- the badge needs the number, never the rows.
+    supabase
+      .from("ingest_inbox")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending"),
+  ]);
 
   const { data: rawItems } = list
     ? await supabase
@@ -61,12 +71,6 @@ export default async function Home({ searchParams }: HomeProps) {
 
   const items = rawItems as unknown as ListItemRow[] | null;
   const count = items?.length ?? 0;
-
-  // head: true -- the badge needs the number, never the rows.
-  const { count: pendingCount } = await supabase
-    .from("ingest_inbox")
-    .select("id", { count: "exact", head: true })
-    .eq("status", "pending");
 
   const filter = parseFilter((await searchParams).filter);
   const statuses = items?.map((item) => item.movies.user_movie_status[0] ?? null) ?? [];

@@ -16,6 +16,7 @@
 
 import { after, NextResponse } from "next/server";
 import { resolveInBackground } from "@/lib/ingest/resolve";
+import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 
@@ -23,7 +24,7 @@ export async function POST(request: Request) {
   const url = new URL(request.url);
 
   const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
+  const { data } = await getClaims(supabase);
   const userId = data?.claims?.sub;
 
   if (!userId) {

@@ -13,6 +13,7 @@ import { VennMark } from "@/components/venn-mark";
 import { VoteControl } from "@/components/vote-control";
 import { WatchedToggle } from "@/components/watched-toggle";
 import { provider } from "@/lib/providers";
+import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
 // Same reason as app/page.tsx: with no generated database.types.ts,
@@ -44,30 +45,33 @@ export default async function GroupPage({ params }: GroupPageProps) {
   const { id } = await params;
   const supabase = await createClient();
 
-  const { data: claims } = await supabase.auth.getClaims();
+  const { data: claims } = await getClaims(supabase);
   if (!claims?.claims) redirect("/login");
 
-  // groups_select_member is the gate: a non-member gets no row at all, so this
-  // 404s rather than leaking the group's name or its invite code.
-  const { data: group } = await supabase
-    .from("groups")
-    .select("id, name, invite_code, created_by")
-    .eq("id", id)
-    .single();
+  // group, group_members, and lists are all independent reads keyed on id --
+  // run them together rather than serially. Only list_items below actually
+  // depends on list.
+  const [{ data: group }, { data: rawMembers }, { data: list }] = await Promise.all([
+    // groups_select_member is the gate: a non-member gets no row at all, so
+    // this 404s rather than leaking the group's name or its invite code.
+    supabase
+      .from("groups")
+      .select("id, name, invite_code, created_by")
+      .eq("id", id)
+      .single(),
+    supabase
+      .from("group_members")
+      .select("user_id, role, profiles(display_name)")
+      .eq("group_id", id)
+      .order("joined_at", { ascending: true }),
+    supabase
+      .from("lists")
+      .select("id")
+      .eq("owner_group_id", id)
+      .single(),
+  ]);
   if (!group) notFound();
-
-  const { data: rawMembers } = await supabase
-    .from("group_members")
-    .select("user_id, role, profiles(display_name)")
-    .eq("group_id", id)
-    .order("joined_at", { ascending: true });
   const members = (rawMembers as unknown as MemberRow[] | null) ?? [];
-
-  const { data: list } = await supabase
-    .from("lists")
-    .select("id")
-    .eq("owner_group_id", id)
-    .single();
 
   const { data: rawItems } = list
     ? await supabase

@@ -18,6 +18,7 @@ import {
   type WatchProvider,
   type WatchProviderType,
 } from "@/lib/providers";
+import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
 type MovieDetailRow = {
@@ -111,7 +112,7 @@ export default async function MovieDetailPage({ params }: MovieDetailPageProps) 
 
   const supabase = await createClient();
 
-  const { data: claims } = await supabase.auth.getClaims();
+  const { data: claims } = await getClaims(supabase);
   const userId = claims?.claims?.sub;
   if (typeof userId !== "string") redirect("/login");
 

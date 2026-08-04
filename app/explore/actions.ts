@@ -1,6 +1,7 @@
 "use server";
 
 import { exploreFeed, type ExploreCard } from "@/lib/movies/explore";
+import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
 // The client never supplies a user or region -- both are resolved from the
@@ -9,7 +10,7 @@ export async function loadExploreFeed(page: number): Promise<ExploreCard[]> {
   const safePage = Number.isInteger(page) && page > 0 ? page : 1;
   const supabase = await createClient();
 
-  const { data: claims } = await supabase.auth.getClaims();
+  const { data: claims } = await getClaims(supabase);
   const userId = claims?.claims?.sub;
   if (typeof userId !== "string") return [];
 

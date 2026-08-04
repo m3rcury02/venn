@@ -44,7 +44,13 @@ export function Poster({
       <div className="absolute inset-0 overflow-hidden rounded-card border border-hairline bg-surface-2">
         {src ? (
           // eslint-disable-next-line @next/next/no-img-element -- hotlinked provider CDN, never re-hosted
-          <img src={src} alt={alt} className="h-full w-full object-cover" />
+          <img
+            src={src}
+            alt={alt}
+            loading="lazy"
+            decoding="async"
+            className="h-full w-full object-cover"
+          />
         ) : (
           <div className="flex h-full w-full items-center justify-center">
             <VennMark size={markSize} />

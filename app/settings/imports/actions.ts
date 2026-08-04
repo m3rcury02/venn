@@ -7,6 +7,7 @@ import type {
   NormalizedImportRow,
 } from "@/lib/imports/types";
 import { provider, type MediaType } from "@/lib/providers";
+import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
 type ActionResult<T = undefined> =
@@ -23,7 +24,7 @@ export type ImportSearchResult = {
 
 async function userId() {
   const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
+  const { data } = await getClaims(supabase);
   const id = data?.claims?.sub;
   return typeof id === "string" ? id : null;
 }

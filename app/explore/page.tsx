@@ -2,6 +2,7 @@ import Link from "next/link";
 import { AppHeader, navLinkClass } from "@/components/app-header";
 import { ExploreFeed } from "@/components/explore-feed";
 import { exploreFeed } from "@/lib/movies/explore";
+import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 import { VennMark } from "@/components/venn-mark";
 
@@ -11,7 +12,7 @@ import { VennMark } from "@/components/venn-mark";
 export default async function ExplorePage() {
   const supabase = await createClient();
 
-  const { data: claims } = await supabase.auth.getClaims();
+  const { data: claims } = await getClaims(supabase);
   const userId = claims?.claims?.sub;
   const { data: profile } =
     typeof userId === "string"

@@ -5,6 +5,7 @@ import {
 } from "@/lib/movies/cache";
 import { normalizeImportTitle } from "@/lib/imports/normalize";
 import { provider } from "@/lib/providers";
+import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -50,7 +51,7 @@ async function finishIfReady(
 export async function POST(_request: Request, { params }: RouteContext) {
   const { id: importId } = await params;
   const supabase = await createClient();
-  const { data: claims } = await supabase.auth.getClaims();
+  const { data: claims } = await getClaims(supabase);
   if (typeof claims?.claims?.sub !== "string") {
     return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   }

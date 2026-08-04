@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { setWatched, type Hype, type Rating } from "@/app/status/actions";
 import { cacheMovie } from "@/lib/movies/cache";
+import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
 type MovieVoteState = {
@@ -25,7 +26,7 @@ export async function addToList(
 ): Promise<AddToListResult> {
   const supabase = await createClient();
 
-  const { data: claims } = await supabase.auth.getClaims();
+  const { data: claims } = await getClaims(supabase);
   const userId = claims?.claims?.sub;
   if (typeof userId !== "string") {
     return { status: "error", message: "Not signed in." };
@@ -115,7 +116,7 @@ export async function removeFromList(
 
   let targetListId = listId;
   if (!targetListId) {
-    const { data: claims } = await supabase.auth.getClaims();
+    const { data: claims } = await getClaims(supabase);
     const userId = claims?.claims?.sub;
     if (typeof userId !== "string") return false;
 

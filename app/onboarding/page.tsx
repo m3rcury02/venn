@@ -5,11 +5,12 @@ import { OnboardingTaste } from "@/components/onboarding-taste";
 import { Screen } from "@/components/ui/screen";
 import { VennMark } from "@/components/venn-mark";
 import { provider } from "@/lib/providers";
+import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function OnboardingPage() {
   const supabase = await createClient();
-  const { data: claims } = await supabase.auth.getClaims();
+  const { data: claims } = await getClaims(supabase);
   const userId = claims?.claims?.sub;
   if (typeof userId !== "string") redirect("/login");
 

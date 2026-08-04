@@ -10,6 +10,7 @@ import {
 import { ShortcutSetup } from "@/components/shortcut-setup";
 import { buttonClass } from "@/components/ui/button";
 import { Screen } from "@/components/ui/screen";
+import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
 type SettingsPageProps = {
@@ -43,7 +44,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
     `S.browser_fallback_url=${encodeURIComponent(fallbackUrl)};end`;
   const tileSetup = (await searchParams).tileSetup;
 
-  const { data } = await supabase.auth.getClaims();
+  const { data } = await getClaims(supabase);
   if (!data?.claims) redirect("/login");
 
   const { data: profile } = await supabase

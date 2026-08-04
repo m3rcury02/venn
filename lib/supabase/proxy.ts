@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { getClaims } from "./claims";
 
 // /api/ingest is listed one path at a time, never as "/api": it authenticates
 // with a token rather than a cookie (SPEC §5), so without it here the redirect
@@ -72,8 +73,11 @@ export async function updateSession(request: NextRequest) {
   //
   // getClaims(), not getSession(): the session comes from cookies, which anyone
   // can spoof. getClaims() verifies the JWT signature against the project's
-  // published keys.
-  const { data } = await supabase.auth.getClaims();
+  // published keys. lib/supabase/claims.ts wraps this with a module-scope JWKS
+  // cache so that verification is local after the first call in a warm
+  // instance -- it still calls supabase.auth.getClaims() with no jwt argument
+  // underneath, so the getSession()-driven refresh above is unaffected.
+  const { data } = await getClaims(supabase);
 
   const isPublic = PUBLIC_PATHS.some((path) =>
     request.nextUrl.pathname.startsWith(path),
@@ -87,20 +91,42 @@ export async function updateSession(request: NextRequest) {
   }
 
   if (data?.claims && !isPublic) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("onboarded_at")
-      .eq("id", data.claims.sub)
-      .maybeSingle();
+    // Onboarding is one-way -- once a user has completed it they never become
+    // un-onboarded -- so a cookie set on the pass below lets every later
+    // request skip this profiles query entirely. auth/signout clears the
+    // cookie, so a different, non-onboarded account signing in on the same
+    // browser still gets the redirect.
+    const onboardedCookie = request.cookies.get("venn_onboarded")?.value === "1";
 
-    if (!profile?.onboarded_at && !isOnboarding) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/onboarding";
-      url.search = "";
-      return NextResponse.redirect(url);
-    }
+    if (!onboardedCookie) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("onboarded_at")
+        .eq("id", data.claims.sub)
+        .maybeSingle();
 
-    if (profile?.onboarded_at && isOnboarding) {
+      if (!profile?.onboarded_at && !isOnboarding) {
+        const url = request.nextUrl.clone();
+        url.pathname = "/onboarding";
+        url.search = "";
+        return NextResponse.redirect(url);
+      }
+
+      if (profile?.onboarded_at && isOnboarding) {
+        const url = request.nextUrl.clone();
+        url.pathname = "/";
+        url.search = "";
+        return NextResponse.redirect(url);
+      }
+
+      if (profile?.onboarded_at) {
+        supabaseResponse.cookies.set("venn_onboarded", "1", {
+          httpOnly: true,
+          sameSite: "lax",
+          path: "/",
+        });
+      }
+    } else if (isOnboarding) {
       const url = request.nextUrl.clone();
       url.pathname = "/";
       url.search = "";

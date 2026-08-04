@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
 export type Rating = "hate" | "like" | "love";
@@ -8,7 +9,7 @@ export type Hype = "dont_care" | "hyped" | "superhyped";
 
 async function getUserId() {
   const supabase = await createClient();
-  const { data: claims } = await supabase.auth.getClaims();
+  const { data: claims } = await getClaims(supabase);
   const userId = claims?.claims?.sub;
   return typeof userId === "string" ? userId : null;
 }

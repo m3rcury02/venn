@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -15,7 +16,7 @@ import { createClient } from "@/lib/supabase/server";
 export async function resolveInboxItem(id: string, movieId: string) {
   const supabase = await createClient();
 
-  const { data: claims } = await supabase.auth.getClaims();
+  const { data: claims } = await getClaims(supabase);
   const userId = claims?.claims?.sub;
   if (typeof userId !== "string") return;
 

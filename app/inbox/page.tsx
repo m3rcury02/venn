@@ -7,6 +7,7 @@ import { Screen } from "@/components/ui/screen";
 import { VennMark } from "@/components/venn-mark";
 import { extractCandidates } from "@/lib/ingest/extract";
 import { provider, type MediaType } from "@/lib/providers";
+import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
 // SPEC §7 screen 5. Everything here reads local rows: /api/ingest already
@@ -30,7 +31,7 @@ type MovieRow = {
 export default async function InboxPage() {
   const supabase = await createClient();
 
-  const { data } = await supabase.auth.getClaims();
+  const { data } = await getClaims(supabase);
   if (!data?.claims) redirect("/login");
 
   const { data: rawItems } = await supabase

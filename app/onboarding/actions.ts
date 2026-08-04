@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import type { Hype, Rating } from "@/app/status/actions";
 import { cacheMovie } from "@/lib/movies/cache";
 import { PROVIDER_NAME, provider } from "@/lib/providers";
+import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
 export type OnboardingProfileState = { error?: string };
@@ -32,7 +33,7 @@ export type OnboardingHypeResult = {
 
 async function authenticatedUserId() {
   const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
+  const { data } = await getClaims(supabase);
   const userId = data?.claims?.sub;
   return typeof userId === "string" ? userId : null;
 }

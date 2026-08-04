@@ -11,6 +11,7 @@ import { ImportUpload } from "@/components/import-upload";
 import { Panel } from "@/components/ui/panel";
 import { Screen } from "@/components/ui/screen";
 import { provider } from "@/lib/providers";
+import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
 type ImportJob = {
@@ -38,7 +39,7 @@ const statusLabel: Record<ImportJob["status"], string> = {
 
 export default async function ImportsPage() {
   const supabase = await createClient();
-  const { data: claims } = await supabase.auth.getClaims();
+  const { data: claims } = await getClaims(supabase);
   if (typeof claims?.claims?.sub !== "string") redirect("/login");
 
   const [{ data: jobData }, { data: rowData }] = await Promise.all([

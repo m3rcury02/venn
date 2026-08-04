@@ -4,6 +4,7 @@ import { AppHeader, navLinkClass } from "@/components/app-header";
 import { GroupActionsFab } from "@/components/group-actions-fab";
 import { Screen } from "@/components/ui/screen";
 import { VennMark } from "@/components/venn-mark";
+import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
 // No generated database.types.ts (see docs/DECISIONS.md phase 1a), so the
@@ -17,7 +18,7 @@ type MembershipRow = {
 export default async function GroupsPage() {
   const supabase = await createClient();
 
-  const { data } = await supabase.auth.getClaims();
+  const { data } = await getClaims(supabase);
   if (!data?.claims) redirect("/login");
 
   // Scoped to user_id: group_members_select_peers returns every member of every

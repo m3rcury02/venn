@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
 export type GroupFormState = { error?: string };
@@ -14,7 +15,7 @@ export async function createGroup(
   if (!name) return { error: "Give the group a name." };
 
   const supabase = await createClient();
-  const { data: claims } = await supabase.auth.getClaims();
+  const { data: claims } = await getClaims(supabase);
   const userId = claims?.claims?.sub;
   if (typeof userId !== "string") return { error: "Not signed in." };
 
@@ -66,7 +67,7 @@ export async function leaveGroup(
   if (!id) return { error: "Missing group." };
 
   const supabase = await createClient();
-  const { data: claims } = await supabase.auth.getClaims();
+  const { data: claims } = await getClaims(supabase);
   const userId = claims?.claims?.sub;
   if (typeof userId !== "string") return { error: "Not signed in." };
 

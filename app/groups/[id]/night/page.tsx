@@ -19,6 +19,7 @@ import { VennMark } from "@/components/venn-mark";
 import { explain, releaseLabel, type Recommendation } from "@/lib/recommend/explain";
 import { theatreCandidates, type TheatreCandidate } from "@/lib/movies/theatre";
 import { provider } from "@/lib/providers";
+import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
 // SPEC §7 screen 6. Home mode is phase 4; theatre mode is phase 9 (this file).
@@ -55,7 +56,7 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
   const { id } = await params;
   const supabase = await createClient();
 
-  const { data: claims } = await supabase.auth.getClaims();
+  const { data: claims } = await getClaims(supabase);
   const userId = claims?.claims?.sub;
   if (typeof userId !== "string") redirect("/login");
 

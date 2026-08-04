@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { hashToken, mintToken } from "@/lib/ingest/tokens";
+import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -28,7 +29,7 @@ export async function setDisplayName(
   if (!displayName) return { error: "Enter a name." };
 
   const supabase = await createClient();
-  const { data: claims } = await supabase.auth.getClaims();
+  const { data: claims } = await getClaims(supabase);
   const userId = claims?.claims?.sub;
   if (typeof userId !== "string") return { error: "Not signed in." };
 
@@ -54,7 +55,7 @@ export async function createIngestToken(
   if (!label) return { error: "Name the device this token is for." };
 
   const supabase = await createClient();
-  const { data: claims } = await supabase.auth.getClaims();
+  const { data: claims } = await getClaims(supabase);
   const userId = claims?.claims?.sub;
   if (typeof userId !== "string") return { error: "Not signed in." };
 

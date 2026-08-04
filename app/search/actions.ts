@@ -2,6 +2,7 @@
 
 import type { Hype, Rating } from "@/app/status/actions";
 import { PROVIDER_NAME, provider, type MovieSummary } from "@/lib/providers";
+import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
 export type SearchResult = MovieSummary & {
@@ -23,34 +24,40 @@ export async function searchMovies(query: string, listId?: string): Promise<Sear
   const supabase = await createClient();
   const [{ data: profile }, { data: claims }] = await Promise.all([
     supabase.from("profiles").select("region").single(),
-    supabase.auth.getClaims(),
+    getClaims(supabase),
   ]);
 
   const userId = claims?.claims?.sub;
 
   // Resolve the target list up front, in both branches: a passed listId needs
   // to be checked for group ownership, and an absent one still resolves to the
-  // caller's personal default.
-  let targetListId = listId;
-  let isGroupList = false;
-  if (targetListId) {
-    const { data: list } = await supabase
-      .from("lists")
-      .select("owner_group_id")
-      .eq("id", targetListId)
-      .maybeSingle();
-    isGroupList = list?.owner_group_id != null;
-  } else if (typeof userId === "string") {
-    const { data: list } = await supabase
-      .from("lists")
-      .select("id")
-      .eq("owner_user_id", userId)
-      .eq("is_default", true)
-      .single();
-    targetListId = list?.id;
-  }
+  // caller's personal default. Independent of the TMDB search below, so the
+  // two run together rather than serially.
+  const targetListPromise = (async () => {
+    if (listId) {
+      const { data: list } = await supabase
+        .from("lists")
+        .select("owner_group_id")
+        .eq("id", listId)
+        .maybeSingle();
+      return { targetListId: listId as string | undefined, isGroupList: list?.owner_group_id != null };
+    }
+    if (typeof userId === "string") {
+      const { data: list } = await supabase
+        .from("lists")
+        .select("id")
+        .eq("owner_user_id", userId)
+        .eq("is_default", true)
+        .single();
+      return { targetListId: list?.id as string | undefined, isGroupList: false };
+    }
+    return { targetListId: undefined as string | undefined, isGroupList: false };
+  })();
 
-  const allResults = await provider.search(trimmed, profile?.region ?? "IN");
+  const [{ targetListId, isGroupList }, allResults] = await Promise.all([
+    targetListPromise,
+    provider.search(trimmed, profile?.region ?? "IN"),
+  ]);
   // Group lists are movies-only (SPEC §3, enforced in list_items' RLS): a TV
   // result has nowhere to go from a group search, so it is dropped here rather
   // than rendering with a dead "Add" button.

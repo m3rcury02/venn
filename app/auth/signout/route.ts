@@ -8,5 +8,10 @@ export async function POST(request: NextRequest) {
   const url = request.nextUrl.clone();
   url.pathname = "/login";
   url.search = "";
-  return NextResponse.redirect(url, { status: 303 });
+  const response = NextResponse.redirect(url, { status: 303 });
+  // Otherwise a different, non-onboarded account signing in on this browser
+  // would skip proxy.ts's onboarding redirect entirely -- see the comment
+  // there on venn_onboarded.
+  response.cookies.delete("venn_onboarded");
+  return response;
 }
