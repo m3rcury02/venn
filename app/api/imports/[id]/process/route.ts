@@ -97,6 +97,7 @@ export async function POST(_request: Request, { params }: RouteContext) {
       const { data: profile } = await supabase
         .from("profiles")
         .select("region")
+        .eq("id", claims.claims.sub)
         .single();
       const results = (await provider.search(row.title, profile?.region ?? "IN")).filter(
         (movie) =>

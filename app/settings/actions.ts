@@ -99,3 +99,43 @@ export async function revokeIngestToken(
   revalidatePath("/settings");
   return {};
 }
+
+export type ListVisibility = "public" | "followers" | "private";
+
+export async function setListVisibility(
+  visibility: ListVisibility,
+): Promise<ProfileFormState> {
+  if (
+    visibility !== "public" &&
+    visibility !== "followers" &&
+    visibility !== "private"
+  ) {
+    return { error: "Invalid visibility choice." };
+  }
+
+  const supabase = await createClient();
+  const { data: claims } = await getClaims(supabase);
+  const userId = claims?.claims?.sub;
+  if (typeof userId !== "string") return { error: "Not signed in." };
+
+  const [profileRes, listRes] = await Promise.all([
+    supabase
+      .from("profiles")
+      .update({ default_list_visibility: visibility })
+      .eq("id", userId),
+    supabase
+      .from("lists")
+      .update({ visibility })
+      .eq("owner_user_id", userId)
+      .eq("is_default", true),
+  ]);
+
+  if (profileRes.error || listRes.error) {
+    return { error: "Couldn't update visibility setting." };
+  }
+
+  revalidatePath("/settings");
+  revalidatePath("/u/[username]", "page");
+  revalidatePath("/discover");
+  return {};
+}

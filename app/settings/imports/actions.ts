@@ -201,6 +201,7 @@ export async function searchImportMovies(
   if (trimmed.length < 2) return [];
 
   const supabase = await createClient();
+  const uid = await userId();
   const [{ data: row }, { data: profile }] = await Promise.all([
     supabase
       .from("import_rows")
@@ -208,7 +209,9 @@ export async function searchImportMovies(
       .eq("id", rowId)
       .eq("status", "unmatched")
       .single(),
-    supabase.from("profiles").select("region").single(),
+    typeof uid === "string"
+      ? supabase.from("profiles").select("region").eq("id", uid).single()
+      : Promise.resolve({ data: null }),
   ]);
   if (!row) return [];
 

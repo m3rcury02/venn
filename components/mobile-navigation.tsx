@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { isIos, isStandalone, useDeferredInstallPrompt } from "@/lib/pwa-install";
 import { VennMark } from "@/components/venn-mark";
 
-const APP_PATHS = ["/explore", "/search", "/groups", "/inbox", "/settings", "/movies"];
+const APP_PATHS = ["/explore", "/search", "/groups", "/inbox", "/settings", "/movies", "/discover", "/u"];
 
 function isAppPath(pathname: string) {
   return pathname === "/" || APP_PATHS.some((path) => pathname.startsWith(path));
@@ -267,6 +267,14 @@ export function MobileNavigation() {
           </div>
 
           <nav aria-label="More navigation" className="mt-8 flex flex-col">
+            <Link
+              href="/discover"
+              aria-current={pathname.startsWith("/discover") ? "page" : undefined}
+              onClick={closeMore}
+              className="flex min-h-14 items-center border-b border-hairline px-1 text-fg-dim transition-colors hover:text-fg"
+            >
+              <span className="t-label">Discover</span>
+            </Link>
             <Link
               href="/inbox"
               aria-current={pathname.startsWith("/inbox") ? "page" : undefined}

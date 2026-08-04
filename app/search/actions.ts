@@ -22,12 +22,11 @@ export async function searchMovies(query: string, listId?: string): Promise<Sear
   if (trimmed.length < MIN_QUERY_LENGTH) return [];
 
   const supabase = await createClient();
-  const [{ data: profile }, { data: claims }] = await Promise.all([
-    supabase.from("profiles").select("region").single(),
-    getClaims(supabase),
-  ]);
-
+  const { data: claims } = await getClaims(supabase);
   const userId = claims?.claims?.sub;
+  const { data: profile } = typeof userId === "string"
+    ? await supabase.from("profiles").select("region").eq("id", userId).single()
+    : { data: null };
 
   // Resolve the target list up front, in both branches: a passed listId needs
   // to be checked for group ownership, and an absent one still resolves to the

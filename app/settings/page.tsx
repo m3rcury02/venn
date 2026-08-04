@@ -2,14 +2,18 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppHeader, navLinkClass } from "@/components/app-header";
+import { BlockButton } from "@/components/block-button";
 import { DisplayNameForm } from "@/components/display-name-form";
 import {
   IngestTokenPanel,
   type TokenRow,
 } from "@/components/ingest-token-panel";
 import { ShortcutSetup } from "@/components/shortcut-setup";
+import { VisibilityForm } from "@/components/visibility-form";
 import { buttonClass } from "@/components/ui/button";
+import { Panel } from "@/components/ui/panel";
 import { Screen } from "@/components/ui/screen";
+import type { ListVisibility } from "@/app/settings/actions";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
@@ -17,18 +21,17 @@ type SettingsPageProps = {
   searchParams: Promise<{ tileSetup?: string }>;
 };
 
-// SPEC §7 screen 11. §5 says the ingest token is pasted "once, from
-// Settings", so phase 5 owes the screen a home; phase 6 adds the iOS
-// Shortcut steps and an Android install note, both of which need the token
-// or the endpoint already living here. The display-name edit moved here from
-// /groups since it's profile-shaped, matching the "groups" line in screen
-// 11's scope. Visibility toggles, the notification matrix, blocks, export and
-// delete all belong to later phases and are not stubbed here.
+type BlockRow = {
+  blocked_id: string;
+  profiles: {
+    username: string | null;
+    display_name: string | null;
+  } | null;
+};
+
 export default async function SettingsPage({ searchParams }: SettingsPageProps) {
   const supabase = await createClient();
 
-  // Derived from the request rather than a new env var: correct on localhost
-  // and on Vercel with no config to keep in sync between them.
   const requestHeaders = await headers();
   const host = requestHeaders.get("host") ?? "localhost:3000";
   const protocol = host.startsWith("localhost") ? "http" : "https";
@@ -47,19 +50,31 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const { data } = await getClaims(supabase);
   if (!data?.claims) redirect("/login");
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("display_name")
-    .eq("id", data.claims.sub)
-    .single();
+  const [{ data: profile }, { data: defaultList }, { data: tokens }, { data: rawBlocks }] =
+    await Promise.all([
+      supabase
+        .from("profiles")
+        .select("display_name")
+        .eq("id", data.claims.sub)
+        .single(),
+      supabase
+        .from("lists")
+        .select("visibility")
+        .eq("owner_user_id", data.claims.sub)
+        .eq("is_default", true)
+        .maybeSingle(),
+      supabase
+        .from("ingest_tokens")
+        .select("id, label, created_at, last_used_at, revoked_at")
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("blocks")
+        .select("blocked_id, profiles!blocks_blocked_id_fkey(username, display_name)")
+        .order("created_at", { ascending: false }),
+    ]);
 
-  // token_hash is absent from this select because it is absent from the grant:
-  // authenticated holds SELECT on the other columns only. Asking for it here
-  // would fail rather than leak.
-  const { data: tokens } = await supabase
-    .from("ingest_tokens")
-    .select("id, label, created_at, last_used_at, revoked_at")
-    .order("created_at", { ascending: false });
+  const currentVisibility = (defaultList?.visibility as ListVisibility) ?? "public";
+  const blocks = (rawBlocks ?? []) as unknown as BlockRow[];
 
   return (
     <Screen width="narrow">
@@ -70,8 +85,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             <Link href="/" className={navLinkClass}>
               My list
             </Link>
-            <Link href="/inbox" className={navLinkClass}>
-              Inbox
+            <Link href="/discover" className={navLinkClass}>
+              Discover
             </Link>
           </>
         }
@@ -81,6 +96,56 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
       <section>
         <DisplayNameForm current={profile?.display_name ?? null} />
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
+          <h2 className="t-label text-fg-faint">Who can see your list</h2>
+          <p className="t-body max-w-md text-[15px] text-fg-dim">
+            Control who can view your default movie list and discover your profile.
+          </p>
+        </div>
+
+        <VisibilityForm current={currentVisibility} />
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
+          <h2 className="t-label text-fg-faint">Blocked users</h2>
+          <p className="t-body max-w-md text-[15px] text-fg-dim">
+            Blocked users cannot see your profile or lists, and you cannot see theirs.
+          </p>
+        </div>
+
+        {blocks.length === 0 ? (
+          <p className="t-body text-[15px] text-fg-dim">No blocked users.</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {blocks.map((b) => {
+              const username = b.profiles?.username;
+              const displayName = b.profiles?.display_name || username || "User";
+
+              return (
+                <Panel key={b.blocked_id} className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="font-display text-[16px] font-medium text-fg">
+                      {displayName}
+                    </span>
+                    {username ? (
+                      <span className="t-body text-[14px] text-fg-dim">
+                        @{username}
+                      </span>
+                    ) : null}
+                  </div>
+                  <BlockButton
+                    targetUserId={b.blocked_id}
+                    isBlockedInitial={true}
+                  />
+                </Panel>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       <section className="flex flex-col items-start gap-4">

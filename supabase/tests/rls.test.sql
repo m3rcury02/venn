@@ -19,7 +19,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(119);
+select plan(148);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -32,7 +32,20 @@ insert into auth.users (id, email, raw_app_meta_data, raw_user_meta_data) values
   ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'c@test.dev',
    '{"provider":"google","providers":["google"]}'::jsonb,
    '{"full_name":"Caroline Example","name":"Caroline Example"}'::jsonb),
-  ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'd@test.dev', '{}'::jsonb, '{}'::jsonb);
+  ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'd@test.dev', '{}'::jsonb, '{}'::jsonb),
+  ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'e@test.dev', '{}'::jsonb, '{}'::jsonb),
+  ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'f@test.dev', '{}'::jsonb, '{}'::jsonb),
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'g@test.dev', '{}'::jsonb, '{}'::jsonb);
+
+-- Phase 10 social fixtures: E follows F, F blocks G
+insert into follows (follower_id, followee_id) values
+  ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'ffffffff-ffff-ffff-ffff-ffffffffffff');
+
+insert into blocks (blocker_id, blocked_id) values
+  ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+
+update lists set visibility = 'followers'
+where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff' and is_default;
 
 select is(
   (select display_name from profiles
@@ -54,6 +67,11 @@ insert into movies (id, title, year) values
   ('33333333-3333-3333-3333-333333333333', 'Test Movie', 2020),
   ('55555555-5555-5555-5555-555555555555', 'Second Movie', 2021),
   ('66666666-6666-6666-6666-666666666666', 'Third Movie', 2022);
+
+-- Add a movie item to F's default list
+insert into list_items (list_id, movie_id, added_by)
+select id, '33333333-3333-3333-3333-333333333333', 'ffffffff-ffff-ffff-ffff-ffffffffffff'
+from lists where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff' and is_default;
 
 -- A TV title, deliberately given no movie_tags row: it exists only to exercise
 -- list_items_insert_via_list's media_type clause below, and a tag row here
@@ -153,9 +171,15 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
 
 select is(
-  (select count(*)::int from profiles),
+  (select count(*)::int from profiles where id = '11111111-1111-1111-1111-111111111111'),
   1,
-  'control: A sees exactly its own profile row'
+  'control: A sees its own profile row'
+);
+
+select is(
+  (select count(*)::int from profiles),
+  7,
+  'control: A sees all non-blocked profiles'
 );
 
 select is(
@@ -254,8 +278,8 @@ select is(
 select is(
   (select count(*)::int from profiles
    where id = '22222222-2222-2222-2222-222222222222'),
-  0,
-  'A cannot read B''s profile'
+  1,
+  'A can read B''s profile (profiles widened)'
 );
 
 -- No error: RLS filters the row out, so the UPDATE simply matches nothing.
@@ -515,8 +539,8 @@ select throws_ok(
 select is(
   (select count(*)::int from profiles
    where id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
-  0,
-  'A cannot read the profile of a group member it shares no group with'
+  1,
+  'A can read C''s profile (profiles widened)'
 );
 
 -- recommend_movies is SECURITY DEFINER and reads every present member's
@@ -1193,6 +1217,225 @@ select is(
 
 -- ------------------------------------------------------------ anon access
 
+-- ----------------------------------------------------------- Phase 10 Social tests
+
+-- Positives & Controls: E as itself
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee","role":"authenticated"}';
+
+select is(
+  (select count(*)::int from profiles where id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'),
+  1,
+  'E reads F''s profile'
+);
+
+select is(
+  (select count(*)::int from lists where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'),
+  1,
+  'E reads F''s followers-visibility list'
+);
+
+select is(
+  (select count(*)::int from list_items li join lists l on l.id = li.list_id where l.owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'),
+  1,
+  'E reads items from F''s followers-visibility list'
+);
+
+select is(
+  (select count(*)::int from follows where follower_id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'),
+  1,
+  'E reads its own follows row'
+);
+
+-- F as itself
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"ffffffff-ffff-ffff-ffff-ffffffffffff","role":"authenticated"}';
+
+select is(
+  (select count(*)::int from blocks where blocker_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'),
+  1,
+  'F reads its own blocks row'
+);
+
+select is(
+  (select count(*)::int from list_hidden_from h join lists l on l.id = h.list_id where l.owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'),
+  0,
+  'F reads its own list_hidden_from rows'
+);
+
+-- A as itself (does not follow F)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+select is(
+  (select count(*)::int from lists where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'),
+  0,
+  'A cannot read F''s list while it is followers'
+);
+
+select is(
+  (select count(*)::int from list_items li join lists l on l.id = li.list_id where l.owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'),
+  0,
+  'A cannot read items from F''s followers list'
+);
+
+-- Switch F's list to public as postgres
+reset role;
+update lists set visibility = 'public' where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff' and is_default;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+select is(
+  (select count(*)::int from lists where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'),
+  1,
+  'A reads F''s list once F sets it public'
+);
+
+select is(
+  (select count(*)::int from list_items li join lists l on l.id = li.list_id where l.owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'),
+  1,
+  'A reads items from F''s public list'
+);
+
+-- Switch F's list to private as postgres
+reset role;
+update lists set visibility = 'private' where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff' and is_default;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee","role":"authenticated"}';
+
+select is(
+  (select count(*)::int from lists where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'),
+  0,
+  'Nobody but owner reads a private list (E gets 0)'
+);
+
+-- Restore F's list to public for remaining tests
+reset role;
+update lists set visibility = 'public' where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff' and is_default;
+
+-- E cannot write to F's list despite reading it
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee","role":"authenticated"}';
+
+select throws_ok(
+  $$insert into list_items (list_id, movie_id, added_by)
+    select id, '55555555-5555-5555-5555-555555555555', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'
+    from lists where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff' and is_default$$,
+  '42501',
+  null,
+  'E, who can read F''s list, cannot insert into it'
+);
+
+select is(
+  (select count(*)::int from list_items li join lists l on l.id = li.list_id
+   where l.owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff' and li.movie_id = '55555555-5555-5555-5555-555555555555'),
+  0,
+  'E insert on F''s list failed'
+);
+
+-- G as itself (G is blocked by F)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+
+select is(
+  (select count(*)::int from profiles where id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'),
+  0,
+  'G cannot read F''s profile (blocked)'
+);
+
+-- F as itself (reverse direction of block)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"ffffffff-ffff-ffff-ffff-ffffffffffff","role":"authenticated"}';
+
+select is(
+  (select count(*)::int from profiles where id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+  0,
+  'F cannot read G''s profile (symmetric block)'
+);
+
+-- G cannot read F's public list (block beats visibility)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+
+select is(
+  (select count(*)::int from lists where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'),
+  0,
+  'G cannot read F''s public list (block beats visibility)'
+);
+
+select is(
+  (select count(*)::int from blocks where blocker_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'),
+  0,
+  'G cannot read the block row F created against them'
+);
+
+select is(
+  (select count(*)::int from follows where follower_id = '11111111-1111-1111-1111-111111111111'),
+  0,
+  'A cannot read E->F follow edge'
+);
+
+select throws_ok(
+  $$insert into follows (follower_id, followee_id) values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'ffffffff-ffff-ffff-ffff-ffffffffffff')$$,
+  '42501',
+  null,
+  'G cannot follow F (is_blocked_with check)'
+);
+
+select throws_ok(
+  $$insert into follows (follower_id, followee_id) values ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'ffffffff-ffff-ffff-ffff-ffffffffffff')$$,
+  '42501',
+  null,
+  'A cannot insert a follow edge on behalf of E'
+);
+
+select throws_ok(
+  $$insert into blocks (blocker_id, blocked_id) values ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222')$$,
+  '42501',
+  null,
+  'Direct insert into blocks as authenticated fails'
+);
+
+select throws_ok(
+  $$insert into list_hidden_from (list_id, user_id)
+    select id, 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee' from lists where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff' and is_default$$,
+  '42501',
+  null,
+  'Direct insert into list_hidden_from as authenticated fails'
+);
+
+-- Test list_hidden_from filtering: insert row as postgres
+reset role;
+insert into list_hidden_from (list_id, user_id)
+select id, 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'
+from lists where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff' and is_default;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee","role":"authenticated"}';
+
+select is(
+  (select count(*)::int from lists where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'),
+  0,
+  'With a list_hidden_from row for E on F''s public list, E gets 0 rows'
+);
+
+-- Test block_user procedure tearing down follow edges (last test mutating state)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee","role":"authenticated"}';
+
+select lives_ok(
+  $$select block_user('ffffffff-ffff-ffff-ffff-ffffffffffff')$$,
+  'E blocks F using block_user()'
+);
+
+select is(
+  (select count(*)::int from follows where follower_id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee' and followee_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'),
+  0,
+  'E->F follow edge is torn down after block_user()'
+);
+
 -- anon holds no grant on these tables, so it is stopped one layer earlier than
 -- RLS: the read is refused outright rather than returning an empty set.
 
@@ -1257,6 +1500,27 @@ select throws_ok(
   '42501',
   null,
   'anon cannot read import rows'
+);
+
+select throws_ok(
+  $$select count(*) from follows$$,
+  '42501',
+  null,
+  'anon cannot read follows'
+);
+
+select throws_ok(
+  $$select count(*) from blocks$$,
+  '42501',
+  null,
+  'anon cannot read blocks'
+);
+
+select throws_ok(
+  $$select count(*) from list_hidden_from$$,
+  '42501',
+  null,
+  'anon cannot read list hidden-from rows'
 );
 
 reset role;

@@ -1,6 +1,6 @@
 # Decisions
 
-**Current phase: 9**
+**Current phase: 10**
 
 Append after every phase: what changed, and why.
 
@@ -4011,3 +4011,52 @@ pass confirmed the mobile feed-height fix below (`docOverflow` — document vs.
 viewport height — was exactly 0 at every width tested) and that `size="lg"`'s
 11px "Very hyped" doesn't wrap at 360px, 388px, or 768px, the widths this
 document's "VoteControl label size" entry already names as failure-prone.
+
+---
+
+## Phase 10 — public profiles, follows, visibility toggles, blocks
+
+Migration: `supabase/migrations/20260804120000_phase10_social.sql`.
+
+### Overview & Architecture
+
+Phase 10 widens database read policies from "me or my group peers" to SPEC §3's full read predicate:
+- `can_read_list(lid)` functions as the single statement of SPEC §3's list read predicate.
+- Public profiles: signed-in users can view any profile, minus blocks.
+- List visibility: `public`, `followers`, `private`.
+- Symmetric blocks: blocking hides profiles, lists, and follow relationships in both directions and overrides shared group membership.
+
+### Key Decisions & Rationale
+
+- **`can_read_list()` and `is_blocked_with()` are SECURITY DEFINER**:
+  1. `can_read_list` queries `lists` while being called from `lists`' own SELECT policy. Definer mode runs as postgres, bypassing RLS on `lists` so the inner query does not re-enter the policy.
+  2. `is_blocked_with` checks blocks in both directions. Since `blocks_select_own` only permits reading blocks created by the caller, a policy subquery would miss blocks created *against* the caller. Definer mode enables symmetric block checks without exposing who blocked the caller.
+  3. Because cross-table lookups happen inside definer functions, widened policies contain no cross-table subqueries of their own.
+
+- **Write policies did NOT widen**:
+  `list_items` insert, update, and delete policies remain strictly scoped to list owners and group members. Following someone or being able to view their public list grants zero write permissions.
+
+- **Profile columns exposed to signed-in non-blocked users**:
+  `profiles` SELECT policy allows reading any non-blocked profile. Columns like `region` and `default_list_visibility` are preferences, not secrets; exposing them directly avoids high RPC overhead for every profile or directory query.
+
+- **Blocks beat group membership**:
+  If User A blocks User B, neither can view the other's profile or list. On group pages, "added by" for a blocked user gracefully falls back to `"Member"`.
+
+- **`list_hidden_from` ships without UI**:
+  `list_hidden_from` table and RLS predicate land in this phase per SPEC §3. Since users currently have a single default list and blocks provide per-user hiding, per-list user exclusion UI is omitted.
+
+- **Single visibility control in Settings**:
+  The Settings visibility form updates both `profiles.default_list_visibility` and default `lists.visibility` together.
+
+- **Unscoped `profiles ... .single()` fallout fixed**:
+  Three queries in `app/search/actions.ts`, `app/settings/imports/actions.ts`, and `app/api/imports/[id]/process/route.ts` were missing `.eq("id", userId)`. Widening profiles would cause `.single()` to fail silently (falling back to `"IN"`). Scoping them with `userId` resolved this issue.
+
+- **Discover omits groups until Phase 12**:
+  `groups.visibility` does not exist yet (deferred to Phase 12 joinable groups). Discover displays user search and public lists.
+
+- **`searchMovies(listId)` note**:
+  `app/search/actions.ts` resolves passed `listId` via `.eq("id", listId).maybeSingle()`, which can resolve a followed user's list. Any item insertion still fails due to un-widened write policies.
+
+- **Security Advisor WARNs**:
+  Two expected Supabase security advisor warnings exist for `can_read_list` and `is_blocked_with` SECURITY DEFINER functions with empty `search_path`, identical to Phase 3's `is_group_member`.
+
