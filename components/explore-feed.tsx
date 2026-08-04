@@ -53,17 +53,22 @@ export function ExploreFeed({ initialCards }: { initialCards: ExploreCard[] }) {
   }, [activeIndex, cards, page, isPending]);
 
   return (
-    // 4rem must stay in sync with the tab bar spacer h-16 at
-    // components/mobile-navigation.tsx:182. The --mobile-nav-offset variable
-    // looks right but is scoped to [data-mobile-nav] ~ [data-install-prompt]
-    // in app/globals.css:232-235 and does not reach here. On sm+ there is no
-    // tab bar, but the AppHeader (components/app-header.tsx) sits above the
-    // feed in normal flow at a rendered 52.7px, so the sm class subtracts
-    // 3.3rem -- without it the feed is 52.7px taller than the viewport and
-    // the bottom of every card clips.
+    // Two things sit above the feed on every breakpoint, not one: the
+    // AppHeader (components/app-header.tsx) renders at all widths -- it has
+    // no `sm:` visibility guard -- and app/explore/page.tsx wraps it in a
+    // padded band (pt-5 pb-3 sm:pt-6, px unrelated to height). That band
+    // measures 5.3rem on mobile and 5.55rem on sm+ (3.3rem intrinsic header
+    // + the band's own padding). The tab bar spacer, h-16 at
+    // components/mobile-navigation.tsx:192, only exists below sm (it renders
+    // `sm:hidden`), which is why it only appears in the mobile term below.
+    // The --mobile-nav-offset variable looks like it would help here but is
+    // scoped to [data-mobile-nav] ~ [data-install-prompt] in
+    // app/globals.css:232-235 and does not reach this element. Omitting
+    // either term for its breakpoint parks that much of every card behind
+    // the header or the tab bar.
     <div
       ref={containerRef}
-      className="h-[calc(100dvh-4rem)] snap-y snap-mandatory overflow-y-scroll sm:h-[calc(100dvh_-_3.3rem)]"
+      className="h-[calc(100dvh_-_9.3rem)] snap-y snap-mandatory overflow-y-scroll sm:h-[calc(100dvh_-_5.55rem)]"
     >
       {cards.map((card, index) => (
         <ExploreCardView

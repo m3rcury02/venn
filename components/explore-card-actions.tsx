@@ -25,8 +25,12 @@ type MovieState = {
 };
 type PendingAction = "add" | "watched" | null;
 
+// Votes are the card's primary action (VoteControl below, at size="lg") --
+// these are the secondary path, so they read as plain text rather than
+// filled pills. `Added`/`Watched` still carry their state, just with color
+// instead of a fill.
 const actionClass =
-  "t-label flex min-h-11 min-w-0 flex-1 items-center justify-center rounded-ctl border px-1.5 text-center text-[10px] leading-[1.15] tracking-[0.02em] transition-colors disabled:pointer-events-none";
+  "t-label flex min-h-11 min-w-0 items-center justify-center rounded-ctl px-1.5 text-center text-[10px] leading-[1.15] tracking-[0.02em] transition-colors disabled:pointer-events-none";
 
 export function ExploreCardActions({
   externalId,
@@ -100,17 +104,26 @@ export function ExploreCardActions({
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-3">
+      <VoteControl
+        movieId={movie.movieId}
+        watched={movie.watched}
+        rating={movie.rating}
+        hype={movie.hype}
+        onChange={handleVote}
+        size="lg"
+      />
+
       <div className="flex items-stretch gap-1">
         <button
           type="button"
           onClick={() => toggle("add")}
           disabled={isPending}
           aria-pressed={movie.isInList}
-          className={`${actionClass} ${
+          className={`${actionClass} flex-1 ${
             movie.isInList
-              ? "border-marquee bg-marquee text-on-beam"
-              : "border-hairline bg-surface-2 text-fg hover:border-marquee"
+              ? "text-marquee hover:text-marquee"
+              : "text-fg-dim hover:text-fg"
           }`}
         >
           {pendingAction === "add" ? (
@@ -126,10 +139,8 @@ export function ExploreCardActions({
           onClick={() => toggle("watched")}
           disabled={isPending}
           aria-pressed={movie.watched}
-          className={`${actionClass} ${
-            movie.watched
-              ? "border-fg bg-fg text-ink"
-              : "border-hairline bg-surface-2 text-fg hover:border-fg-dim"
+          className={`${actionClass} flex-1 ${
+            movie.watched ? "text-fg hover:text-fg" : "text-fg-dim hover:text-fg"
           }`}
         >
           {pendingAction === "watched" ? (
@@ -147,14 +158,6 @@ export function ExploreCardActions({
           {message}
         </p>
       ) : null}
-
-      <VoteControl
-        movieId={movie.movieId}
-        watched={movie.watched}
-        rating={movie.rating}
-        hype={movie.hype}
-        onChange={handleVote}
-      />
     </div>
   );
 }

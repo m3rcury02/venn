@@ -81,16 +81,32 @@ export function ExploreCardView({
 
       {/* The screen and its placard share one column. On wide viewports
           aspect-video's width-driven height alone can exceed the card, so the
-          column is capped: it may use all but 28rem of the viewport height
-          (3.3rem for the AppHeader above the feed, 24.7rem that the placard
-          always needs -- transport, title, meta, both action rows). max()
-          floors the cap so a very short window cannot crush the column past a
-          reading width. Below the cap the column is full width and phones are
-          unchanged. */}
-      <div className="relative mx-auto flex w-full max-w-[max(calc((100dvh_-_28rem)_*_16_/_9),24rem)] flex-col justify-center px-3 sm:px-6">
+          column is capped: it may use all but 29.3rem of the viewport height
+          (3.3rem for the AppHeader above the feed, 26rem that the placard
+          always needs). max() floors the cap so a very short window cannot
+          crush the column past a reading width. Below the cap the column is
+          full width and phones are unchanged.
+
+          26rem is 24.7rem (the pre-redesign measured figure, "Fix Explore
+          desktop layout" commit) plus the net of every change made since:
+          -3.5rem for the mute button, which no longer has its own row (it
+          moved onto the title line below); +3.28rem to budget the 2nd title
+          line the title's own max-height below now permits (a 2-line title
+          used to just overflow uncapped and get clipped by this section --
+          the same failure this constant exists to prevent); -0.5rem / +0.5rem
+          from the meta and action-block margins moving to mt-2/mt-6;
+          +0.25rem from ExploreCardActions' gap-2 -> gap-3; +1.28rem from
+          VoteControl's `size="lg"` (`min-h-12` vs the old unsized sm row).
+          Re-derived by arithmetic, then spot-checked against a real render
+          (headless Chrome, both title lengths, 360-1440px wide, down to
+          640px tall): no clipping anywhere, with room to spare -- so 26rem is
+          a safe upper bound, not a tight one. Re-measure at 1440px after any
+          further change to this column's content. */}
+      <div className="relative mx-auto flex w-full max-w-[max(calc((100dvh_-_29.3rem)_*_16_/_9),24rem)] flex-col justify-center px-3 sm:px-6">
         <div className="relative aspect-video w-full overflow-hidden rounded-card border border-hairline bg-ink">
           <TrailerFrame
             trailerKey={card.trailerKey}
+            backdropUrl={card.backdropUrl}
             posterUrl={card.posterUrl}
             title={card.title}
             active={active}
@@ -98,14 +114,31 @@ export function ExploreCardView({
           />
         </div>
 
-        {card.trailerKey ? (
-          <div className="mt-3 flex justify-end">
+        {/* Mute lives on the title line now, not its own row -- it is a
+            transport control, not a vote, so it never competes with the vote
+            row below for the placard's primary weight. */}
+        <div className="mt-4 flex items-start justify-between gap-3">
+          {/* max-height + overflow-hidden, not `line-clamp-2`: `.t-display`'s
+              intentional 0.82 line-height (poster lettering, see
+              globals.css) is tighter than Anton's glyph metrics, and
+              -webkit-line-clamp's own box-height accounting doesn't fully
+              hide a 3rd line under that combination -- verified as a real
+              render, not just a description: a few pixels of the clipped
+              line's ascenders showed through under line 2. max-height on a
+              plain block avoids it. No ellipsis as a result, which matches
+              this app's own precedent for a hard-clipped display title:
+              night-pick-hero.tsx's "the section clips it," no ellipsis
+              there either. 1.64 is 2 lines' worth (2 * 0.82). */}
+          <h2 className="t-display max-h-[calc(clamp(32px,9vw,64px)_*_1.64)] overflow-hidden text-[clamp(32px,9vw,64px)] text-fg">
+            {card.title}
+          </h2>
+          {card.trailerKey ? (
             <button
               type="button"
               onClick={onToggleMute}
               aria-pressed={!muted}
               aria-label={muted ? "Unmute trailer" : "Mute trailer"}
-              className="flex h-11 w-11 items-center justify-center rounded-ctl border border-hairline bg-surface-2 text-fg-dim transition-colors hover:text-fg"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-ctl border border-hairline bg-surface-2 text-fg-dim transition-colors hover:text-fg"
             >
               <svg
                 aria-hidden
@@ -124,18 +157,14 @@ export function ExploreCardView({
                 )}
               </svg>
             </button>
-          </div>
-        ) : null}
-
-        <h2 className="t-display mt-4 text-[clamp(32px,9vw,64px)] text-fg">
-          {card.title}
-        </h2>
+          ) : null}
+        </div>
         {/* White, not `--fg-dim`: night-pick-hero.tsx:86-90 documents why -- the
             dim tone measures 4.36:1 over real backdrop art and fails AA, and
             poster art is arbitrary so no scrim can be trusted to hold it. */}
-        {meta ? <p className="t-label mt-4 text-fg">{meta}</p> : null}
+        {meta ? <p className="t-label mt-2 text-fg">{meta}</p> : null}
 
-        <div className="mt-4">
+        <div className="mt-6">
           <ExploreCardActions
             externalId={card.externalId}
             initialState={{

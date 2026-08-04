@@ -9,6 +9,10 @@ type VoteControlProps = {
   rating: Rating | null;
   hype: Hype | null;
   onChange?: (value: Rating | Hype | null) => void;
+  /** `lg` is Explore's only caller: the vote row is the card's primary
+   *  action, so it gets the app's real `.t-label` size instead of the
+   *  compromise below. Every other caller stays `sm` (the default). */
+  size?: "sm" | "lg";
 };
 
 const RATING_OPTIONS: { value: Rating; label: string }[] = [
@@ -32,8 +36,15 @@ const HYPE_OPTIONS: { value: Hype; label: string }[] = [
 // future label is even longer, so the row can never widen the page. It is
 // still allowed to wrap, and `items-center` on a stretched flex row is what
 // keeps the two one-line siblings the same height as it.
-const buttonBase =
-  "t-label flex flex-1 min-w-0 items-center justify-center rounded-ctl px-1 py-2 text-center text-[10px] leading-[1.15] tracking-[0.02em] wrap-anywhere transition-colors disabled:opacity-50";
+//
+// `lg` is Explore's opt-in: its vote row is the card's primary action, so it
+// gets `.t-label`'s real 11px instead of the 10px width-squeeze. Tracking
+// stays 0.02em either way -- that is the part that actually buys back the
+// width "Very hyped" needs, and a taller button doesn't change that.
+const buttonBaseBySize: Record<"sm" | "lg", string> = {
+  sm: "t-label flex flex-1 min-w-0 items-center justify-center rounded-ctl px-1 py-2 text-center text-[10px] leading-[1.15] tracking-[0.02em] wrap-anywhere transition-colors disabled:opacity-50",
+  lg: "t-label flex min-h-12 flex-1 min-w-0 items-center justify-center rounded-ctl px-2 py-2.5 text-center text-[11px] leading-[1.15] tracking-[0.02em] wrap-anywhere transition-colors disabled:opacity-50",
+};
 const unselected = "bg-surface-2 text-fg-dim hover:text-fg";
 
 // The scale is the mark, unrolled. `--beam-a` is the low end, `--beam-b` the
@@ -61,8 +72,10 @@ export function VoteControl({
   rating,
   hype,
   onChange,
+  size = "sm",
 }: VoteControlProps) {
   const [isPending, startTransition] = useTransition();
+  const buttonBase = buttonBaseBySize[size];
 
   const current = watched ? rating : hype;
   const options = watched ? RATING_OPTIONS : HYPE_OPTIONS;

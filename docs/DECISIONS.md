@@ -3939,3 +3939,75 @@ trust domain phase 5 already accepted for profiles and lists, and the feed
 filters by a user_id that server actions resolve from the session, never from
 client input. The smoke script's test vote inserts through the user's own
 token-bearing client for the same reason.
+
+### Explore design correction: chrome, the frame, and the placard
+
+A design review found the concept sound (backdrop-lit projection, no controls
+over the video) but the execution around it broken: the route's own header had
+no padding (the only route to opt out of `<Screen>`, it lost the padding along
+with the width cap), the feed's mobile height calc subtracted only the tab bar
+or only the header depending on breakpoint when both actually apply on mobile
+(`AppHeader` has no `sm:` visibility guard), inactive cards in
+`TrailerFrame` rendered nothing until active, the sharp still used the 2:3
+`posterUrl` force-cropped into a 16:9 box while the native 16:9 `backdropUrl`
+sat unused on the same card, and starting playback flashed black while the
+iframe loaded. `TrailerFrame` now renders a still (backdrop preferred, poster
+fallback) as a permanent base layer regardless of `active`, with the iframe
+layered on top rather than swapped in.
+
+### The placard: votes over list actions
+
+The vote row is Explore's primary action — every card's job is to get voted on
+— but the placard rendered five 10px pills of identical weight. `VoteControl`
+gained an opt-in `size?: "sm" | "lg"` prop (default `sm`, byte-identical for
+its four other callers: `/`, a group page, `/search`, movie detail); Explore
+alone passes `lg`, which restores `.t-label`'s real 11px while keeping the
+tighter 0.02em tracking that fits "Very hyped" (`vote-control.tsx`'s own
+"VoteControl label size" note above — the tracking is the load-bearing part,
+not the size). `Add to list` / `Mark watched` demoted from filled pills to a
+quiet text row below the votes. The mute toggle moved onto the title line —
+it's a transport control, not a vote, and giving it its own row was spending
+placard height that the vote row needed more.
+
+Moving mute freed height, but capping the title spends some of it back: the
+title previously had no line cap, so a long title could grow past what the
+desktop cap (`explore-card.tsx`'s `max-w-[...]`) had reserved for it, and the
+section's `overflow-hidden` silently clipped the vote row off the bottom. The
+cap's reserved-height constant is now 29.3rem (was 28rem) — net of removing
+the mute row (-3.5rem), budgeting the now-permitted 2nd title line (+3.28rem),
+the meta/action-block margin changes (-0.5rem / +0.5rem), the `gap-2` →
+`gap-3` in `ExploreCardActions` (+0.25rem), and `size="lg"`'s `min-h-12` vote
+row (+1.28rem) — documented at the constant's definition site.
+
+**The title is capped with `max-height` + `overflow-hidden`, not
+`line-clamp-2`, and this was a real bug caught by rendering, not by reasoning
+about it.** `line-clamp-2` was the first attempt; a throwaway route rendering
+a real `ExploreCardView` (headless Chrome, since no Claude-in-Chrome extension
+was available this session) showed a sliver of the clamped-away 3rd line's
+glyph tops bleeding through under line 2. `.t-display`'s line-height is an
+intentional 0.82 (poster lettering, see `globals.css`) — tighter than Anton's
+own glyph metrics — and `-webkit-line-clamp`'s box-height accounting doesn't
+fully hide an extra line under that combination. A plain `max-h-[calc(clamp(32px,9vw,64px)_*_1.64)]
+overflow-hidden` on the `h2` doesn't share that failure mode. The cost is no
+ellipsis, which matches this app's own existing precedent for a hard-clipped
+display title (`night-pick-hero.tsx`: "the section clips it," no ellipsis
+there either).
+
+**The 29.3rem figure was re-derived by arithmetic, then verified against a
+real render**, for the same reason the line-clamp bug above would otherwise
+have gone unnoticed: `overflow-hidden` clipping is silent, so a wrong constant
+would not show up as an error, a warning, or a visible scrollbar — just a
+vote button quietly missing. The throwaway route (`app/layout-probe`,
+`lib/supabase/proxy.ts`'s `PUBLIC_PATHS` temporarily included it, both
+reverted after) rendered a real `ExploreCardView` with a hardcoded card behind
+the app's real chrome, and headless `google-chrome` (system binary, no new
+dependency) measured `card.scrollHeight > card.clientHeight` — the actual
+clipping test, since `overflow-hidden` + `justify-center` gives no other
+visible signal — across 360–1440px wide, 640–1024px tall, both a long title
+("Everything Everywhere All at Once") and a one-line one ("Dune"). No
+clipping anywhere, and consistently with room to spare, so 26rem is confirmed
+a safe upper bound for the placard term, not merely a computed one. The same
+pass confirmed the mobile feed-height fix below (`docOverflow` — document vs.
+viewport height — was exactly 0 at every width tested) and that `size="lg"`'s
+11px "Very hyped" doesn't wrap at 360px, 388px, or 768px, the widths this
+document's "VoteControl label size" entry already names as failure-prone.
