@@ -34,3 +34,27 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Phase 11 Environment Variables
+
+Consolidated list of environment variables introduced in Phase 11 (SPEC §1, §8, §11):
+
+```bash
+# PostHog Analytics (SPEC §1) - Public ingestion key & host
+NEXT_PUBLIC_POSTHOG_KEY=
+NEXT_PUBLIC_POSTHOG_HOST=https://eu.i.posthog.com
+
+# Web Push VAPID keys (SPEC §8)
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=mailto:REPLACE_ME@example.com
+
+# Email Digest & Vercel Cron Secret (SPEC §8)
+RESEND_API_KEY=
+CRON_SECRET=
+
+# Moderation Queue Admin Allowlist (SPEC §11) - Comma-separated user UUIDs
+ADMIN_USER_IDS=
+```
+
+

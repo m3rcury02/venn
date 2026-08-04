@@ -19,7 +19,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(150);
+select plan(172);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -140,6 +140,35 @@ insert into ingest_inbox (id, user_id, raw_text, source, candidate_movie_ids) va
   ('b2b2b2b2-b2b2-b2b2-b2b2-b2b2b2b2b2b2',
    '22222222-2222-2222-2222-222222222222', 'B''s private share', 'ios_shortcut',
    '{}'::uuid[]);
+
+-- Phase 11 fixtures: reports, movie_nights, watch_confirmations, notification_prefs, push_subscriptions
+insert into reports (id, reporter_id, target_type, target_id, reason) values
+  ('10101010-1010-1010-1010-101010101010', '11111111-1111-1111-1111-111111111111', 'user', '22222222-2222-2222-2222-222222222222', 'Spam profile');
+
+insert into groups (id, name, invite_code, created_by) values
+  ('88888888-8888-8888-8888-888888888888', 'Phase 11 Group', 'P11CODE', 'cccccccc-cccc-cccc-cccc-cccccccccccc');
+
+insert into group_members (group_id, user_id, role) values
+  ('88888888-8888-8888-8888-888888888888', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'member');
+
+insert into movie_nights (id, group_id, mode, picked_movie_id, created_by) values
+  ('20202020-2020-2020-2020-202020202020', '88888888-8888-8888-8888-888888888888', 'home', '33333333-3333-3333-3333-333333333333', 'cccccccc-cccc-cccc-cccc-cccccccccccc');
+
+insert into movie_night_attendees (movie_night_id, user_id) values
+  ('20202020-2020-2020-2020-202020202020', 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
+  ('20202020-2020-2020-2020-202020202020', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee');
+
+insert into watch_confirmations (movie_night_id, user_id, status) values
+  ('20202020-2020-2020-2020-202020202020', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'confirmed'),
+  ('20202020-2020-2020-2020-202020202020', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'pending');
+
+insert into notification_prefs (user_id, category, push, email) values
+  ('11111111-1111-1111-1111-111111111111', 'watch_confirmation', true, false),
+  ('22222222-2222-2222-2222-222222222222', 'watch_confirmation', false, true);
+
+insert into push_subscriptions (id, user_id, endpoint, p256dh, auth) values
+  ('30303030-3030-3030-3030-303030303030', '11111111-1111-1111-1111-111111111111', 'https://push.example.com/a', 'keys_a', 'auth_a'),
+  ('40404040-4040-4040-4040-404040404040', '22222222-2222-2222-2222-222222222222', 'https://push.example.com/b', 'keys_b', 'auth_b');
 
 -- Labelled `weights:` for the same reason one assertion below is labelled
 -- `constraint:` -- this is §4.1's arithmetic, not access control, and it runs
@@ -1553,6 +1582,174 @@ select throws_ok(
   '42501',
   null,
   'anon cannot read list hidden-from rows'
+);
+
+-- -------------------------------------------------------- Phase 11 RLS tests
+
+-- 1. reports
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+set local role authenticated;
+
+select is(
+  (select count(*) from reports where reporter_id = '11111111-1111-1111-1111-111111111111'),
+  1::bigint,
+  'reporter can read own report'
+);
+
+select is(
+  (select count(*) from reports where reporter_id = '22222222-2222-2222-2222-222222222222'),
+  0::bigint,
+  'user A cannot read user B report'
+);
+
+set local request.jwt.claims = '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}';
+
+select lives_ok(
+  $$insert into reports (reporter_id, target_type, target_id, reason) values ('22222222-2222-2222-2222-222222222222', 'user', '11111111-1111-1111-1111-111111111111', 'Abuse report')$$,
+  'user B can insert their own report'
+);
+
+select throws_ok(
+  $$update reports set reason = 'Changed' where id = '10101010-1010-1010-1010-101010101010'$$,
+  '42501',
+  null,
+  'authenticated user cannot update reports'
+);
+
+-- 2. movie_nights & movie_night_attendees
+set local request.jwt.claims = '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+
+select is(
+  (select count(*) from movie_nights where id = '20202020-2020-2020-2020-202020202020'),
+  1::bigint,
+  'group member can read movie night'
+);
+
+select is(
+  (select count(*) from movie_night_attendees where movie_night_id = '20202020-2020-2020-2020-202020202020'),
+  2::bigint,
+  'group member can read movie night attendees'
+);
+
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+select is(
+  (select count(*) from movie_nights where id = '20202020-2020-2020-2020-202020202020'),
+  0::bigint,
+  'non-member cannot read movie night'
+);
+
+select is(
+  (select count(*) from movie_night_attendees where movie_night_id = '20202020-2020-2020-2020-202020202020'),
+  0::bigint,
+  'non-member cannot read movie night attendees'
+);
+
+select throws_ok(
+  $$insert into movie_nights (group_id, mode, created_by) values ('99999999-9999-9999-9999-999999999999', 'home', '11111111-1111-1111-1111-111111111111')$$,
+  '42501',
+  null,
+  'authenticated user cannot directly insert into movie_nights'
+);
+
+-- 3. watch_confirmations
+set local request.jwt.claims = '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+
+select is(
+  (select count(*) from watch_confirmations where user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
+  1::bigint,
+  'user can read own watch confirmation'
+);
+
+select is(
+  (select count(*) from watch_confirmations where user_id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'),
+  0::bigint,
+  'co-attendee row is not readable'
+);
+
+-- Unauthorized update touches zero rows: USING clause filters it out
+update watch_confirmations set status = 'confirmed' where user_id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
+
+set local request.jwt.claims = '{"sub":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee","role":"authenticated"}';
+
+select is(
+  (select status from watch_confirmations where user_id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'),
+  'pending'::text,
+  'unauthorized update targeting another user row changes nothing'
+);
+
+-- 4. notification_prefs
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+select is(
+  (select count(*) from notification_prefs where user_id = '11111111-1111-1111-1111-111111111111'),
+  1::bigint,
+  'user can read own notification_prefs'
+);
+
+select is(
+  (select count(*) from notification_prefs where user_id = '22222222-2222-2222-2222-222222222222'),
+  0::bigint,
+  'user cannot read another user notification_prefs'
+);
+
+-- 5. push_subscriptions
+select is(
+  (select count(*) from push_subscriptions where user_id = '11111111-1111-1111-1111-111111111111'),
+  1::bigint,
+  'user can read own push_subscriptions'
+);
+
+select is(
+  (select count(*) from push_subscriptions where user_id = '22222222-2222-2222-2222-222222222222'),
+  0::bigint,
+  'user cannot read another user push_subscriptions'
+);
+
+-- Anon negatives for Phase 11 tables
+set local role anon;
+reset "request.jwt.claims";
+
+select throws_ok(
+  $$select count(*) from reports$$,
+  '42501',
+  null,
+  'anon cannot read reports'
+);
+
+select throws_ok(
+  $$select count(*) from movie_nights$$,
+  '42501',
+  null,
+  'anon cannot read movie_nights'
+);
+
+select throws_ok(
+  $$select count(*) from movie_night_attendees$$,
+  '42501',
+  null,
+  'anon cannot read movie_night_attendees'
+);
+
+select throws_ok(
+  $$select count(*) from watch_confirmations$$,
+  '42501',
+  null,
+  'anon cannot read watch_confirmations'
+);
+
+select throws_ok(
+  $$select count(*) from notification_prefs$$,
+  '42501',
+  null,
+  'anon cannot read notification_prefs'
+);
+
+select throws_ok(
+  $$select count(*) from push_subscriptions$$,
+  '42501',
+  null,
+  'anon cannot read push_subscriptions'
 );
 
 reset role;

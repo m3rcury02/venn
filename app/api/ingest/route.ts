@@ -10,6 +10,7 @@
 // names exactly one film; everything else lands in the Inbox.
 
 import { after, NextResponse } from "next/server";
+import { captureServer } from "@/lib/analytics/server";
 import { resolveInBackground } from "@/lib/ingest/resolve";
 import { verifyToken } from "@/lib/ingest/tokens";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -91,6 +92,9 @@ export async function POST(request: Request) {
   if (error || !row) {
     return NextResponse.json({ error: "could not accept" }, { status: 500 });
   }
+
+  const source = toSource(body.source);
+  captureServer(userId, "ingest_received", { source });
 
   after(() => resolveInBackground(db, row.id, userId, text));
 

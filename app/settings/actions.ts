@@ -1,9 +1,12 @@
 "use server";
 
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { hashToken, mintToken } from "@/lib/ingest/tokens";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 
 /**
  * `token` is present exactly once, in the response to the mint that created it.
@@ -138,4 +141,31 @@ export async function setListVisibility(
   revalidatePath("/u/[username]", "page");
   revalidatePath("/discover");
   return {};
+}
+
+export async function deleteAccount(
+  confirmation: string,
+): Promise<{ error?: string }> {
+  if (confirmation !== "DELETE") {
+    return { error: 'Type "DELETE" to confirm.' };
+  }
+
+  const supabase = await createClient();
+  const { data: claims } = await getClaims(supabase);
+  const userId = claims?.claims?.sub;
+  if (typeof userId !== "string") {
+    return { error: "Not signed in." };
+  }
+
+  const service = createServiceClient();
+  const { error } = await service.auth.admin.deleteUser(userId);
+
+  if (error) {
+    return { error: "Couldn't delete account. Please try again." };
+  }
+
+  const cookieStore = await cookies();
+  cookieStore.delete("venn_onboarded");
+
+  redirect("/login");
 }

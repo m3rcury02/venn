@@ -30,15 +30,22 @@ import { getClaims } from "./claims";
 // /.well-known/assetlinks.json must also be readable without a session. Android
 // fetches it to verify that the signed native wrapper may open this origin as a
 // Trusted Web Activity; a login redirect would make verification fail.
+//
+// /api/cron/digest (phase 11) is triggered by Vercel Cron without a session cookie,
+// so it must be exempted from login redirects; authentication is checked via CRON_SECRET.
 const PUBLIC_PATHS = [
   "/login",
   "/auth",
   "/api/ingest",
+  "/api/cron/digest",
   "/share",
   "/manifest.webmanifest",
   "/sw.js",
   "/offline",
   "/.well-known/assetlinks.json",
+  "/privacy",
+  "/terms",
+  "/about",
 ];
 
 export async function updateSession(request: NextRequest) {

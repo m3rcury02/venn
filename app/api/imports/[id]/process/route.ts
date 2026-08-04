@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { captureServer } from "@/lib/analytics/server";
 import {
   cacheMovie,
   cacheMovieByImdbId,
@@ -40,19 +41,39 @@ async function syncProgress(
 async function finishIfReady(
   supabase: Awaited<ReturnType<typeof createClient>>,
   importId: string,
+  userId: string,
 ) {
   const { data, error } = await supabase.rpc("finish_import", {
     p_import_id: importId,
   });
   if (error) throw error;
-  return data as string;
+  const status = data as string;
+
+  if (status === "completed") {
+    const { data: imp } = await supabase
+      .from("imports")
+      .select("source, total, matched")
+      .eq("id", importId)
+      .maybeSingle();
+
+    if (imp) {
+      captureServer(userId, "import_completed", {
+        source: imp.source,
+        total: imp.total,
+        matched: imp.matched,
+      });
+    }
+  }
+
+  return status;
 }
 
 export async function POST(_request: Request, { params }: RouteContext) {
   const { id: importId } = await params;
   const supabase = await createClient();
   const { data: claims } = await getClaims(supabase);
-  if (typeof claims?.claims?.sub !== "string") {
+  const userId = claims?.claims?.sub;
+  if (typeof userId !== "string") {
     return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   }
 
@@ -81,7 +102,7 @@ export async function POST(_request: Request, { params }: RouteContext) {
   }
 
   if (!row) {
-    const status = await finishIfReady(supabase, importId);
+    const status = await finishIfReady(supabase, importId, userId);
     return NextResponse.json({ status });
   }
 
@@ -97,7 +118,7 @@ export async function POST(_request: Request, { params }: RouteContext) {
       const { data: profile } = await supabase
         .from("profiles")
         .select("region")
-        .eq("id", claims.claims.sub)
+        .eq("id", userId)
         .single();
       const results = (await provider.search(row.title, profile?.region ?? "IN")).filter(
         (movie) =>
@@ -147,7 +168,7 @@ export async function POST(_request: Request, { params }: RouteContext) {
     }
 
     await syncProgress(supabase, importId);
-    const status = await finishIfReady(supabase, importId);
+    const status = await finishIfReady(supabase, importId, userId);
     return NextResponse.json({ status });
   } catch {
     const attempts = row.attempts + 1;
@@ -166,7 +187,7 @@ export async function POST(_request: Request, { params }: RouteContext) {
 
     await syncProgress(supabase, importId);
     const status = terminal
-      ? await finishIfReady(supabase, importId)
+      ? await finishIfReady(supabase, importId, userId)
       : "processing";
     return NextResponse.json({ status, retrying: !terminal });
   }

@@ -347,7 +347,7 @@ Phases are built in order. **Do not build ahead of the current phase.** The curr
 | 10 | Public profiles, follows, visibility toggles, blocks | v2 |
 | 11 | Notification matrix, moderation, analytics, deletion + export, legal pages | v2 |
 | 12 | Hype-vs-reality stats, joinable groups, monetization | v3 |
-
+13 make accessibility statement and add it to the footer
 ---
 
 ## 10. Non-Goals

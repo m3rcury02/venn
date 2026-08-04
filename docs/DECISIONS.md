@@ -1,6 +1,6 @@
 # Decisions
 
-**Current phase: 10**
+**Current phase: 11**
 
 Append after every phase: what changed, and why.
 
@@ -4096,5 +4096,52 @@ than throwing; the assertions confirm the row is untouched (`is()`, not
 Also restored `app/settings/page.tsx`'s `/inbox` header link, which the initial
 commit had replaced with `/discover` instead of adding alongside it — `AppHeader`
 only auto-renders an Inbox link when the caller passes `inboxCount`, which
-Settings does not, so that was the only path to Inbox from Settings on desktop.
+Settings does not, so that was the only path to Inbox from SettingDesktop on desktop.
 
+
+---
+
+## Phase 11 — notification matrix, moderation, analytics, deletion + export, legal pages
+
+Migrations:
+- `supabase/migrations/20260805100000_phase11_reports.sql`
+- `supabase/migrations/20260805110000_phase11_movie_nights.sql`
+- `supabase/migrations/20260805120000_phase11_notifications.sql`
+
+### What changed, and why
+
+- **`push_subscriptions` is a departure from SPEC §3**:
+  The table is not present in SPEC §3's initial data model. Web Push delivery requires storing per-device endpoints, p256dh keys, and auth secrets; there is nowhere else for Web Push subscriptions to reside, so `push_subscriptions` was created with `user_id` FK and own-row RLS.
+
+- **Moderation admin identity uses environment allowlist (`ADMIN_USER_IDS`) and not a `profiles.is_admin` column**:
+  `profiles_update_own` allows authenticated users to update their own profile fields. Placing an `is_admin` boolean on `profiles` would introduce a self-service privilege escalation vector unless strictly scoped with column-level write grants. Using `ADMIN_USER_IDS` in environment configuration keeps administrative privileges out of the user-writable table.
+
+- **`notification_prefs` has no seeding trigger**:
+  Absent rows fall back to SPEC §8 defaults, resolved at runtime in TypeScript (`lib/notifications/categories.ts` → `resolvePrefs`). A DB trigger seeding 5 rows per user would bloat storage unnecessarily; an un-seeded overlay pattern keeps the database lean.
+
+- **Weekly digest is a daily Vercel cron with a weekday check**:
+  Vercel Hobby crons operate at day-granularity (`30 3 * * *`). The cron handler (`/api/cron/digest`) checks `new Date().getUTCDay() === 0` to execute only on Sundays (or when explicitly forced via `?force=true` during testing).
+
+- **Account deletion cascades `list_items.added_by`**:
+  `list_items` references `profiles(id)` via `added_by` with `ON DELETE CASCADE`. Deleting a user account cascades deletion to their added items across all lists, including group lists. This was accepted deliberately as account deletion represents a complete removal of user contributions.
+
+- **Data export uses the user-scoped client**:
+  `/api/export` uses `createClient()`. Because RLS policies enforce single-user access control across all target tables, using the user-scoped client allows RLS to filter the exported data without manual `.eq("user_id", ...)` clauses, preventing over-fetching or cross-tenant leaks.
+
+- **`reports.target_id` carries no foreign key**:
+  The report table supports reporting users, lists, and list items (`target_type IN ('user', 'list', 'list_item')`). Because `target_id` is polymorphic across three different tables, a traditional foreign key constraint cannot be applied.
+
+- **`service_role` grants per migration**:
+  - `20260805100000_phase11_reports.sql`: `GRANT SELECT, UPDATE ON reports TO service_role;` so the `/moderation` admin panel can read and action reports.
+  - `20260805110000_phase11_movie_nights.sql`: `GRANT SELECT, INSERT ON movie_nights, movie_night_attendees, watch_confirmations TO service_role;` so server actions can create movie nights and watch confirmations.
+  - `20260805120000_phase11_notifications.sql`: `GRANT SELECT ON notification_prefs TO service_role;` and `GRANT SELECT, DELETE ON push_subscriptions TO service_role;` so `sendPush()` and background jobs can read user preferences, send push payloads, and auto-prune stale endpoints (HTTP 404/410).
+
+- **Weekly digest resolves email addresses through `auth.admin.getUserById` / `listUsers()`**:
+  SPEC §3 `profiles` table contains no `email` column, and PostgREST does not expose Supabase's internal `auth` schema. The digest cron uses `createServiceClient().auth.admin` to resolve verified user email addresses safely.
+
+- **Environment variables and `NEXT_PUBLIC_` scoping**:
+  - `NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_HOST`, `NEXT_PUBLIC_VAPID_PUBLIC_KEY`: Client-facing write-only / public identification keys, placed in `NEXT_PUBLIC_` by design.
+  - `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `RESEND_API_KEY`, `CRON_SECRET`, `ADMIN_USER_IDS`: Secret server-side configurations, kept private from client bundles.
+
+- **RLS test suite updated**:
+  `supabase/tests/rls.test.sql` plan updated to **172** assertions (from 150), covering positive and negative RLS controls for `reports`, `movie_nights`, `movie_night_attendees`, `watch_confirmations`, `notification_prefs`, and `push_subscriptions`.

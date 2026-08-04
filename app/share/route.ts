@@ -15,6 +15,7 @@
 // environment -- see DECISIONS.md phase 6 for the fallback if it does not.
 
 import { after, NextResponse } from "next/server";
+import { captureServer } from "@/lib/analytics/server";
 import { resolveInBackground } from "@/lib/ingest/resolve";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
@@ -65,6 +66,8 @@ export async function POST(request: Request) {
   if (error || !row) {
     return NextResponse.redirect(url, { status: 303 });
   }
+
+  captureServer(userId, "ingest_received", { source: "android_share" });
 
   after(() => resolveInBackground(db, row.id, userId, combined));
 
