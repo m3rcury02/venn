@@ -43,6 +43,13 @@ export function SiteFooter() {
           >
             Terms
           </Link>
+          <span className="text-fg-faint">•</span>
+          <Link
+            href="/accessibility"
+            className="t-body text-[13px] text-fg-faint transition-colors hover:text-fg"
+          >
+            Accessibility
+          </Link>
         </nav>
       </div>
     </footer>

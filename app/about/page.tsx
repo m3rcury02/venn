@@ -91,6 +91,13 @@ export default function AboutPage() {
             >
               Terms of Service
             </Link>
+            <span className="text-fg-faint">•</span>
+            <Link
+              href="/accessibility"
+              className="t-label text-sm text-marquee hover:underline"
+            >
+              Accessibility
+            </Link>
           </div>
         </Panel>
       </div>
