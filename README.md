@@ -35,9 +35,9 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
-## Phase 11 Environment Variables
+## Environment Variables
 
-Consolidated list of environment variables introduced in Phase 11 (SPEC §1, §8, §11):
+Consolidated list of environment variables:
 
 ```bash
 # PostHog Analytics (SPEC §1) - Public ingestion key & host
@@ -55,6 +55,9 @@ CRON_SECRET=
 
 # Moderation Queue Admin Allowlist (SPEC §11) - Comma-separated user UUIDs
 ADMIN_USER_IDS=
+
+# Monetization Rendering Flag (SPEC §1, §11 - Phase 12)
+NEXT_PUBLIC_ADS_ENABLED=false
 ```
 
 

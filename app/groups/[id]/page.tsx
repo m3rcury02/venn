@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { AdSlot } from "@/components/ad-slot";
 import { AppHeader, navLinkClass } from "@/components/app-header";
 import { DeleteGroupPanel } from "@/components/delete-group-panel";
+import { GroupVisibilityPanel } from "@/components/group-visibility-panel";
 import type { Status } from "@/components/list-filter";
 import { InviteCode } from "@/components/invite-code";
 import { LeaveGroupPanel } from "@/components/leave-group-panel";
@@ -57,7 +59,7 @@ export default async function GroupPage({ params }: GroupPageProps) {
     // this 404s rather than leaking the group's name or its invite code.
     supabase
       .from("groups")
-      .select("id, name, invite_code, created_by")
+      .select("id, name, invite_code, created_by, visibility")
       .eq("id", id)
       .single(),
     supabase
@@ -142,61 +144,65 @@ export default async function GroupPage({ params }: GroupPageProps) {
       </div>
 
       {items.length > 0 ? (
-        <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-          {items.map((item, i) => {
-            const status = item.movies.user_movie_status[0] ?? null;
-            const watched = status?.watched ?? false;
-            return (
-              <div
-                key={item.movie_id}
-                className="motion-safe:animate-expose"
-                style={{ animationDelay: `${Math.min(i, 10) * 40}ms` }}
-              >
-                <MovieCard
-                  title={item.movies.title}
-                  year={item.movies.year}
-                  href={`/movies/${item.movie_id}`}
-                  posterUrl={
-                    item.movies.poster_path
-                      ? provider.getImageUrl(item.movies.poster_path, "w342")
-                      : null
-                  }
-                  footer={
-                    <div className="flex flex-col gap-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="t-label truncate text-fg-faint">
-                          added by {item.profiles?.display_name ?? "Member"}
-                        </p>
-                        {list ? (
-                          <ReportButton
-                            targetType="list_item"
-                            targetId={list.id}
-                            targetMovieId={item.movie_id}
-                            label="Report"
-                            className="t-label text-[10px] text-fg-faint hover:text-fg"
-                          />
-                        ) : null}
-                      </div>
-                      <VoteControl
-                        movieId={item.movie_id}
-                        watched={watched}
-                        rating={status?.rating ?? null}
-                        hype={status?.hype ?? null}
-                      />
-                    </div>
-                  }
+        <>
+          <AdSlot slot="group-list-top" />
+          <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+            {items.map((item, i) => {
+              const status = item.movies.user_movie_status[0] ?? null;
+              const watched = status?.watched ?? false;
+              return (
+                <div
+                  key={item.movie_id}
+                  className="motion-safe:animate-expose"
+                  style={{ animationDelay: `${Math.min(i, 10) * 40}ms` }}
                 >
-                  <div className="flex gap-1">
-                    <WatchedToggle movieId={item.movie_id} watched={watched} />
-                    {list ? (
-                      <RemoveFromListButton movieId={item.movie_id} listId={list.id} />
-                    ) : null}
-                  </div>
-                </MovieCard>
-              </div>
-            );
-          })}
-        </div>
+                  <MovieCard
+                    title={item.movies.title}
+                    year={item.movies.year}
+                    href={`/movies/${item.movie_id}`}
+                    posterUrl={
+                      item.movies.poster_path
+                        ? provider.getImageUrl(item.movies.poster_path, "w342")
+                        : null
+                    }
+                    footer={
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="t-label truncate text-fg-faint">
+                            added by {item.profiles?.display_name ?? "Member"}
+                          </p>
+                          {list ? (
+                            <ReportButton
+                              targetType="list_item"
+                              targetId={list.id}
+                              targetMovieId={item.movie_id}
+                              label="Report"
+                              className="t-label text-[10px] text-fg-faint hover:text-fg"
+                            />
+                          ) : null}
+                        </div>
+                        <VoteControl
+                          movieId={item.movie_id}
+                          watched={watched}
+                          rating={status?.rating ?? null}
+                          hype={status?.hype ?? null}
+                        />
+                      </div>
+                    }
+                  >
+                    <div className="flex gap-1">
+                      <WatchedToggle movieId={item.movie_id} watched={watched} />
+                      {list ? (
+                        <RemoveFromListButton movieId={item.movie_id} listId={list.id} />
+                      ) : null}
+                    </div>
+                  </MovieCard>
+                </div>
+              );
+            })}
+          </div>
+          <AdSlot slot="group-list-bottom" />
+        </>
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-5 py-20 text-center">
           <VennMark size={44} />
@@ -214,7 +220,10 @@ export default async function GroupPage({ params }: GroupPageProps) {
       )}
 
       {group.created_by === claims.claims.sub ? (
-        <DeleteGroupPanel groupId={group.id} groupName={group.name} />
+        <>
+          <GroupVisibilityPanel groupId={group.id} current={group.visibility} />
+          <DeleteGroupPanel groupId={group.id} groupName={group.name} />
+        </>
       ) : (
         <LeaveGroupPanel groupId={group.id} groupName={group.name} />
       )}

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { AdSlot } from "@/components/ad-slot";
 import { AppHeader, navLinkClass } from "@/components/app-header";
 import { ListFilter, matchesFilter, parseFilter, type Status } from "@/components/list-filter";
 import { MovieCard } from "@/components/movie-card";
@@ -117,6 +118,9 @@ export default async function Home({ searchParams }: HomeProps) {
             <Link href="/explore" className={navLinkClass}>
               Explore
             </Link>
+            <Link href="/stats" className={navLinkClass}>
+              Stats
+            </Link>
             <Link href="/search" className={navLinkClass}>
               Search
             </Link>
@@ -144,46 +148,50 @@ export default async function Home({ searchParams }: HomeProps) {
           </div>
 
           <ListFilter active={filter} statuses={statuses} />
+          <AdSlot slot="my-list-top" />
 
           {filteredItems.length > 0 ? (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-              {filteredItems.map((item, i) => {
-                const status = item.movies.user_movie_status[0] ?? null;
-                const watched = status?.watched ?? false;
-                return (
-                  <div
-                    key={item.movie_id}
-                    className="motion-safe:animate-expose"
-                    style={{ animationDelay: `${Math.min(i, 10) * 40}ms` }}
-                  >
-                    <MovieCard
-                      title={item.movies.title}
-                      year={item.movies.year}
-                      mediaType={item.movies.media_type}
-                      href={`/movies/${item.movie_id}`}
-                      posterUrl={
-                        item.movies.poster_path
-                          ? provider.getImageUrl(item.movies.poster_path, "w342")
-                          : null
-                      }
-                      footer={
-                        <VoteControl
-                          movieId={item.movie_id}
-                          watched={watched}
-                          rating={status?.rating ?? null}
-                          hype={status?.hype ?? null}
-                        />
-                      }
+            <>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+                {filteredItems.map((item, i) => {
+                  const status = item.movies.user_movie_status[0] ?? null;
+                  const watched = status?.watched ?? false;
+                  return (
+                    <div
+                      key={item.movie_id}
+                      className="motion-safe:animate-expose"
+                      style={{ animationDelay: `${Math.min(i, 10) * 40}ms` }}
                     >
-                      <div className="flex gap-1">
-                        <WatchedToggle movieId={item.movie_id} watched={watched} />
-                        <RemoveFromListButton movieId={item.movie_id} />
-                      </div>
-                    </MovieCard>
-                  </div>
-                );
-              })}
-            </div>
+                      <MovieCard
+                        title={item.movies.title}
+                        year={item.movies.year}
+                        mediaType={item.movies.media_type}
+                        href={`/movies/${item.movie_id}`}
+                        posterUrl={
+                          item.movies.poster_path
+                            ? provider.getImageUrl(item.movies.poster_path, "w342")
+                            : null
+                        }
+                        footer={
+                          <VoteControl
+                            movieId={item.movie_id}
+                            watched={watched}
+                            rating={status?.rating ?? null}
+                            hype={status?.hype ?? null}
+                          />
+                        }
+                      >
+                        <div className="flex gap-1">
+                          <WatchedToggle movieId={item.movie_id} watched={watched} />
+                          <RemoveFromListButton movieId={item.movie_id} />
+                        </div>
+                      </MovieCard>
+                    </div>
+                  );
+                })}
+              </div>
+              <AdSlot slot="my-list-bottom" />
+            </>
           ) : (
             <div className="flex flex-col items-center gap-5 py-20 text-center">
               <p className="t-section text-3xl text-fg">Nothing under this filter</p>

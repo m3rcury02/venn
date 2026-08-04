@@ -19,7 +19,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(176);
+select plan(193);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -1804,6 +1804,222 @@ select throws_ok(
 
 reset role;
 
+-- ------------------------------------------------------------- Phase 12 tests
+
+-- 1. Control -- after a hype vote is written to user_movie_status for actor A,
+-- A can select exactly one hype_history row for that movie with resolved_rating is null.
+insert into user_movie_status (user_id, movie_id, hype)
+values ('11111111-1111-1111-1111-111111111111', '33333333-3333-3333-3333-333333333333', 'superhyped')
+on conflict (user_id, movie_id) do update set hype = 'superhyped', watched = false, rating = null;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111"}';
+
+select is(
+  (select count(*) from hype_history
+   where movie_id = '33333333-3333-3333-3333-333333333333'
+     and hype = 'superhyped'
+     and resolved_rating is null),
+  1::bigint,
+  'A can read own hype_history open prediction'
+);
+
+-- 2. A cannot see B's hype_history rows (0 rows).
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"22222222-2222-2222-2222-222222222222"}';
+
+select is(
+  (select count(*) from hype_history
+   where user_id = '11111111-1111-1111-1111-111111111111'),
+  0::bigint,
+  'B cannot see A hype_history rows'
+);
+
+-- 3. authenticated has no INSERT grant -- a direct insert into hype_history throws 42501.
+select throws_ok(
+  $$insert into hype_history (user_id, movie_id, hype) values ('22222222-2222-2222-2222-222222222222', '33333333-3333-3333-3333-333333333333', 'hyped')$$,
+  '42501',
+  null,
+  'authenticated has no INSERT grant on hype_history'
+);
+
+-- 4. anon cannot read hype_history -- throws 42501.
+set local role anon;
+reset "request.jwt.claims";
+
+select throws_ok(
+  $$select count(*) from hype_history$$,
+  '42501',
+  null,
+  'anon cannot read hype_history'
+);
+
+reset role;
+
+-- 5. Resolution -- set watched = true then rating = 'love' for A's movie;
+-- the open row now has resolved_rating = 'love' and there is still exactly 1 row for that (user, movie).
+update user_movie_status
+   set watched = true, rating = 'love', hype = null
+ where user_id = '11111111-1111-1111-1111-111111111111'
+   and movie_id = '33333333-3333-3333-3333-333333333333';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111"}';
+
+select is(
+  (select count(*) from hype_history
+   where movie_id = '33333333-3333-3333-3333-333333333333'
+     and resolved_rating = 'love'),
+  1::bigint,
+  'resolution sets resolved_rating on the open row'
+);
+
+reset role;
+
+-- 6. Re-hyping -- two successive hype votes on an unresolved movie leave exactly one open row, carrying the second value.
+insert into user_movie_status (user_id, movie_id, hype)
+values ('11111111-1111-1111-1111-111111111111', '55555555-5555-5555-5555-555555555555', 'dont_care')
+on conflict (user_id, movie_id) do update set hype = 'dont_care', watched = false, rating = null;
+
+update user_movie_status
+   set hype = 'hyped'
+ where user_id = '11111111-1111-1111-1111-111111111111'
+   and movie_id = '55555555-5555-5555-5555-555555555555';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111"}';
+
+select is(
+  (select count(*) from hype_history
+   where movie_id = '55555555-5555-5555-5555-555555555555'
+     and resolved_rating is null
+     and hype = 'hyped'),
+  1::bigint,
+  're-hyping replaces open prediction leaving exactly one open row with updated value'
+);
+
+reset role;
+
+-- 7. Re-rating after resolution -- change that rating from love to like;
+-- the same row now reads like, and there is still exactly one row for the pair.
+update user_movie_status
+   set rating = 'like'
+ where user_id = '11111111-1111-1111-1111-111111111111'
+   and movie_id = '33333333-3333-3333-3333-333333333333';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111"}';
+
+select is(
+  (select count(*) from hype_history
+   where movie_id = '33333333-3333-3333-3333-333333333333'
+     and resolved_rating = 'like'),
+  1::bigint,
+  're-rating updates resolved_rating on the resolved row'
+);
+
+-- Joinable groups assertions (10)
+
+reset role;
+-- Create a public group as C and an invite-only group as C
+insert into groups (id, name, invite_code, created_by, visibility) values
+  ('44444444-4444-4444-4444-444444444444', 'Public Group', 'PUBCODE',
+   'cccccccc-cccc-cccc-cccc-cccccccccccc', 'public'),
+  ('77777777-7777-7777-7777-777777777770', 'Private Group', 'PRIVCODE',
+   'cccccccc-cccc-cccc-cccc-cccccccccccc', 'invite');
+
+-- 8. A non-member selecting the public group directly from groups gets 0 rows (policy not widened)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111"}';
+
+select is(
+  (select count(*) from groups where id = '44444444-4444-4444-4444-444444444444'),
+  0::bigint,
+  'non-member selecting public group directly from groups table gets 0 rows'
+);
+
+-- 9. public_groups() returns the public group to a non-member.
+select is(
+  (select count(*) from public_groups(20) where id = '44444444-4444-4444-4444-444444444444'),
+  1::bigint,
+  'public_groups() returns the public group to non-members'
+);
+
+-- 10. public_groups() does not return an invite-only group.
+select is(
+  (select count(*) from public_groups(20) where id = '77777777-7777-7777-7777-777777777770'),
+  0::bigint,
+  'public_groups() does not return invite-only groups'
+);
+
+-- 11. public_groups() does not expose the invite code.
+select throws_ok(
+  $$select invite_code from public_groups(20)$$,
+  '42703',
+  null,
+  'public_groups() does not expose invite_code'
+);
+
+-- 12. join_public_group(<public group>) returns group id and group_members row exists.
+select is(
+  (select join_public_group('44444444-4444-4444-4444-444444444444')),
+  '44444444-4444-4444-4444-444444444444'::uuid,
+  'join_public_group on public group returns group id'
+);
+
+select is(
+  (select count(*) from group_members
+   where group_id = '44444444-4444-4444-4444-444444444444'
+     and user_id = '11111111-1111-1111-1111-111111111111'),
+  1::bigint,
+  'join_public_group on public group inserts a group_members row'
+);
+
+-- 13. join_public_group(<invite-only group>) returns null and inserts nothing.
+select is(
+  (select join_public_group('77777777-7777-7777-7777-777777777770')),
+  null::uuid,
+  'join_public_group on invite-only group returns null'
+);
+
+-- Checked as postgres, not A: A is not a peer of this group, so
+-- group_members_select_peers would hide any row here regardless of whether
+-- one exists, making the count trivially 0 either way under RLS.
+reset role;
+
+select is(
+  (select count(*) from group_members
+   where group_id = '77777777-7777-7777-7777-777777777770'
+     and user_id = '11111111-1111-1111-1111-111111111111'),
+  0::bigint,
+  'join_public_group on invite-only group inserts nothing'
+);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111"}';
+
+-- 14. set_group_visibility called by a non-owner member returns false and value is unchanged.
+-- Actor A is now a member of Public Group (from join_public_group above), but not owner.
+select is(
+  (select set_group_visibility('44444444-4444-4444-4444-444444444444', 'invite')),
+  false,
+  'non-owner cannot set_group_visibility'
+);
+
+-- 15. A direct update groups set name = ... by the owner throws 42501.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc"}';
+
+select throws_ok(
+  $$update groups set name = 'Renamed Group' where id = '44444444-4444-4444-4444-444444444444'$$,
+  '42501',
+  null,
+  'direct update on groups throws 42501 for owner'
+);
+
+reset role;
+
 select * from finish();
 
 rollback;
+

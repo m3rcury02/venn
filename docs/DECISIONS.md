@@ -1,6 +1,6 @@
 # Decisions
 
-**Current phase: 11**
+**Current phase: 12**
 
 Append after every phase: what changed, and why.
 
@@ -4255,3 +4255,47 @@ phase-11 commit, 150 before phase 11).
 
 Migrations: `20260805130000_phase11_report_target_fix.sql`,
 `20260805140000_phase11_digest_grants.sql`.
+
+---
+
+## Phase 12 — hype-vs-reality stats, joinable groups, monetization
+
+Migrations: `supabase/migrations/20260805150000_phase12_hype_history.sql`, `supabase/migrations/20260805160000_phase12_joinable_groups.sql`.
+
+### Hype History & Stats
+
+- **Trigger on `user_movie_status` owns `hype_history` writes**, rather than `app/status/actions.ts`. `setWatched()` in `app/status/actions.ts` clears `hype` and `rating` together, and `setRating()` sets the rating in a second statement. A trigger sees all status state changes across all write paths, including onboarding (`app/onboarding/actions.ts`), import processing (`app/api/imports/[id]/process/route.ts`), and ingest processing, which bypass server actions entirely.
+- **`tg_op` branching in trigger**: Onboarding (10 ratings) and import processing write ratings via `INSERT`. `old` is unassigned on `INSERT`, so `tg_op = 'UPDATE'` branching prevents plpgsql runtime errors on `old.rating`.
+- **One open prediction per (user, movie)**, enforced structurally by partial unique index `hype_history_one_open_idx (user_id, movie_id) WHERE resolved_rating IS NULL`. Re-hyping a title before watching replaces the open prediction row rather than appending a second one.
+- **Resolution targets the most recent row for the pair**, rather than restricting updates to `WHERE resolved_rating IS NULL`. If a user rates `like` and later changes it to `love`, history updates the existing resolved row so that `/stats` does not contradict what their own list shows. Rating a film that was never hyped creates no row — that is not a hype prediction data point.
+- **Grants & RLS**: `authenticated` receives `SELECT` only; the `SECURITY DEFINER` trigger is the sole write path. RLS policy `hype_history_select_own` scopes reads to `(select auth.uid()) = user_id`.
+- **Backfill**: The migration backfills open predictions from live `user_movie_status` rows where `hype IS NOT NULL`. Resolved predictions cannot be backfilled because `setWatched()` previously cleared hype when watched flipped. Stats are therefore forward-looking from this migration onward.
+
+### Joinable Groups
+
+- **`groups` SELECT policy was NOT widened.** Phase 3's comment established that exposing `invite_code` to non-members defeats the invite mechanism. Widening `groups_select_member` would leak `invite_code` to all users, even if an owner flips a group back to invite-only. Instead, public groups directory browsing is served via `public_groups(p_limit int)` — a `SECURITY DEFINER` function returning `(id, name, member_count, created_at)` without exposing `invite_code`.
+- **Instant Join**: `join_public_group(p_group_id uuid)` is a `SECURITY DEFINER` function that validates `visibility = 'public'`, inserts a `group_members` row for `auth.uid()`, and returns the group ID.
+- **Owner Visibility Control**: `set_group_visibility(p_group_id uuid, p_visibility group_visibility)` is a `SECURITY DEFINER` function updating `groups.visibility` where `created_by = auth.uid()`. This avoids granting table-level `UPDATE` on `groups`, keeping group renaming out of scope as decided in Phase 3.
+
+### Monetization
+
+- **Ad Slots**: Gated by `NEXT_PUBLIC_ADS_ENABLED` in `lib/ads.ts` (unset/false by default). Component `AdSlot` renders a dashed house placeholder box ("Advertisement") when enabled, and `null` when disabled.
+- **Strict Placements**: Exactly four placements in list views (`my-list-top`, `my-list-bottom`, `group-list-top`, `group-list-bottom`). Rendered strictly outside poster grid elements. Never in the picker, `/explore`, `/movies/[id]`, `/onboarding`, or legal pages.
+- **Pre-revenue Checklist**: Before `NEXT_PUBLIC_ADS_ENABLED` is ever set to `true` in production:
+  1. Upgrade to TMDB commercial developer key (~$149/mo).
+  2. Upgrade Vercel account to Pro tier (~$20/mo).
+  3. Update `/privacy` to outline ad disclosure and network partners.
+  4. Send confirmation email to TMDB as required by SPEC §2.
+
+### Deliberately Deferred
+
+- No ad impression/click analytics event (speculative until an ad network integration exists).
+- No group-level or cross-user stats (personal-only scope; `user_movie_status` remains strictly closed).
+- No join-request or owner approval queue (instant join keeps interaction lightweight).
+- The public groups directory is not filtered by `blocks` (a group contains multiple members; blocking one member should not hide an entire group).
+- No non-member preview page for public groups (instant join makes preview redundant).
+
+### Test Suite
+
+`supabase/tests/rls.test.sql` updated to **193** assertions (7 for `hype_history`, 10 for joinable groups — `join_public_group`'s two outcomes each get a return-value assertion and a `group_members` side-effect assertion, since the return value alone can't distinguish "inserted the right row" from "inserted nothing and returned it anyway"). Verified via `supabase db reset && supabase test db`: `Files=1, Tests=193, Result: PASS`.
+

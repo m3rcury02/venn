@@ -30,6 +30,7 @@ export async function GET() {
     { data: imports },
     { data: movieNights },
     { data: notificationPrefs },
+    { data: hypeHistory },
   ] = await Promise.all([
     supabase
       .from("profiles")
@@ -62,6 +63,10 @@ export async function GET() {
       .select("movie_night_id, movie_nights(id, group_id, mode, held_at, picked_movie_id)")
       .eq("user_id", userId),
     supabase.from("notification_prefs").select("category, push, email"),
+    supabase
+      .from("hype_history")
+      .select("movie_id, hype, recorded_at, resolved_rating")
+      .eq("user_id", userId),
   ]);
 
   const payload = {
@@ -78,6 +83,7 @@ export async function GET() {
     imports: imports ?? [],
     movie_nights: movieNights ?? [],
     notification_prefs: notificationPrefs ?? [],
+    hype_history: hypeHistory ?? [],
   };
 
   return new NextResponse(JSON.stringify(payload, null, 2), {

@@ -366,6 +366,7 @@ SUPABASE_SERVICE_ROLE_KEY    # server-side only
 RESEND_API_KEY
 INGEST_TOKEN_PEPPER
 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY
+NEXT_PUBLIC_ADS_ENABLED      # client rendering flag, unset = off
 ```
 
 - **Public repo:** any `NEXT_PUBLIC_` var ships to the browser. Agents will put the TMDB key there by default. All provider calls server-side. `gitleaks` as a pre-commit hook.

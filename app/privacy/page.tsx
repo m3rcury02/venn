@@ -78,7 +78,14 @@ export default function PrivacyPage() {
         </Panel>
 
         <Panel>
-          <h2 className="t-section text-lg text-fg">4. Contact &amp; Grievance Redressal</h2>
+          <h2 className="t-section text-lg text-fg">4. Advertising</h2>
+          <p className="t-body mt-3 text-[14px] text-fg-dim">
+            Venn does not currently serve targeted advertisements. Placeholder ad surfaces exist in list views but are disabled by default, and no personal data or taste signals have been shared with any advertising network or external partner.
+          </p>
+        </Panel>
+
+        <Panel>
+          <h2 className="t-section text-lg text-fg">5. Contact &amp; Grievance Redressal</h2>
           <p className="t-body mt-3 text-[14px] text-fg-dim">
             For privacy inquiries or grievance redressal, contact us at:{" "}
             <a href={`mailto:${CONTACT_EMAIL}`} className="text-marquee underline hover:text-fg">

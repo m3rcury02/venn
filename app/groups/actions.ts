@@ -110,3 +110,43 @@ export async function joinGroup(
   revalidatePath("/groups");
   redirect(`/groups/${groupId}`);
 }
+
+export type GroupVisibility = "invite" | "public";
+
+export async function joinPublicGroup(groupId: string): Promise<GroupFormState> {
+  if (!groupId) return { error: "Missing group." };
+
+  const supabase = await createClient();
+  const { data: id, error } = await supabase.rpc("join_public_group", {
+    p_group_id: groupId,
+  });
+
+  if (error) return { error: "Couldn't join the group." };
+  if (!id) return { error: "That group isn't open to join." };
+
+  revalidatePath("/groups");
+  revalidatePath("/discover");
+  redirect(`/groups/${id}`);
+}
+
+export async function setGroupVisibility(
+  groupId: string,
+  visibility: GroupVisibility,
+): Promise<GroupFormState> {
+  if (!groupId) return { error: "Missing group." };
+  if (visibility !== "invite" && visibility !== "public") {
+    return { error: "Invalid visibility choice." };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("set_group_visibility", {
+    p_group_id: groupId,
+    p_visibility: visibility,
+  });
+
+  if (error || data === false) return { error: "Couldn't update visibility." };
+
+  revalidatePath(`/groups/${groupId}`);
+  revalidatePath("/discover");
+  return {};
+}
