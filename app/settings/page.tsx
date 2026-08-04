@@ -85,6 +85,9 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             <Link href="/" className={navLinkClass}>
               My list
             </Link>
+            <Link href="/inbox" className={navLinkClass}>
+              Inbox
+            </Link>
             <Link href="/discover" className={navLinkClass}>
               Discover
             </Link>

@@ -19,7 +19,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(148);
+select plan(150);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -1333,6 +1333,38 @@ select is(
    where l.owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff' and li.movie_id = '55555555-5555-5555-5555-555555555555'),
   0,
   'E insert on F''s list failed'
+);
+
+-- Both target the row the fixtures block already seeded onto F's default list
+-- (movie 33333333), not an absent one -- otherwise a statement matching zero
+-- rows would "pass" without ever exercising the policy.
+--
+-- No error, same as "A cannot update B's profile" above: list_items_update_via_list
+-- / _delete_via_list are USING-clause policies. E can read this row (via
+-- can_read_list), but does not own the list and shares no group with F, so the
+-- write matches nothing -- it silently affects 0 rows rather than throwing.
+update list_items set note = 'hacked'
+where list_id = (select id from lists where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff' and is_default)
+  and movie_id = '33333333-3333-3333-3333-333333333333';
+
+select is(
+  (select note from list_items
+   where list_id = (select id from lists where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff' and is_default)
+     and movie_id = '33333333-3333-3333-3333-333333333333'),
+  null,
+  'E, who can read F''s list, cannot update an item on it'
+);
+
+delete from list_items
+where list_id = (select id from lists where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff' and is_default)
+  and movie_id = '33333333-3333-3333-3333-333333333333';
+
+select is(
+  (select count(*)::int from list_items
+   where list_id = (select id from lists where owner_user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff' and is_default)
+     and movie_id = '33333333-3333-3333-3333-333333333333'),
+  1,
+  'E, who can read F''s list, cannot delete an item on it'
 );
 
 -- G as itself (G is blocked by F)

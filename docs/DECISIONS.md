@@ -4060,3 +4060,41 @@ Phase 10 widens database read policies from "me or my group peers" to SPEC §3's
 - **Security Advisor WARNs**:
   Two expected Supabase security advisor warnings exist for `can_read_list` and `is_blocked_with` SECURITY DEFINER functions with empty `search_path`, identical to Phase 3's `is_group_member`.
 
+### Post-review fix: `/discover`'s public-lists embed was ambiguous
+
+A review after the initial commit found `app/discover/page.tsx`'s
+`lists.select(…, profiles(username, display_name))` failing every request with
+PostgREST's `PGRST201` ("more than one relationship was found for 'lists' and
+'profiles'"). `list_hidden_from`, added earlier in this same migration, gives
+PostgREST a second path between the two tables — the existing `owner_user_id` FK,
+and the new `list_hidden_from` junction (`lists` ← `list_hidden_from` → `profiles`).
+Adding a table with two FKs into an existing embed's path is exactly the kind of
+thing an embed written before the migration lands has no way to see coming. The
+query only destructured `data`, never `error` — the same silent-failure shape the
+original phase 10 plan flagged for three `.single()` call sites — so it degraded
+to "no public lists" on every load instead of erroring visibly.
+
+Fixed by naming the constraint explicitly, the same disambiguation
+`app/settings/page.tsx`'s `blocks` embed already used correctly:
+`profiles!lists_owner_user_id_fkey(username, display_name)`. Checked the same
+ambiguity does not reach any other embed in the tree — `group_members→profiles`,
+`list_items→profiles`, and `blocks→profiles!blocks_blocked_id_fkey` are unaffected,
+because `list_hidden_from` only creates a second path between `lists` and
+`profiles` specifically. Verified against a live PostgREST instance before and
+after: `PGRST201` reproduced pre-fix, a real public list returned post-fix.
+
+The review also added the `update`/`delete` regression negatives the original plan
+asked for alongside the existing insert negative ("E, who can read F's list via
+follow/public visibility, cannot write to it") — present in the migration's
+policies from the start but not pinned by a test. Both are `USING`-clause
+policies, so an unauthorized write matches zero rows and returns success rather
+than throwing; the assertions confirm the row is untouched (`is()`, not
+`throws_ok()`), matching the pattern phase 0 already established for
+`profiles_update_own`. `supabase/tests/rls.test.sql` is now **150** assertions
+(was 148).
+
+Also restored `app/settings/page.tsx`'s `/inbox` header link, which the initial
+commit had replaced with `/discover` instead of adding alongside it — `AppHeader`
+only auto-renders an Inbox link when the caller passes `inboxCount`, which
+Settings does not, so that was the only path to Inbox from Settings on desktop.
+

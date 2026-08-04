@@ -20,7 +20,7 @@ export default async function DiscoverPage() {
 
   const { data: rawLists } = await supabase
     .from("lists")
-    .select("id, name, owner_user_id, profiles(username, display_name)")
+    .select("id, name, owner_user_id, profiles!lists_owner_user_id_fkey(username, display_name)")
     .eq("visibility", "public")
     .order("created_at", { ascending: false })
     .limit(20);
