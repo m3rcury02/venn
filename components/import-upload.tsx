@@ -44,6 +44,8 @@ function UploadCard({
   source,
   title,
   description,
+  exportUrl,
+  exportLabel,
   accept,
   multiple,
   disabled,
@@ -55,6 +57,8 @@ function UploadCard({
   source: ImportSource;
   title: string;
   description: string;
+  exportUrl: string;
+  exportLabel: string;
   accept: string;
   multiple: boolean;
   disabled: boolean;
@@ -64,28 +68,40 @@ function UploadCard({
   pending: boolean;
 }) {
   return (
-    <Panel className="flex flex-col gap-4">
-      <div>
-        <p className="t-label text-marquee">{source}</p>
-        <h3 className="mt-2 text-xl font-semibold text-fg">{title}</h3>
-        <p className="mt-2 text-[14px] leading-relaxed text-fg-dim">{description}</p>
+    <Panel className="flex flex-col justify-between gap-4">
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className="t-label text-marquee">{source}</p>
+          <a
+            href={exportUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="t-label inline-flex items-center gap-1 text-[13px] text-beam-b transition-colors hover:text-fg hover:underline"
+          >
+            {exportLabel} ↗
+          </a>
+        </div>
+        <h3 className="text-xl font-semibold text-fg">{title}</h3>
+        <p className="text-[14px] leading-relaxed text-fg-dim">{description}</p>
       </div>
-      <input
-        type="file"
-        accept={accept}
-        multiple={multiple}
-        disabled={disabled || pending}
-        onChange={(event) => onFiles(Array.from(event.target.files ?? []))}
-        className={`${inputClass} h-auto py-3 file:mr-3 file:border-0 file:bg-transparent file:text-fg`}
-      />
-      <button
-        type="button"
-        disabled={disabled || pending || files.length === 0}
-        onClick={onStart}
-        className={buttonClass("ghost")}
-      >
-        {pending ? "Preparing…" : `Start ${source} import`}
-      </button>
+      <div className="flex flex-col gap-3 mt-auto">
+        <input
+          type="file"
+          accept={accept}
+          multiple={multiple}
+          disabled={disabled || pending}
+          onChange={(event) => onFiles(Array.from(event.target.files ?? []))}
+          className={`${inputClass} h-auto py-3 file:mr-3 file:border-0 file:bg-transparent file:text-fg`}
+        />
+        <button
+          type="button"
+          disabled={disabled || pending || files.length === 0}
+          onClick={onStart}
+          className={buttonClass("ghost")}
+        >
+          {pending ? "Preparing…" : `Start ${source} import`}
+        </button>
+      </div>
     </Panel>
   );
 }
@@ -151,7 +167,9 @@ export function ImportUpload({ active }: { active: boolean }) {
         <UploadCard
           source="imdb"
           title="Ratings and watchlist"
-          description="Select ratings.csv, watchlist.csv, or both. Movies and TV series are supported; episodes are skipped."
+          exportUrl="https://www.imdb.com/list/ratings"
+          exportLabel="Get IMDb export CSV"
+          description="Click 'Get IMDb export CSV' to open your ratings on IMDb, then click export. Select ratings.csv, watchlist.csv, or both below."
           accept=".csv,text/csv"
           multiple
           disabled={active || isPending}
@@ -163,7 +181,9 @@ export function ImportUpload({ active }: { active: boolean }) {
         <UploadCard
           source="letterboxd"
           title="Account export"
-          description="Select the ZIP from Letterboxd Settings. Ratings, watched films, watchlist, and liked films are merged automatically."
+          exportUrl="https://letterboxd.com/settings/data/"
+          exportLabel="Get Letterboxd export ZIP"
+          description="Click 'Get Letterboxd export ZIP' to download your account data. Select the ZIP file from your downloads below."
           accept=".zip,application/zip"
           multiple={false}
           disabled={active || isPending}
