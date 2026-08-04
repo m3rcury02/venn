@@ -10,6 +10,7 @@
 // names exactly one film; everything else lands in the Inbox.
 
 import { after, NextResponse } from "next/server";
+import { captureServer } from "@/lib/analytics/server";
 import { resolveInBackground } from "@/lib/ingest/resolve";
 import { verifyToken } from "@/lib/ingest/tokens";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -92,7 +93,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "could not accept" }, { status: 500 });
   }
 
-  after(() => resolveInBackground(db, row.id, userId, text));
+  const source = toSource(body.source);
+
+  // after(), not a bare un-awaited call: it keeps the function alive until the
+  // callback's returned promise settles even though the response has already
+  // gone out, which `captureServer(...)` on its own does not guarantee in a
+  // serverless runtime. The callback must be async and its promise awaited
+  // internally -- returning without awaiting would let after() see a
+  // synchronously-resolved callback and finish before either fetch completes.
+  after(async () => {
+    await captureServer(userId, "ingest_received", { source });
+    await resolveInBackground(db, row.id, userId, text);
+  });
 
   return NextResponse.json({ id: row.id, status: "pending" });
 }

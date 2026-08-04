@@ -36,3 +36,42 @@ self.addEventListener("fetch", (event) => {
     ),
   );
 });
+
+self.addEventListener("push", (event) => {
+  let data = { title: "Venn", body: "You have a new notification", url: "/" };
+  if (event.data) {
+    try {
+      data = event.data.json();
+    } catch {
+      data.body = event.data.text();
+    }
+  }
+
+  const options = {
+    body: data.body,
+    icon: "/apple-touch-icon.png",
+    data: { url: data.url || "/" },
+  };
+
+  event.waitUntil(self.registration.showNotification(data.title || "Venn", options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const urlToOpen = event.notification.data?.url || "/";
+
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((clientList) => {
+        for (const client of clientList) {
+          if (client.url === urlToOpen && "focus" in client) {
+            return client.focus();
+          }
+        }
+        if (self.clients.openWindow) {
+          return self.clients.openWindow(urlToOpen);
+        }
+      }),
+  );
+});

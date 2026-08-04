@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppHeader, navLinkClass } from "@/components/app-header";
 import { BlockButton } from "@/components/block-button";
+import { DangerZone } from "@/components/danger-zone";
 import { DisplayNameForm } from "@/components/display-name-form";
 import {
   IngestTokenPanel,
@@ -164,6 +165,19 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         </Link>
       </section>
 
+      <section className="flex flex-col items-start gap-4">
+        <div className="flex flex-col gap-2">
+          <h2 className="t-label text-fg-faint">Notifications</h2>
+          <p className="t-body max-w-md text-[15px] text-fg-dim">
+            Configure Web Push and email delivery preferences for movie night invites,
+            watch confirmations, new followers, and digests.
+          </p>
+        </div>
+        <Link href="/settings/notifications" className={buttonClass("ghost")}>
+          Notification preferences
+        </Link>
+      </section>
+
       {isAndroid ? (
         <section className="flex flex-col items-start gap-4">
           <div className="flex flex-col gap-2">
@@ -217,6 +231,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
         <ShortcutSetup endpoint={ingestEndpoint} />
       </section>
+
+      <DangerZone />
     </Screen>
   );
 }

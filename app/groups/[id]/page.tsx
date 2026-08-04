@@ -7,6 +7,7 @@ import { InviteCode } from "@/components/invite-code";
 import { LeaveGroupPanel } from "@/components/leave-group-panel";
 import { MovieCard } from "@/components/movie-card";
 import { RemoveFromListButton } from "@/components/remove-from-list-button";
+import { ReportButton } from "@/components/report-button";
 import { buttonClass } from "@/components/ui/button";
 import { Screen } from "@/components/ui/screen";
 import { VennMark } from "@/components/venn-mark";
@@ -162,9 +163,20 @@ export default async function GroupPage({ params }: GroupPageProps) {
                   }
                   footer={
                     <div className="flex flex-col gap-2">
-                      <p className="t-label truncate text-fg-faint">
-                        added by {item.profiles?.display_name ?? "Member"}
-                      </p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="t-label truncate text-fg-faint">
+                          added by {item.profiles?.display_name ?? "Member"}
+                        </p>
+                        {list ? (
+                          <ReportButton
+                            targetType="list_item"
+                            targetId={list.id}
+                            targetMovieId={item.movie_id}
+                            label="Report"
+                            className="t-label text-[10px] text-fg-faint hover:text-fg"
+                          />
+                        ) : null}
+                      </div>
                       <VoteControl
                         movieId={item.movie_id}
                         watched={watched}

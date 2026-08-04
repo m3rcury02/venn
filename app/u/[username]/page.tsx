@@ -4,6 +4,7 @@ import { AppHeader, navLinkClass } from "@/components/app-header";
 import { BlockButton } from "@/components/block-button";
 import { FollowButton } from "@/components/follow-button";
 import { MovieCard } from "@/components/movie-card";
+import { ReportButton } from "@/components/report-button";
 import { buttonClass } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
 import { Screen } from "@/components/ui/screen";
@@ -144,6 +145,11 @@ export default async function ProfilePage({ params }: ProfilePageProps) {
               <BlockButton
                 targetUserId={profile.id}
                 isBlockedInitial={isBlocked}
+              />
+              <ReportButton
+                targetType="user"
+                targetId={profile.id}
+                label="Report"
               />
             </>
           ) : null}

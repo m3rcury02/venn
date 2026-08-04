@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { setWatched, type Hype, type Rating } from "@/app/status/actions";
+import { captureServer } from "@/lib/analytics/server";
 import { cacheMovie } from "@/lib/movies/cache";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
@@ -60,6 +61,11 @@ export async function addToList(
   // 23505: already on this list -- not a failure the user needs to see as one.
   if (error && error.code !== "23505") {
     return { status: "error", message: "Couldn't add to list." };
+  }
+
+  if (!error) {
+    const mediaType = externalId.startsWith("tv-") ? "tv" : "movie";
+    await captureServer(userId, "movie_added", { media_type: mediaType });
   }
 
   const { data: vote, error: voteError } = await supabase

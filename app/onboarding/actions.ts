@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { Hype, Rating } from "@/app/status/actions";
+import { captureServer } from "@/lib/analytics/server";
 import { cacheMovie } from "@/lib/movies/cache";
+import { isUsernameBlocked } from "@/lib/moderation/blocklist";
 import { PROVIDER_NAME, provider } from "@/lib/providers";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
@@ -49,6 +51,9 @@ export async function saveOnboardingProfile(
     return {
       error: "Use 3–30 lowercase letters, numbers, or underscores.",
     };
+  }
+  if (isUsernameBlocked(username)) {
+    return { error: "That username is unavailable." };
   }
   if (!/^[A-Z]{2}$/.test(region)) {
     return { error: "Choose a country." };
@@ -232,8 +237,16 @@ export async function hypeOnboardingMovie(
 
 export async function completeOnboarding(): Promise<{ error?: string }> {
   const supabase = await createClient();
+  const userId = await authenticatedUserId();
   const { error } = await supabase.rpc("complete_onboarding");
   if (error) return { error: "Rate ten movies before continuing." };
+
+  if (userId) {
+    // Awaited, and before redirect() below: redirect() throws to unwind the
+    // action immediately, so an un-awaited call here races the throw and can
+    // be dropped before its fetch completes.
+    await captureServer(userId, "onboarding_completed");
+  }
 
   revalidatePath("/", "layout");
   redirect("/");

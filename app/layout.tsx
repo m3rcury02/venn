@@ -3,7 +3,9 @@ import { Anton, Archivo } from "next/font/google";
 import { InstallPrompt } from "@/components/install-prompt";
 import { ImportRunner } from "@/components/import-runner";
 import { MobileNavigation } from "@/components/mobile-navigation";
+import { Analytics } from "@/components/analytics";
 import { RegisterServiceWorker } from "@/components/register-service-worker";
+import { SiteFooter } from "@/components/site-footer";
 import "./globals.css";
 
 // Two families, and the second one does three jobs. Archivo is variable on
@@ -68,8 +70,10 @@ export default function RootLayout({
           }}
         >
           {children}
+          <SiteFooter />
           <MobileNavigation />
           <InstallPrompt />
+          <Analytics />
         </div>
         <RegisterServiceWorker />
         <ImportRunner />

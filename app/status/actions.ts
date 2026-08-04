@@ -1,6 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { captureServer } from "@/lib/analytics/server";
+import { sendPush } from "@/lib/notifications/send";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
@@ -41,6 +43,60 @@ export async function setWatched(movieId: string, watched: boolean): Promise<boo
   // just as setRating does (SPEC §4.1: "rebuilt when a user's rating changes").
   const { error: rebuildError } = await supabase.rpc("rebuild_user_tag_weights");
 
+  if (!rebuildError) {
+    // Awaited: an un-awaited call here can be dropped mid-flight when a
+    // serverless function's response returns before the underlying fetch
+    // completes.
+    await captureServer(userId, "vote_cast", { kind: "watched" });
+
+    if (watched) {
+      try {
+        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        const { data: nights } = await supabase
+          .from("movie_nights")
+          .select("id, movie_night_attendees!inner(user_id)")
+          .eq("picked_movie_id", movieId)
+          .eq("movie_night_attendees.user_id", userId)
+          .gte("held_at", thirtyDaysAgo);
+
+        if (nights && nights.length > 0) {
+          const { data: movie } = await supabase
+            .from("movies")
+            .select("title")
+            .eq("id", movieId)
+            .maybeSingle();
+          const movieTitle = movie?.title || "a movie";
+
+          for (const night of nights) {
+            await supabase.rpc("request_watch_confirmations", { p_night_id: night.id });
+
+            const { data: attendees } = await supabase
+              .from("movie_night_attendees")
+              .select("user_id")
+              .eq("movie_night_id", night.id);
+
+            // Collected and awaited together, same reasoning as above --
+            // sendPush never throws, so this cannot turn a successful
+            // "mark watched" into a failure.
+            await Promise.all(
+              (attendees ?? [])
+                .filter((att) => att.user_id !== userId)
+                .map((att) =>
+                  sendPush(att.user_id, "watch_confirmation", {
+                    title: "Did you watch?",
+                    body: `Confirm whether you watched ${movieTitle}`,
+                    url: "/",
+                  }),
+                ),
+            );
+          }
+        }
+      } catch {
+        // Confirmation requests are strictly additive and must never fail setWatched
+      }
+    }
+  }
+
   revalidatePath("/");
   return !rebuildError;
 }
@@ -66,6 +122,8 @@ export async function setRating(movieId: string, rating: Rating | null): Promise
   // only weights it can touch are the caller's.
   await supabase.rpc("rebuild_user_tag_weights");
 
+  await captureServer(userId, "vote_cast", { kind: "rating" });
+
   revalidatePath("/");
 }
 
@@ -90,6 +148,8 @@ export async function setHype(movieId: string, hype: Hype | null): Promise<void>
     rating: null,
     updated_at: new Date().toISOString(),
   });
+
+  await captureServer(userId, "vote_cast", { kind: "hype" });
 
   revalidatePath("/");
 }

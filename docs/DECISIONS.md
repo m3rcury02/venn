@@ -1,6 +1,6 @@
 # Decisions
 
-**Current phase: 10**
+**Current phase: 11**
 
 Append after every phase: what changed, and why.
 
@@ -4098,3 +4098,160 @@ commit had replaced with `/discover` instead of adding alongside it — `AppHead
 only auto-renders an Inbox link when the caller passes `inboxCount`, which
 Settings does not, so that was the only path to Inbox from Settings on desktop.
 
+
+---
+
+## Phase 11 — notification matrix, moderation, analytics, deletion + export, legal pages
+
+Migrations:
+- `supabase/migrations/20260805100000_phase11_reports.sql`
+- `supabase/migrations/20260805110000_phase11_movie_nights.sql`
+- `supabase/migrations/20260805120000_phase11_notifications.sql`
+
+### What changed, and why
+
+- **`push_subscriptions` is a departure from SPEC §3**:
+  The table is not present in SPEC §3's initial data model. Web Push delivery requires storing per-device endpoints, p256dh keys, and auth secrets; there is nowhere else for Web Push subscriptions to reside, so `push_subscriptions` was created with `user_id` FK and own-row RLS.
+
+- **Moderation admin identity uses environment allowlist (`ADMIN_USER_IDS`) and not a `profiles.is_admin` column**:
+  `profiles_update_own` allows authenticated users to update their own profile fields. Placing an `is_admin` boolean on `profiles` would introduce a self-service privilege escalation vector unless strictly scoped with column-level write grants. Using `ADMIN_USER_IDS` in environment configuration keeps administrative privileges out of the user-writable table.
+
+- **`notification_prefs` has no seeding trigger**:
+  Absent rows fall back to SPEC §8 defaults, resolved at runtime in TypeScript (`lib/notifications/categories.ts` → `resolvePrefs`). A DB trigger seeding 5 rows per user would bloat storage unnecessarily; an un-seeded overlay pattern keeps the database lean.
+
+- **Weekly digest is a daily Vercel cron with a weekday check**:
+  Vercel Hobby crons operate at day-granularity (`30 3 * * *`). The cron handler (`/api/cron/digest`) checks `new Date().getUTCDay() === 0` to execute only on Sundays (or when explicitly forced via `?force=true` during testing).
+
+- **Account deletion cascades `list_items.added_by`**:
+  `list_items` references `profiles(id)` via `added_by` with `ON DELETE CASCADE`. Deleting a user account cascades deletion to their added items across all lists, including group lists. This was accepted deliberately as account deletion represents a complete removal of user contributions.
+
+- **Data export uses the user-scoped client**:
+  `/api/export` uses `createClient()`. Because RLS policies enforce single-user access control across all target tables, using the user-scoped client allows RLS to filter the exported data without manual `.eq("user_id", ...)` clauses, preventing over-fetching or cross-tenant leaks.
+
+- **`reports.target_id` carries no foreign key**:
+  The report table supports reporting users, lists, and list items (`target_type IN ('user', 'list', 'list_item')`). Because `target_id` is polymorphic across three different tables, a traditional foreign key constraint cannot be applied.
+
+- **`service_role` grants per migration** (corrected below to match what each
+  migration actually grants — an earlier version of this entry claimed grants
+  that were never written, on `list_items` and `movie_night_attendees` /
+  `watch_confirmations` in particular; a decisions log that misstates the
+  schema is worse than none):
+  - `20260805100000_phase11_reports.sql`: `GRANT SELECT, UPDATE ON reports`, `GRANT SELECT ON profiles`, `GRANT SELECT, UPDATE ON lists`, `GRANT SELECT, DELETE ON list_items` — `/moderation` reads and actions reports, names the reporter/target, and can blank an abusive list name or delete a reported item.
+  - `20260805110000_phase11_movie_nights.sql`: `GRANT SELECT ON movie_nights, movie_night_attendees` — the digest cron reads both. Nothing is granted on `watch_confirmations`; nothing server-side needs it.
+  - `20260805120000_phase11_notifications.sql`: `GRANT SELECT ON notification_prefs`, `GRANT SELECT, DELETE ON push_subscriptions` (the `DELETE` is what lets `sendPush()` auto-prune a subscription on HTTP 404/410), `GRANT SELECT ON follows` — the digest cron walks follow edges.
+  - `20260805140000_phase11_digest_grants.sql` (added on review, see below): `GRANT SELECT ON groups, group_members` — phase 3 granted both to `authenticated` only; the digest cron runs as `service_role` and had no privilege on either table until this migration. `explore_grants.sql` is the precedent for this exact gap.
+
+- **Weekly digest resolves email addresses through `auth.admin.getUserById` / `listUsers()`**:
+  SPEC §3 `profiles` table contains no `email` column, and PostgREST does not expose Supabase's internal `auth` schema. The digest cron uses `createServiceClient().auth.admin` to resolve verified user email addresses safely.
+
+- **Environment variables and `NEXT_PUBLIC_` scoping**:
+  - `NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_HOST`, `NEXT_PUBLIC_VAPID_PUBLIC_KEY`: Client-facing write-only / public identification keys, placed in `NEXT_PUBLIC_` by design.
+  - `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `RESEND_API_KEY`, `CRON_SECRET`, `ADMIN_USER_IDS`: Secret server-side configurations, kept private from client bundles.
+
+- **RLS test suite updated**:
+  `supabase/tests/rls.test.sql` plan updated to **172** assertions (from 150), covering positive and negative RLS controls for `reports`, `movie_nights`, `movie_night_attendees`, `watch_confirmations`, `notification_prefs`, and `push_subscriptions`.
+
+### Post-review fixes
+
+A review after the initial commit found seven defects, none caught by `pnpm
+build`/`lint`/`typecheck` — all either runtime permission errors, silent no-ops, or a
+live data-loss path. Fixed in two follow-up migrations plus application-code changes on
+the same branch:
+
+- **`reports.target_id` alone could not name a `list_item`** (`list_items`' primary key
+  is `(list_id, movie_id)`, not a single column), and
+  `app/moderation/actions.ts`'s `deleteReportedContent` deleted by `list_id` only —
+  actioning one reported note removed every item in the list. Both report buttons
+  (`app/groups/[id]/page.tsx`, `app/movies/[id]/page.tsx`) were passing a list id as
+  `target_id` with no way to say which item. Fixed by
+  `20260805130000_phase11_report_target_fix.sql`: adds `target_movie_id` (nullable,
+  `on delete set null`, required by a check constraint exactly when
+  `target_type = 'list_item'`), and widens the one-report-per-target unique index to the
+  full `(reporter_id, target_type, target_id, target_movie_id)` with `nulls not
+  distinct` — without that clause the index stops deduplicating `user`/`list` reports,
+  since Postgres treats every `NULL` as distinct from every other `NULL`. The delete now
+  scopes by both `list_id` and `movie_id`, and refuses to run if `target_movie_id` is
+  missing.
+
+  Noted, not changed, while reading this action: for a `user`-target report,
+  `deleteReportedContent` overwrites `profiles.display_name` to `"Removed"` — a real
+  action, not just a `reports.status` change, and not previously written down anywhere.
+  This mirrors the existing `list`-target behaviour (blanking `lists.name` to
+  `"Removed"`), and is deliberately the *lighter* of the two `user`-target actions —
+  `deleteReportedAccount` is the other, and actually removes the account. Left as-is:
+  it's a defensible lighter-touch moderation action for an abusive display name that
+  doesn't warrant deleting the whole account. Recorded here because it has no audit
+  trail and sends the affected user no notice, which a future phase may want to revisit.
+
+- **The digest cron had no `service_role` privilege on `groups` or `group_members`.**
+  Phase 3's `revoke all on groups, group_members from anon, authenticated,
+  service_role` granted `SELECT` back to `authenticated` only; no later migration
+  (including this phase's own) granted either table to `service_role`, and
+  `app/api/cron/digest/route.ts` runs as `createServiceClient()`. Both queries failed
+  with `permission denied`, and because the route only destructured `data` and never
+  `error`, the movie-nights section silently vanished from every digest instead of
+  erroring. Fixed by `20260805140000_phase11_digest_grants.sql`
+  (`grant select on groups, group_members to service_role;`) and by checking `error` on
+  both queries in the route, so the next missing grant is loud instead of silent.
+
+- **`friend_added` defaulted to `email: false`, and the digest gated its own section on
+  that same flag** — SPEC §8 marks that category **"digest only"**, meaning the digest
+  is its delivery channel, so the default should have been the opposite. Combined with
+  the grant gap above, both sections of the digest were empty for every user and the
+  route returned `{ ok: true, sentCount: 0 }` — success-shaped, doing nothing. Fixed in
+  `lib/notifications/categories.ts`: `friend_added.email` now defaults to `true` (push
+  stays `false`, per §8's explicit warning against defaulting that one to push).
+
+- **`/api/export` returned other users' data.** `profiles` had no `.eq("id", userId)` —
+  the same unscoped-`.single()` shape phase 10's review already found and fixed in three
+  other files, now reintroduced in a fourth. `lists`, `group_members`, and
+  `movie_night_attendees` had no owner filter at all: their SELECT policies are read
+  predicates (a public list, a followers-visible list, a co-attendee's membership row),
+  not ownership filters, so the export shipped other people's list contents and other
+  group members' roles in a file framed as "your data." Fixed by adding an explicit
+  `.eq(..., userId)` (or the equivalent) to all four queries — RLS remains the security
+  boundary, but is not treated as an ownership filter here. `follows` was also split into
+  separate `following`/`followers` keys, since one unfiltered query returned both
+  directions merged into a single ambiguous list.
+
+- **Deleting an account left the browser in an onboarding loop.** `deleteAccount` called
+  `service.auth.admin.deleteUser(userId)` but never `supabase.auth.signOut()` on the
+  user-scoped client. `getClaims()` verifies JWT signature against the project JWKS and
+  does not check whether the user still exists, so a deleted user's token stayed
+  "valid" until it expired; the next navigation found valid claims, a `profiles` query
+  that returned nothing, and `proxy.ts` redirected to `/onboarding`, which cannot
+  complete because `handle_new_user` never fires for a user that no longer exists. Fixed
+  by calling `supabase.auth.signOut()` before `deleteUser()`, matching the order
+  `app/auth/signout/route.ts` already uses for a normal logout.
+
+- **The digest emailed raw HTML.** Group names and display names are free text (SPEC
+  §11 names free-text fields as exactly where abuse appears), and were interpolated
+  directly into the digest's email template. Fixed with a local `escapeHtml()` applied
+  at every interpolation site. `listUsers()` was also unpaginated (Supabase defaults to
+  50 per page) and would have silently stopped reaching recipients past the first 50;
+  fixed by looping pages until a short page ends the loop.
+
+- **`sendPush()` / `captureServer()` were called without `await`** at several sites
+  (`app/follows/actions.ts`, `app/groups/[id]/night/actions.ts`,
+  `app/status/actions.ts`, `app/list/actions.ts`, `app/onboarding/actions.ts`,
+  `app/api/imports/[id]/process/route.ts`). In a serverless function the response can
+  return, and the runtime may recycle, before an un-awaited promise's underlying `fetch`
+  completes — a gap invisible in a long-lived local `pnpm dev` process. Fixed by
+  awaiting each call, collecting per-loop sends into `Promise.all(...)` where there were
+  multiple recipients. `app/api/ingest/route.ts` and `app/share/route.ts` already used
+  Next's `after()` for exactly this problem on `resolveInBackground`; `captureServer`
+  moved inside the same `after()` callback rather than being awaited before the
+  response, since SPEC §5 requires returning 200 immediately.
+
+Also removed `components/posthog-provider.tsx`, an unused component from a superseded
+approach — `app/layout.tsx` renders `components/analytics.tsx` instead.
+
+`supabase/tests/rls.test.sql` gained four assertions for the `target_movie_id` fix — the
+check constraint rejects a `list_item` report without it, a `list_item` report with it
+succeeds, a second report on a *different* movie in the same list is no longer treated
+as a duplicate (the bug), and a true duplicate on the same list-and-movie pair is still
+caught by the widened unique index. **176** assertions total (was 172 after the initial
+phase-11 commit, 150 before phase 11).
+
+Migrations: `20260805130000_phase11_report_target_fix.sql`,
+`20260805140000_phase11_digest_grants.sql`.

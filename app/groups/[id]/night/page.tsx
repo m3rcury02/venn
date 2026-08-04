@@ -20,11 +20,10 @@ import { explain, releaseLabel, type Recommendation } from "@/lib/recommend/expl
 import { theatreCandidates, type TheatreCandidate } from "@/lib/movies/theatre";
 import { provider } from "@/lib/providers";
 import { getClaims } from "@/lib/supabase/claims";
+import { LogNightButton } from "@/components/log-night-button";
 import { createClient } from "@/lib/supabase/server";
 
-// SPEC §7 screen 6. Home mode is phase 4; theatre mode is phase 9 (this file).
-// Logging the night plus its watch confirmations is phase 11 -- so this screen
-// computes and shows, and writes nothing.
+// SPEC §7 screen 6. Home mode is phase 4; theatre mode is phase 9; logging is phase 11.
 type MemberRow = {
   user_id: string;
   profiles: { display_name: string | null; region: string | null } | null;
@@ -194,7 +193,7 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
         />
       ) : picks.length > 0 ? (
         <>
-          <div className="motion-safe:animate-expose">
+          <div className="motion-safe:animate-expose flex flex-col gap-4 items-start">
             <NightPickHero
               title={winner.title}
               year={winner.year}
@@ -206,6 +205,12 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
                 winner.poster_path ? provider.getImageUrl(winner.poster_path, "w342") : null
               }
               reasons={reasonsFor(winner)}
+            />
+            <LogNightButton
+              groupId={id}
+              mode={mode}
+              movieId={winner.movie_id}
+              present={present}
             />
           </div>
 

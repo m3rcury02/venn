@@ -7,6 +7,7 @@ import {
   type MovieVotePercentages,
 } from "@/components/movie-detail-status";
 import { Poster } from "@/components/poster";
+import { ReportButton } from "@/components/report-button";
 import { buttonClass } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
 import { Screen } from "@/components/ui/screen";
@@ -116,7 +117,7 @@ export default async function MovieDetailPage({ params }: MovieDetailPageProps) 
   const userId = claims?.claims?.sub;
   if (typeof userId !== "string") redirect("/login");
 
-  const [movieResult, profileResult, mappingResult, percentagesResult] =
+  const [movieResult, profileResult, mappingResult, percentagesResult, notesResult] =
     await Promise.all([
       supabase
         .from("movies")
@@ -133,6 +134,11 @@ export default async function MovieDetailPage({ params }: MovieDetailPageProps) 
         .eq("provider", PROVIDER_NAME)
         .maybeSingle(),
       supabase.rpc("get_movie_vote_percentages", { p_movie_id: id }),
+      supabase
+        .from("list_items")
+        .select("list_id, note, added_by, profiles(display_name, username)")
+        .eq("movie_id", id)
+        .not("note", "is", null),
     ]);
 
   if (movieResult.error) throw movieResult.error;
@@ -197,6 +203,13 @@ export default async function MovieDetailPage({ params }: MovieDetailPageProps) 
   const backdropUrl = movie.backdrop_path
     ? provider.getImageUrl(movie.backdrop_path, "w1280")
     : null;
+
+  const notes = (notesResult.data ?? []) as unknown as {
+    list_id: string;
+    note: string;
+    added_by: string;
+    profiles: { display_name: string | null; username: string | null } | null;
+  }[];
 
   return (
     <Screen>
@@ -267,6 +280,31 @@ export default async function MovieDetailPage({ params }: MovieDetailPageProps) 
                 `No synopsis is available for this ${movie.media_type === "tv" ? "show" : "movie"}.`}
             </p>
           </section>
+
+          {notes.length > 0 ? (
+            <section>
+              <h2 className="t-label text-fg-faint">Notes from members</h2>
+              <div className="mt-4 flex flex-col gap-3">
+                {notes.map((n) => (
+                  <Panel key={n.list_id} className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="t-label text-xs text-fg-dim">
+                        {n.profiles?.display_name || n.profiles?.username || "Member"}
+                      </span>
+                      <ReportButton
+                        targetType="list_item"
+                        targetId={n.list_id}
+                        targetMovieId={movie.id}
+                        label="Report note"
+                        className="t-label text-xs text-fg-faint hover:text-fg"
+                      />
+                    </div>
+                    <p className="t-body text-sm text-fg">{n.note}</p>
+                  </Panel>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <section>
             <div className="flex flex-wrap items-end justify-between gap-3">

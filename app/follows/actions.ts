@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { sendPush } from "@/lib/notifications/send";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
@@ -26,6 +27,24 @@ export async function followUser(targetUserId: string): Promise<FollowActionResu
   if (error) {
     return { ok: false, error: error.message };
   }
+
+  const { data: followerProfile } = await supabase
+    .from("profiles")
+    .select("username, display_name")
+    .eq("id", me)
+    .maybeSingle();
+
+  const followerName = followerProfile?.display_name || followerProfile?.username || "Someone";
+  const url = followerProfile?.username ? `/u/${followerProfile.username}` : "/discover";
+
+  // Awaited: an un-awaited call here can be dropped mid-flight when a
+  // serverless function's response returns and the runtime is recycled
+  // before the underlying fetch to the push service completes.
+  await sendPush(targetUserId, "new_follower", {
+    title: "New follower",
+    body: `${followerName} started following you`,
+    url,
+  });
 
   revalidatePath("/u/[username]", "page");
   revalidatePath("/discover");
