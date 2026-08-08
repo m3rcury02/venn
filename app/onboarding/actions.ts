@@ -199,7 +199,7 @@ export async function rateOnboardingMovie(
 }
 
 // For movies that haven't released yet -- rating implies "I watched this,"
-// which isn't possible for them. Hype votes don't count toward the ten
+// which isn't possible for them. Hype votes don't count toward the five
 // ratings complete_onboarding() requires (SPEC §4.5: cold start needs rated
 // movies, since only ratings feed user_tag_weights).
 export async function hypeOnboardingMovie(
@@ -239,7 +239,7 @@ export async function completeOnboarding(): Promise<{ error?: string }> {
   const supabase = await createClient();
   const userId = await authenticatedUserId();
   const { error } = await supabase.rpc("complete_onboarding");
-  if (error) return { error: "Rate ten movies before continuing." };
+  if (error) return { error: "Rate five movies before continuing." };
 
   if (userId) {
     // Awaited, and before redirect() below: redirect() throws to unwind the

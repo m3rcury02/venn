@@ -232,7 +232,7 @@ Generated from scoring components, no LLM:
 - "Nobody here has seen it"
 
 ### 4.5 Edge cases
-- **Cold start:** signup requires rating 10 popular movies. A member with no tag weights is excluded from the `min` term.
+- **Cold start:** signup requires rating 5 popular movies (users can keep rating past that with no upper bound). A member with no tag weights is excluded from the `min` term.
 - **Reroll:** exclude the previous three, recompute.
 - **None of these:** log it — useful signal.
 - **Remote nights:** a lobby with a join link; `movie_night_attendees` fills as people join.
@@ -287,7 +287,7 @@ Generated from scoring components, no LLM:
 ## 7. Screens
 
 1. **Auth** — Google OAuth (primary), magic link (secondary)
-2. **Onboarding** — username, region, rate 10 popular movies
+2. **Onboarding** — username, region, rate 5 popular movies
 3. **My List** — filter by watched / unwatched / rating / hype
 4. **Group List** — who added what
 5. **Inbox** — pending shares, candidate picker
@@ -341,7 +341,7 @@ Phases are built in order. **Do not build ahead of the current phase.** The curr
 | 5 | `/api/ingest`, ingest tokens, Inbox resolution UI | v1 |
 | 6 | Android Web Share Target, iOS Shortcut | v1 |
 | 7 | PWA polish — icons, install prompt, offline shell | v1 |
-| 8 | 10-movie onboarding, IMDb import, Letterboxd import | v2 |
+| 8 | 10-movie onboarding (minimum lowered to 5 — see §4.5), IMDb import, Letterboxd import | v2 |
 | 9 | Theatre mode — same picker, release-status filter | v2 |
 | 9.5 | Explore — vertical trailer feed at `/explore`. Built out of band, after phase 9, with explicit approval; SPEC §7 screen 12. Not part of phase 10. | v2 |
 | 10 | Public profiles, follows, visibility toggles, blocks | v2 |

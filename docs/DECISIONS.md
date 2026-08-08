@@ -4303,4 +4303,23 @@ Migrations: `supabase/migrations/20260805150000_phase12_hype_history.sql`, `supa
   - Scrolling past a card in `/explore` without voting sets `scrolled_past_at = now()`, leaving `hype` and `rating` `null`. In `recommend_movies`, `scrolled_past_at is not null` receives a lower score (`0.1`), reflecting that the user didn't even bother voting for it.
 - **Feed Paging & Tiered Ordering**: `exploreFeed` in `lib/movies/explore.ts` filters out hard exclusions (`watched`, `rating != null`, `hype != null`) completely, while placing soft-disinterested (`scrolled_past_at != null`) titles at the tail of the release pool after all fresh unseen titles (`[...freshReleaseIds, ...scrolledReleaseIds]`). Fresh titles always load first on `/explore`, while scrolled-past titles remain in the candidate pool as overflow rather than being permanently hard-excluded.
 
+### Onboarding rating minimum lowered from ten to five
+
+Ten ratings before "Enter Venn" appeared was too long a wall on a first-run
+screen. The minimum is now five, enforced the same way phase 8 designed it:
+`complete_onboarding()` (`supabase/migrations/20260808000000_onboarding_five_rating_minimum.sql`)
+still checks the count inside one `SECURITY DEFINER` function, still rebuilds
+tag weights, and `onboarded_at` is still not client-writable. Only the
+threshold changed, from `< 10` to `< 5`.
+
+Voting past five is unbounded and purely opt-in — the "Load more movies" flow
+already paged through popular titles, so nothing there needed to change.
+`OnboardingTaste` mounts the "Enter Venn" button as soon as the count reaches
+five and leaves it mounted; the user can keep rating with the button on
+screen, or leave. The progress readout drops its `/ 5` denominator once the
+minimum is met, since a running count with no ceiling has no denominator to
+show. Hype votes on unreleased titles still don't count toward the minimum
+(§4.5: only ratings feed `user_tag_weights`), and pre-existing ratings from
+library imports still count, unchanged from phase 8.
+
 

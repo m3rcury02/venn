@@ -19,7 +19,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(193);
+select plan(194);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -868,7 +868,7 @@ select throws_ok(
   $$select public.complete_onboarding()$$,
   '22023',
   null,
-  'onboarding cannot complete with fewer than ten ratings'
+  'onboarding cannot complete with fewer than five ratings'
 );
 
 -- Insert the extra catalog rows outside RLS. The authenticated control below
@@ -897,13 +897,36 @@ select lives_ok(
       true,
       'like'::movie_rating
     from movies
-    where id::text like '8000000%'$$,
-  'control: D can add the nine remaining onboarding ratings'
+    where id::text in (
+      '80000001-0000-0000-0000-000000000001',
+      '80000002-0000-0000-0000-000000000002',
+      '80000003-0000-0000-0000-000000000003',
+      '80000004-0000-0000-0000-000000000004'
+    )$$,
+  'control: D can add four more ratings to reach the five-rating minimum'
 );
 
 select lives_ok(
   $$select public.complete_onboarding()$$,
-  'control: D completes onboarding after ten ratings'
+  'control: D completes onboarding after five ratings'
+);
+
+select lives_ok(
+  $$insert into user_movie_status (user_id, movie_id, watched, rating)
+    select
+      'dddddddd-dddd-dddd-dddd-dddddddddddd',
+      id,
+      true,
+      'like'::movie_rating
+    from movies
+    where id::text in (
+      '80000005-0000-0000-0000-000000000005',
+      '80000006-0000-0000-0000-000000000006',
+      '80000007-0000-0000-0000-000000000007',
+      '80000008-0000-0000-0000-000000000008',
+      '80000009-0000-0000-0000-000000000009'
+    )$$,
+  'control: D rates the remaining onboarding movies for downstream state'
 );
 
 select ok(

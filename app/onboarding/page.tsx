@@ -73,8 +73,9 @@ export default async function OnboardingPage() {
           Show us your taste
         </h1>
         <p className="max-w-2xl text-[16px] leading-relaxed text-fg-dim">
-          Rate ten popular movies you&rsquo;ve seen. These signals give your
-          first group picks something real to work with.
+          Rate five popular movies you&rsquo;ve seen. These signals give your
+          first group picks something real to work with &mdash; rate more any
+          time for sharper ones.
         </p>
       </div>
       <OnboardingTaste initialMovies={movies} initialCount={count ?? 0} />

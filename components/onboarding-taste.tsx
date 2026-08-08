@@ -25,6 +25,8 @@ const hypeChoices: { value: Hype; label: string; active: string }[] = [
   { value: "superhyped", label: "Very hyped", active: "border-beam-b bg-beam-b text-on-beam" },
 ];
 
+const MIN_RATINGS = 5;
+
 function isUnreleased(releaseDate: string | null) {
   return !releaseDate || new Date(releaseDate) > new Date();
 }
@@ -120,10 +122,13 @@ export function OnboardingTaste({
           <div>
             <p className="t-label text-fg-faint">Taste profile</p>
             <p className="mt-1 text-[15px] text-fg">
-              {Math.min(count, 10)} / 10 rated
+              {count >= MIN_RATINGS ? `${count} rated` : `${count} / ${MIN_RATINGS} rated`}
             </p>
+            {count >= MIN_RATINGS ? (
+              <p className="text-[13px] text-fg-dim">Keep rating for sharper picks.</p>
+            ) : null}
           </div>
-          {count >= 10 ? (
+          {count >= MIN_RATINGS ? (
             <button
               type="button"
               onClick={finish}
