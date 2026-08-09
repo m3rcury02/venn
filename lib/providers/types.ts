@@ -100,6 +100,8 @@ export interface MovieDataProvider {
   getTags(externalId: string): Promise<Tag[]>;
   getTrailerKey(externalId: string): Promise<string | null>;
   getExternalIds(externalId: string): Promise<MovieExternalIds>;
+  /** SPEC §4.2's widen step: "provider recommendations seeded by" a title. */
+  recommendations(externalId: string): Promise<MovieSummary[]>;
   getWatchProviders(
     externalId: string,
     region: string,

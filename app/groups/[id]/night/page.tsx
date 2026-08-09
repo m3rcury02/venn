@@ -17,6 +17,7 @@ import { LinkPending } from "@/components/ui/link-pending";
 import { Screen } from "@/components/ui/screen";
 import { VennMark } from "@/components/venn-mark";
 import { explain, releaseLabel, type Recommendation } from "@/lib/recommend/explain";
+import { widenCandidates } from "@/lib/recommend/widen";
 import { theatreCandidates, type TheatreCandidate } from "@/lib/movies/theatre";
 import { provider } from "@/lib/providers";
 import { getClaims } from "@/lib/supabase/claims";
@@ -107,6 +108,7 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
 
   let picks: Recommendation[] = [];
   let releaseByMovie = new Map<string, TheatreCandidate>();
+  let widenedIds = new Set<string>();
 
   if (present.length > 0) {
     if (mode === "theatre") {
@@ -124,11 +126,35 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
       });
       picks = (data as unknown as Recommendation[] | null) ?? [];
     } else {
-      const { data } = await supabase.rpc("recommend_movies", {
-        p_group_id: id,
-        p_present: present,
-        p_exclude: exclude,
-      });
+      // SPEC §4.2's widen step, home mode only. recommend_movies' own
+      // group-list pool (p_candidates null) is exactly `poolIds` below, so
+      // this read has to be unbounded to stay correct once p_candidates is
+      // passed non-null: 1000 rows (supabase/config.toml's max_rows) is far
+      // past anything a 4-6 person group's list will ever hold.
+      const { data: rawPoolItems } = await supabase
+        .from("list_items")
+        .select("movie_id, lists!inner(owner_group_id)")
+        .eq("lists.owner_group_id", id);
+      const poolIds = [
+        ...new Set(
+          ((rawPoolItems as { movie_id: string }[] | null) ?? []).map((r) => r.movie_id),
+        ),
+      ];
+
+      const widened = await widenCandidates(supabase, id, present, exclude, poolIds);
+      widenedIds = new Set(widened);
+
+      const { data } = await supabase.rpc(
+        "recommend_movies",
+        widened.length > 0
+          ? {
+              p_group_id: id,
+              p_present: present,
+              p_exclude: exclude,
+              p_candidates: [...poolIds, ...widened],
+            }
+          : { p_group_id: id, p_present: present, p_exclude: exclude },
+      );
       picks = (data as unknown as Recommendation[] | null) ?? [];
     }
   }
@@ -136,7 +162,7 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
   const [winner, ...runnersUp] = picks;
 
   function reasonsFor(pick: Recommendation) {
-    if (mode !== "theatre") return explain(pick);
+    if (mode !== "theatre") return explain(pick, undefined, widenedIds.has(pick.movie_id));
     const release = releaseByMovie.get(pick.movie_id);
     return explain(pick, release ? releaseLabel(release.releaseType, release.releaseDate) : undefined);
   }

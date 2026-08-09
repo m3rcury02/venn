@@ -203,7 +203,15 @@ async function main() {
     url,
   );
 
-  section("9. rows actually landed");
+  section("9. recommendations — SPEC §4.2 widen step");
+  const recs = await provider.recommendations("movie-27205");
+  check(recs.length > 0, "Inception returns provider recommendations", `${recs.length} results`);
+  check(
+    recs.every((m) => /^movie-\d+$/.test(m.externalId)),
+    "every recommendation carries a prefixed movie id",
+  );
+
+  section("10. rows actually landed");
   const cachedIds = [...ids.values()];
 
   const { count: movieCount, error: movieError } = await db

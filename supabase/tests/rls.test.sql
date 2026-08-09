@@ -19,7 +19,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(194);
+select plan(198);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -845,6 +845,92 @@ select is(
      array['55555555-5555-5555-5555-555555555555']::uuid[])),
   0,
   'reroll: an excluded movie is not returned again'
+);
+
+-- ---------------------------------------- D: widen_seeds (SPEC §4.2 widen)
+-- Exercises supabase/migrations/20260809120000_widen_candidate_pool.sql.
+
+-- movies and movie_external_ids are catalog tables -- authenticated holds
+-- SELECT only (phase 0), so these fixtures need the superuser bypass, same as
+-- the file's own top fixtures. reset role / set local role authenticated is
+-- this file's established idiom for that (see e.g. lines 954-967).
+reset role;
+
+-- A second highly-rated group-list film, so the ordering assertion below has
+-- two seeds whose score order and insertion order disagree: 33333333 was
+-- inserted first but scores lower (C's hate cancels most of D's love) --
+-- catching a fallback to insertion order rather than rating_score.
+insert into movies (id, title, year) values
+  ('88888888-8888-8888-8888-888888888888', 'Widely Loved Movie', 2019);
+
+insert into movie_external_ids (movie_id, provider, external_id) values
+  ('33333333-3333-3333-3333-333333333333', 'tmdb', 'movie-333'),
+  ('88888888-8888-8888-8888-888888888888', 'tmdb', 'movie-888');
+
+insert into list_items (list_id, movie_id, added_by)
+select id, '88888888-8888-8888-8888-888888888888',
+       'dddddddd-dddd-dddd-dddd-dddddddddddd'
+from lists where owner_group_id = '99999999-9999-9999-9999-999999999999';
+
+-- love+3 from both C and D, sum 6 -- versus 33333333's hate(-2)+love(3) = 1.
+-- Both present members having watched it (a rating requires watched = true)
+-- also keeps it out of `candidates`, same as 33333333 -- a seed is not
+-- required to be an eligible candidate itself.
+insert into user_movie_status (user_id, movie_id, watched, rating) values
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+   '88888888-8888-8888-8888-888888888888', true, 'love'),
+  ('dddddddd-dddd-dddd-dddd-dddddddddddd',
+   '88888888-8888-8888-8888-888888888888', true, 'love');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-dddd-dddd-dddddddddddd","role":"authenticated"}';
+
+-- Positive control first, per this file's own house rule (line 4-9): a real
+-- result before any negative on the same function. The group list now holds
+-- three films (33333333, 55555555, 88888888); 55555555 is the only one
+-- unwatched by a present member, so this is the same "one eligible candidate"
+-- state the recommender block above already proved, computed independently by
+-- widen_seeds -- which is what a page deciding whether to widen depends on.
+select is(
+  (select candidate_count from public.widen_seeds(
+      '99999999-9999-9999-9999-999999999999',
+      array['cccccccc-cccc-cccc-cccc-cccccccccccc',
+            'dddddddd-dddd-dddd-dddd-dddddddddddd']::uuid[])),
+  1,
+  'control: widen_seeds counts the same one eligible candidate as recommend_movies'
+);
+
+select results_eq(
+  $$select seed_external_ids from public.widen_seeds(
+      '99999999-9999-9999-9999-999999999999',
+      array['cccccccc-cccc-cccc-cccc-cccccccccccc',
+            'dddddddd-dddd-dddd-dddd-dddddddddddd']::uuid[])$$,
+  $$values (array['movie-888', 'movie-333']::text[])$$,
+  'seeds come back ranked by rating weight (6 then 1), not insertion order'
+);
+
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+select throws_ok(
+  $$select * from public.widen_seeds(
+      '99999999-9999-9999-9999-999999999999',
+      array['dddddddd-dddd-dddd-dddd-dddddddddddd']::uuid[])$$,
+  '42501',
+  null,
+  'non-member A cannot call widen_seeds for the group'
+);
+
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-dddd-dddd-dddddddddddd","role":"authenticated"}';
+
+select throws_ok(
+  $$select * from public.widen_seeds(
+      '99999999-9999-9999-9999-999999999999',
+      array['cccccccc-cccc-cccc-cccc-cccccccccccc',
+            'dddddddd-dddd-dddd-dddd-dddddddddddd',
+            '11111111-1111-1111-1111-111111111111']::uuid[])$$,
+  '42501',
+  null,
+  'p_present containing a non-member is rejected, same guard as recommend_movies'
 );
 
 -- ------------------------------------ D: onboarding and imports (phase 8)

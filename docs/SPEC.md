@@ -50,6 +50,7 @@ interface MovieDataProvider {
   findByImdbId(imdbId: string): Promise<Movie | null>
   nowPlaying(region: string): Promise<MovieSummary[]>
   upcoming(region: string): Promise<MovieSummary[]>
+  recommendations(externalId: string): Promise<MovieSummary[]>   // §4.2 widen step
 }
 ```
 

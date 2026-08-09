@@ -398,6 +398,25 @@ export const tmdb: MovieDataProvider = {
     return { imdbId: ids.imdb_id || null };
   },
 
+  // SPEC §4.2's widen step. Seeds are group-rated films, movie-shaped in
+  // practice, but the switch mirrors every other externalId-dispatched method
+  // here rather than assuming movie.
+  async recommendations(externalId) {
+    const { mediaType, id } = parseExternalId(externalId);
+
+    if (mediaType === "movie") {
+      const { results } = await get<{ results: TmdbMovieListItem[] }>(
+        `/movie/${id}/recommendations`,
+      );
+      return results.map(toMovieSummary);
+    }
+
+    const { results } = await get<{ results: TmdbTvListItem[] }>(
+      `/tv/${id}/recommendations`,
+    );
+    return results.map(toTvSummary);
+  },
+
   async getWatchProviders(externalId, region) {
     const { mediaType, id } = parseExternalId(externalId);
 

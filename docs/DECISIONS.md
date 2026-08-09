@@ -4322,4 +4322,151 @@ show. Hype votes on unreleased titles still don't count toward the minimum
 (§4.5: only ratings feed `user_tag_weights`), and pre-existing ratings from
 library imports still count, unchanged from phase 8.
 
+---
+
+## SPEC §4.2's widen step, built out of band against phase 4
+
+Not a new phase — this fills a gap phase 4 left open on purpose and phase 9
+repeated for theatre mode. Phase 4's own migration
+(`20260726154439_phase4_recommender.sql:25-27`) named the widen step and
+deferred it explicitly: "it needs a new `MovieDataProvider` method and a
+`cacheMovie` per pulled title. The picker returns fewer than 3 instead." That
+degraded behaviour — the night page falling to "Everything on the group list
+has been seen by someone here" — is what a 4–6 person group hits within
+weeks of using the picker at all, since the app has no other source of new
+candidates. Migration: `20260809120000_widen_candidate_pool.sql`.
+
+**Scope: home mode only.** Theatre mode's widen stays out of scope, per phase
+9's own note — nothing here changes that.
+
+### Why a new SECURITY DEFINER function, not a page-side count
+
+The trigger condition is "fewer than ~10 candidates," where a candidate is a
+group-list movie minus anything a *present* member has watched. Phase 3 left
+`user_movie_status` strictly closed under RLS, and phase 12's `hype_history`
+entry reaffirmed that boundary — a member cannot read another present
+member's watched rows to compute that count client-side. Seed selection has
+the identical problem: it reads present members' ratings. So `widen_seeds`
+is `SECURITY DEFINER`, exactly like `recommend_movies`, and repeats both of
+its guards verbatim (`is_group_member`, and every `p_present` id must belong
+to the group) — a function reading other members' private rows must not be
+callable for a group the caller isn't in, or with a smuggled-in stranger's id.
+
+### `recommend_movies` was not touched
+
+Phase 9's `p_candidates` parameter is reused as-is: the night page reads the
+group's list pool, appends `widen_seeds`' pool of extra movie ids to it in
+TypeScript when the count is thin, and passes the union through
+`p_candidates`. Widened picks are therefore scored by the exact same
+function and the exact same weights as list picks — the only difference is
+provenance, which `lib/recommend/explain.ts` surfaces as a new "Not on your
+lists yet" line.
+
+**This makes the group-list read load-bearing for correctness, not just for
+the label.** When `p_candidates` is non-null, `recommend_movies`'s `pool` CTE
+takes the `unnest` branch and never reads `list_items` at all
+(`20260805170000_explore_scroll_past.sql:60-70`) — so the TypeScript-side
+`poolIds` read in `app/groups/[id]/night/page.tsx` has to be the *complete*
+list, or a partial read silently shrinks the non-widened half of the same
+feature. It reads unbounded, relying on `supabase/config.toml`'s
+`max_rows = 1000` being far past anything a 4–6 person group's list will
+hold — SPEC's own stated scale ("Path: private build for 4–6 friends" in
+its intro block).
+
+The read also has to be RLS-*equivalent* to what `recommend_movies` would see
+under `p_candidates = null`, not merely complete for a given user — a gap
+there would silently shrink the pool the same way a truncated read would.
+Checked against `can_read_list` (`20260804120000_phase10_social.sql:87-118`):
+its group-owned branch is `is_group_member(owner_group_id)` alone, with no
+`list_hidden_from` or `blocks` term — those apply only to its third branch,
+personal lists shared by visibility. So a group member's RLS-visible view of
+their own group's `list_items` is identical to the definer-side read, and
+stays that way unless a future phase adds a hide/block term to the
+group-owned branch specifically.
+
+### The seed rule
+
+§4.2 says "seeded by the group's top-rated films." Read at face value: films
+already on the group's own list, ranked by present members' ratings on them,
+using §4.1's own weights (`love +3`, `like +1`, `hate −2`), summed, kept only
+when positive, top 3. The weights are re-stated in `widen_seeds` rather than
+factored out of `_rebuild_tag_weights` — that function scores (rating, tag)
+pairs and this scores rating alone; there's no shared shape to extract.
+
+**Deliberately deferred:** seeding from present members' ratings on films
+*outside* the group list. §4.2's wording supports only the list-seeded
+reading; a wider seed source is a real design question (which films, how
+many, whose ratings count) that the spec doesn't answer and this migration
+doesn't need to answer to close the gap it targets.
+
+A seed can be a movie a present member has already watched (a rating implies
+`watched = true`) even though it can never be a `candidates` row itself —
+that's expected: a highly-rated group-list film is exactly the kind of thing
+someone rated *because* they watched it, and it's still a legitimate seed for
+"what's like the thing we loved."
+
+### `MovieDataProvider.recommendations`
+
+`lib/providers/tmdb.ts` implements it against
+`/{movie,tv}/{id}/recommendations`, dispatched by `parseExternalId` exactly
+like every other externalId-scoped method in that file. Seeds are group-list
+films, movie-shaped in practice, but the TV branch costs three lines and
+avoids a media-type trap the first time a TV title lands on a personal list
+and somehow reaches this path. `docs/SPEC.md` §2's interface block gained
+one line for it; the rest of that block was already stale (`popular`,
+`regions`, `getTrailerKey`, `getExternalIds` are all missing from it) and was
+deliberately left alone — not this change's job to fix.
+
+### The label
+
+`lib/recommend/explain.ts` gained a second optional parameter, `notOnLists`,
+rather than reusing or renaming `releaseLabel`. That parameter's own doc
+comment justifies it as a property of the candidate's `movie_releases` row;
+collapsing "came from theatre release data" and "came from the widen step"
+into one slot would contradict that and is also simply wrong in principle —
+theatre mode never widens, but nothing stops a future dimension from needing
+both facts on the same pick. The existing "Nobody here has seen it" line is
+untouched and still fires alongside `notOnLists` when true: unlike theatre
+mode, where every release-mode candidate is unwatched by construction (phase
+9's note on why that line is redundant there), a widened title is excluded
+from `candidates` only for *present* members having watched it — a non-present
+member may genuinely not have seen it, so the line still carries information.
+
+### Deliberately deferred: no cache on the widen step's TMDB calls
+
+Unlike `theatreCandidates` (`lib/movies/theatre.ts`, TTL-cached per region) and
+`exploreFeed`'s trailer backfill, `widenCandidates` calls
+`provider.recommendations` fresh on every home-mode render and every reroll
+where the pool is thin — up to 3 parallel calls, since seeds come from
+`widen_seeds`' top 3. No cache table backs it. This was a deliberate
+omission, not an oversight: `movie_releases`' cache key is a region, which is
+stable and shared across every group; a widen cache's natural key would be
+the group's seed set, which changes on every rating change from any present
+member and has no useful TTL — inventing one is exactly the kind of
+unrequested configurability CLAUDE.md §2 argues against, for a feature that
+only fires once a group's list has thinned out. The upgrade path, if this
+ever shows up in page latency the way `cd16895` shows this repo actively
+watches for: a `widen_cache(group_id, seeds_hash, movie_ids, fetched_at)`
+table keyed on a hash of the sorted seed external ids, TTL'd the same way
+`movie_releases` is.
+
+### Tests
+
+`supabase/tests/rls.test.sql`: four new assertions on `widen_seeds`, appended
+to the existing recommender block (still-impersonated-D), `plan(194)` →
+`plan(198)`. Positive control first, per this file's own house rule: the
+candidate count matches what the adjacent `recommend_movies` assertions
+already proved for the same fixture state, then the seed-ordering assertion
+(a second, higher-scored group-list film, chosen so insertion order and
+score order disagree — 33333333 was inserted first but scores lower), then
+the two negatives mirroring `recommend_movies`'s own guards. The fixture
+inserts (`movies`, `movie_external_ids`) needed a `reset role` /
+`set local role authenticated` bracket, same idiom the file already uses
+elsewhere, since those catalog tables have no INSERT grant for
+`authenticated`.
+
+`scripts/tmdb-smoke.ts` gained a `recommendations` section between
+`getImageUrl` and the landed-rows check, asserting Inception returns a
+non-empty, correctly-prefixed result set against the live API.
+
 

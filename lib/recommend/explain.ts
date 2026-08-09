@@ -34,7 +34,19 @@ const MIN_PERSON_COUNT = 2;
  * identical on all three picks. Release status is the thing actually worth
  * saying instead.
  */
-export function explain(pick: Recommendation, releaseLabel?: string): string[] {
+/**
+ * `notOnLists` is §4.2's widen step: true when this pick came from a
+ * provider recommendation rather than the group's own list. A separate
+ * parameter from `releaseLabel`, not a reuse of it -- that one is documented
+ * above as a property of the candidate's movie_releases row, and widening is
+ * an unrelated fact that can equally be true alongside "Nobody here has seen
+ * it" (see lib/recommend/widen.ts's caller for why that line still holds).
+ */
+export function explain(
+  pick: Recommendation,
+  releaseLabel?: string,
+  notOnLists = false,
+): string[] {
   const reasons: string[] = [];
   const present = pick.present_count;
   const solo = present === 1;
@@ -67,6 +79,10 @@ export function explain(pick: Recommendation, releaseLabel?: string): string[] {
     reasons.push(releaseLabel);
   } else if (pick.seen_count === 0) {
     reasons.push("Nobody here has seen it");
+  }
+
+  if (notOnLists) {
+    reasons.push("Not on your lists yet");
   }
 
   return reasons;
