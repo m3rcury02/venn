@@ -5,6 +5,7 @@ import { AppHeader, navLinkClass } from "@/components/app-header";
 import { MovieCard } from "@/components/movie-card";
 import { NightModePicker } from "@/components/night-mode-picker";
 import { NightPickHero } from "@/components/night-pick-hero";
+import { NoneOfThese } from "@/components/none-of-these-button";
 import {
   parsePresent,
   PresentPicker,
@@ -280,12 +281,15 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
           ) : null}
 
           <div className="flex flex-wrap items-center gap-3">
-            {/* Reroll re-runs the recommender against a longer exclude list --
-                same route, so `loading.tsx` never fires for it. */}
-            <Link href={rerollHref} className={buttonClass("marquee")}>
-              Reroll
-              <LinkPending size={16} />
-            </Link>
+            {/* SPEC §4.5: "None of these" logs the shown picks as rejected,
+                then re-runs the recommender against a longer exclude list --
+                same route+params as the old plain reroll. */}
+            <NoneOfThese
+              groupId={id}
+              mode={mode}
+              movieIds={picks.map((p) => p.movie_id)}
+              rerollHref={rerollHref}
+            />
             {exclude.length > 0 ? (
               <Link
                 href={nightHref(id, mode, present, memberIds, [])}

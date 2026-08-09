@@ -4469,4 +4469,131 @@ elsewhere, since those catalog tables have no INSERT grant for
 `getImageUrl` and the landed-rows check, asserting Inception returns a
 non-empty, correctly-prefixed result set against the live API.
 
+## SPEC §4.5's "None of these" logging, closed the same way §4.2 was
+
+Also not a new phase. §4.5 lists four edge cases; three were built, and the
+fourth — "None of these: log it — useful signal" — was deferred from phase 4
+to phase 11 as analytics (this file, phase 4 entry), then still missing at
+the end of phase 11 (this file, phase 11 entry). Nothing ever read that
+deferral again. Migration: `20260809130000_none_of_these_log.sql`.
+
+Before this, `/groups/[id]/night`'s Reroll control
+(`app/groups/[id]/night/page.tsx`) appended the three shown picks to the URL's
+`exclude` param and re-rendered — a real UI action with no record of it ever
+having happened. That's a real loss: a rejected Top 3 is the only *pick-level*
+negative signal the recommender ever produces. `hate` ratings and scroll-past
+(phase 9.5) are both about individual titles, not about a specific group of
+three the recommender chose together.
+
+### One control, not two
+
+§4.5's reroll bullet is the mechanic; the none-of-these bullet is the
+logging — they describe one act by the group, not two. So Reroll was
+relabelled "None of these" rather than sitting beside a second, near-identical
+button. It still does exactly what Reroll did (append the shown picks to
+`exclude`, re-render), plus the write.
+
+### Table shape
+
+One row per rejected movie, not a `uuid[]` of three — `group by movie_id`
+becomes a real query later, and `movie_id` can be a real foreign key. Unlike
+`movie_nights.picked_movie_id` (`set null`, so a night record survives a
+catalog deletion), `night_rejections.movie_id` cascades: here the movie *is*
+the record, and a rejection with no movie says nothing. No unique constraint
+either — rejecting the same title three Fridays running is stronger signal
+than rejecting it once, and a log has to let repetition survive, not
+collapse it.
+
+Grants follow `reports` (`20260805100000_phase11_reports.sql`), the closest
+existing shape — an append-only log written by the user it belongs to:
+`select, insert` only, explicitly no `update`/`delete`, REVOKE-then-GRANT per
+CLAUDE.md. No `service_role` grant: nothing server-side reads this table, and
+the operator reads it as `postgres`, which bypasses both gates anyway.
+
+RLS is insert-own-into-a-group-you're-in, select-own:
+`night_rejections_insert_own`'s `is_group_member` check is load-bearing on
+its own, not just `user_id = auth.uid()` — without it, a user could log
+rejections into a group they aren't a member of and poison that group's
+signal with no way for the members to see it happened. Select is **select-own**,
+not select-member — the `reports_select_own` precedent, and the same reasoning
+phase 12 already applied to `user_movie_status`: nothing in the app reads
+this table today, so the narrower policy costs nothing now and, if a reader
+is ever added, whoever adds it decides then whether it should be group-wide.
+
+### Write-only is the intended end state, not a placeholder
+
+Rows land and nothing surfaces them, decided explicitly rather than assumed.
+"Log it — useful signal" is satisfied by writing a queryable table; feeding
+rejections back into `recommend_movies`' scoring would be a real change to
+§4.3 the spec doesn't ask for, and surfacing rejected titles in the group UI
+is surface area the spec doesn't specify either. Read it with SQL when it's
+wanted.
+
+### The action never blocks the reroll
+
+`noneOfThese` (`app/groups/[id]/night/actions.ts`) swallows its own insert
+error and returns `{ ok: false }` rather than throwing — analytics must not
+break the one control that gets a group to a pick, the same reflex
+`widenCandidates` (§4.2) uses for provider failures. It also caps
+`movieIds.slice(0, 3)` before inserting: `recommend_movies` only ever returns
+top 3, but a server action is a public authenticated endpoint and nothing
+else bounds the array's length.
+
+### No `redirect()` in the action; navigation is client-side
+
+Every `redirect()` in this repo is reached from `<form action={formAction}>`
++ `useActionState` (`app/groups/actions.ts`, `app/onboarding/actions.ts`).
+There's no precedent here for redirecting out of a bare `startTransition`
+call, and `components/none-of-these-button.tsx` doesn't need one: it holds
+`rerollHref` (already computed server-side, identical to what old Reroll
+used) and calls `router.push` itself once the insert settles, success or not.
+That also means `rerollHref` never crosses into the server action's
+arguments, so there's no client-supplied redirect target to guard against.
+`isPending` stays true through the `router.push`, so the pending affordance
+survives losing `LinkPending` (`components/ui/link-pending.tsx`), which only
+wraps `<Link>`.
+
+### Known trade-off: reroll now requires JS
+
+`components/present-picker.tsx`'s own comment explains why this page's URL
+state is deliberately server-rendered `Link`s — no client JS required to
+change who's present or switch modes. `NoneOfThese` breaks that for reroll
+specifically, the same way `LogNightButton` already requires JS for "We're
+watching this" on this exact screen. "Start over" stays a plain `Link` next
+to it, so the page as a whole doesn't become JS-only, but the departure for
+reroll itself is real and worth recording rather than leaving implicit.
+
+### Tests
+
+`supabase/tests/rls.test.sql`: six new assertions appended after the
+`widen_seeds` block (still-impersonated-D from that block), `plan(198)` →
+`plan(204)`. Positive controls first, per the file's own house rule, and
+split into two rather than one: the insert is wrapped in `lives_ok` rather
+than asserted only as a side effect of a later `select`, because a bare
+insert statement here would abort the whole file — not just fail one
+assertion — if `night_rejections_insert_own`'s `with check` were wrong,
+taking the other 203 results and the diagnosis down with it. Then: D reads
+their own row back (control for the select policy); non-member A inserting
+for the group throws `42501`; C inserting a row under D's `user_id` throws
+`42501`; D's row is invisible to C even though C shares the group (proves
+select-own, not select-member); D's own `delete` on their own row throws
+`42501` (proves the no-delete grant — `reports_select_own`'s table never
+actually asserts this for its own no-mutation claim, so it's worth checking
+here explicitly).
+
+### Verified end to end against real infrastructure
+
+Same standard as §4.2: a real Supabase user (GoTrue admin API), a real
+password-grant session injected into a real Chrome tab via
+`@supabase/ssr`'s `createBrowserClient().auth.setSession()` (which writes the
+correct `sb-<ref>-auth-token` cookie itself, rather than hand-deriving its
+format), a real group/list/movie scenario, and a real click through the
+rendered page. Confirmed: the button reads "None of these", not "Reroll";
+clicking it produces the same `?exclude=` URL old Reroll produced and
+re-renders correctly (including falling through to the correct empty state
+when that was the only candidate); exactly one row lands in
+`night_rejections`, correctly attributed to the group, user, movie, and
+`mode = 'home'`; "Start over" still clears `exclude` via a plain `Link` and
+writes nothing.
+
 

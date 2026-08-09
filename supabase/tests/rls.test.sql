@@ -19,7 +19,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(198);
+select plan(204);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -931,6 +931,70 @@ select throws_ok(
   '42501',
   null,
   'p_present containing a non-member is rejected, same guard as recommend_movies'
+);
+
+-- --------------------------- D: night_rejections (SPEC §4.5 "none of these")
+-- Exercises supabase/migrations/20260809130000_none_of_these_log.sql. Still
+-- impersonating D from the widen_seeds block above.
+
+-- Positive controls first, per this file's own house rule. A bare insert
+-- statement here would abort the whole file (not just fail one assertion) if
+-- the with check policy were wrong, taking every assertion after it down --
+-- so the insert itself is the first control, wrapped in lives_ok rather than
+-- asserted as a side effect of a later select.
+select lives_ok(
+  $$insert into night_rejections (group_id, user_id, movie_id, mode) values
+    ('99999999-9999-9999-9999-999999999999',
+     'dddddddd-dddd-dddd-dddd-dddddddddddd',
+     '33333333-3333-3333-3333-333333333333', 'home')$$,
+  'control: D can log a rejection for a movie in their own group'
+);
+
+select is(
+  (select count(*)::int from night_rejections
+    where user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'),
+  1,
+  'control: D reads their own rejection back'
+);
+
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+select throws_ok(
+  $$insert into night_rejections (group_id, user_id, movie_id, mode) values
+    ('99999999-9999-9999-9999-999999999999',
+     '11111111-1111-1111-1111-111111111111',
+     '33333333-3333-3333-3333-333333333333', 'home')$$,
+  '42501',
+  null,
+  'non-member A cannot log a rejection for the group'
+);
+
+set local request.jwt.claims = '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+
+select throws_ok(
+  $$insert into night_rejections (group_id, user_id, movie_id, mode) values
+    ('99999999-9999-9999-9999-999999999999',
+     'dddddddd-dddd-dddd-dddd-dddddddddddd',
+     '33333333-3333-3333-3333-333333333333', 'home')$$,
+  '42501',
+  null,
+  'C cannot log a rejection under D''s user_id'
+);
+
+select is(
+  (select count(*)::int from night_rejections
+    where user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'),
+  0,
+  'select_own: C cannot see D''s rejection, even as a fellow group member'
+);
+
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-dddd-dddd-dddddddddddd","role":"authenticated"}';
+
+select throws_ok(
+  $$delete from night_rejections where user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'$$,
+  '42501',
+  null,
+  'no delete grant: D cannot remove their own logged rejection -- it is a log, not a list'
 );
 
 -- ------------------------------------ D: onboarding and imports (phase 8)

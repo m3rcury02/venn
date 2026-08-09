@@ -65,6 +65,38 @@ export async function logNight(
   return { ok: true, nightId: data as string };
 }
 
+// SPEC §4.5: "None of these -- log it, useful signal." Best-effort and never
+// throws -- analytics must not break the reroll, the same reflex as
+// widenCandidates returning [] on provider failure rather than 500ing the
+// picker. No redirect() here: the caller navigates client-side (see
+// components/none-of-these-button.tsx for why).
+export async function noneOfThese(
+  groupId: string,
+  mode: "home" | "theatre",
+  movieIds: string[],
+): Promise<{ ok: boolean }> {
+  const supabase = await createClient();
+  const { data: claims } = await getClaims(supabase);
+  const me = claims?.claims?.sub;
+
+  if (typeof me !== "string") {
+    return { ok: false };
+  }
+
+  // §4.3 only ever returns top 3; cap defensively since this is a public
+  // authenticated endpoint and RLS doesn't bound array length.
+  const { error } = await supabase.from("night_rejections").insert(
+    movieIds.slice(0, 3).map((movieId) => ({
+      group_id: groupId,
+      user_id: me,
+      movie_id: movieId,
+      mode,
+    })),
+  );
+
+  return { ok: !error };
+}
+
 export async function respondWatchConfirmation(
   nightId: string,
   status: "confirmed" | "declined",
