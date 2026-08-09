@@ -16,6 +16,7 @@ import {
 import { Ticker } from "@/components/ticker";
 import { buttonClass } from "@/components/ui/button";
 import { LinkPending } from "@/components/ui/link-pending";
+import { Reveal } from "@/components/ui/reveal";
 import { Screen } from "@/components/ui/screen";
 import { VennMark } from "@/components/venn-mark";
 import { explain, releaseLabel, type Recommendation } from "@/lib/recommend/explain";
@@ -309,7 +310,12 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
         />
       ) : picks.length > 0 ? (
         <>
-          <div className="motion-safe:animate-expose flex flex-col gap-4 items-start">
+          {/* No wrapper animation here -- NightPickHero owns its own
+              orchestrated reveal now (letterbox close, backdrop bloom,
+              poster rise, title strike, reasons stagger). Wrapping it in
+              another fade would just run two arrivals on top of each
+              other. */}
+          <div className="flex flex-col gap-4 items-start">
             <NightPickHero
               title={winner.title}
               year={winner.year}
@@ -336,11 +342,7 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
               <h2 className="t-label text-fg-faint">If not that</h2>
               <div className="grid grid-cols-2 gap-x-5 gap-y-8 sm:max-w-md">
                 {runnersUp.map((pick, i) => (
-                  <div
-                    key={pick.movie_id}
-                    className="motion-safe:animate-expose"
-                    style={{ animationDelay: `${(i + 1) * 70}ms` }}
-                  >
+                  <Reveal key={pick.movie_id} trigger="mount" index={i + 1}>
                     <MovieCard
                       title={pick.title}
                       year={pick.year}
@@ -364,7 +366,7 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
                         {i + 2}
                       </span>
                     </MovieCard>
-                  </div>
+                  </Reveal>
                 ))}
               </div>
             </div>

@@ -46,7 +46,7 @@ export default function AccessibilityPage() {
               <strong className="text-fg">Semantic Structure:</strong> Pages use standard HTML5 landmarks (<code className="text-marquee">&lt;nav&gt;</code>, <code className="text-marquee">&lt;main&gt;</code>, <code className="text-marquee">&lt;footer&gt;</code>, <code className="text-marquee">&lt;aside&gt;</code>) and proper ARIA role labels for dynamic states.
             </p>
             <p>
-              <strong className="text-fg">Motion Settings:</strong> CSS animations honor user preferences for reduced motion (<code className="text-marquee">motion-safe</code> media queries).
+              <strong className="text-fg">Motion Settings:</strong> Animation throughout the app honors your reduced motion preference — CSS animations via <code className="text-marquee">motion-safe</code> media queries, and JS-driven sequences by checking the same preference directly.
             </p>
           </div>
         </Panel>

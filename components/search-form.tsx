@@ -5,6 +5,7 @@ import { searchMovies, type SearchResult } from "@/app/search/actions";
 import { MovieCard } from "@/components/movie-card";
 import { SearchMovieActions } from "@/components/search-movie-actions";
 import { errorClass } from "@/components/ui/input";
+import { Reveal } from "@/components/ui/reveal";
 
 const DEBOUNCE_MS = 300;
 
@@ -85,11 +86,7 @@ export function SearchForm({
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
         {results.map((movie, i) => (
-          <div
-            key={movie.externalId}
-            className="motion-safe:animate-expose"
-            style={{ animationDelay: `${Math.min(i, 10) * 30}ms` }}
-          >
+          <Reveal key={movie.externalId} trigger="mount" index={i}>
             <MovieCard
               title={movie.title}
               year={movie.year}
@@ -114,7 +111,7 @@ export function SearchForm({
                 />
               }
             />
-          </div>
+          </Reveal>
         ))}
       </div>
     </div>

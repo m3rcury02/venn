@@ -1,6 +1,7 @@
 "use client";
 
-import { useTransition } from "react";
+import { motion, useReducedMotion } from "motion/react";
+import { useEffect, useState, useTransition } from "react";
 import { setHype, setRating, type Hype, type Rating } from "@/app/status/actions";
 
 type VoteControlProps = {
@@ -41,11 +42,15 @@ const HYPE_OPTIONS: { value: Hype; label: string }[] = [
 // gets `.t-label`'s real 11px instead of the 10px width-squeeze. Tracking
 // stays 0.02em either way -- that is the part that actually buys back the
 // width "Very hyped" needs, and a taller button doesn't change that.
+//
+// `relative` is load-bearing now beyond LinkPending's usual reason: the
+// selected fill below is an absolutely-positioned `motion.span` inset to the
+// button, and the label needs to sit above it.
 const buttonBaseBySize: Record<"sm" | "lg", string> = {
-  sm: "t-label flex flex-1 min-w-0 items-center justify-center rounded-ctl px-1 py-2 text-center text-[10px] leading-[1.15] tracking-[0.02em] wrap-anywhere transition-colors disabled:opacity-50",
-  lg: "t-label flex min-h-12 flex-1 min-w-0 items-center justify-center rounded-ctl px-2 py-2.5 text-center text-[11px] leading-[1.15] tracking-[0.02em] wrap-anywhere transition-colors disabled:opacity-50",
+  sm: "t-label relative flex flex-1 min-w-0 items-center justify-center overflow-hidden rounded-ctl px-1 py-2 text-center text-[10px] leading-[1.15] tracking-[0.02em] wrap-anywhere transition-colors motion-safe:active:scale-[0.97] disabled:opacity-50",
+  lg: "t-label relative flex min-h-12 flex-1 min-w-0 items-center justify-center overflow-hidden rounded-ctl px-2 py-2.5 text-center text-[11px] leading-[1.15] tracking-[0.02em] wrap-anywhere transition-colors motion-safe:active:scale-[0.97] disabled:opacity-50",
 };
-const unselected = "bg-surface-2 text-fg-dim hover:text-fg";
+const unselected = "bg-surface-2 text-fg-dim hover:text-fg active:text-fg";
 
 // The scale is the mark, unrolled. `--beam-a` is the low end, `--beam-b` the
 // high end, and the middle value is WHITE -- which is precisely what those two
@@ -56,15 +61,18 @@ const unselected = "bg-surface-2 text-fg-dim hover:text-fg";
 // §4.1 singles out `hate` as the only negative tag weight, but `love` is just
 // the top of a linear positive range -- nothing in the spec makes the poles
 // qualitatively different from each other.
-const selectedLow = "bg-beam-a text-on-beam";
-const selectedMid = "bg-fg text-ink";
-const selectedHigh = "bg-beam-b text-on-beam";
-
-function selectedClassFor(value: Rating | Hype) {
-  if (value === "hate" || value === "dont_care") return selectedLow;
-  if (value === "love" || value === "superhyped") return selectedHigh;
-  return selectedMid;
-}
+//
+// Split into fill/text rather than one combined class string: the fill now
+// lives on a separate `motion.span` (so it can carry a `layoutId` and slide),
+// and the label text sits on top of it, so each needs its own class.
+const toneFor: Record<Rating | Hype, { fill: string; text: string }> = {
+  hate: { fill: "bg-beam-a", text: "text-on-beam" },
+  dont_care: { fill: "bg-beam-a", text: "text-on-beam" },
+  like: { fill: "bg-fg", text: "text-ink" },
+  hyped: { fill: "bg-fg", text: "text-ink" },
+  love: { fill: "bg-beam-b", text: "text-on-beam" },
+  superhyped: { fill: "bg-beam-b", text: "text-on-beam" },
+};
 
 export function VoteControl({
   movieId,
@@ -75,13 +83,41 @@ export function VoteControl({
   size = "sm",
 }: VoteControlProps) {
   const [isPending, startTransition] = useTransition();
+  const reduceMotion = useReducedMotion();
   const buttonBase = buttonBaseBySize[size];
 
-  const current = watched ? rating : hype;
+  const serverValue = watched ? rating : hype;
+  // Local, optimistic selection. The fill has to move the instant a button is
+  // tapped -- not once setRating/setHype's round trip resolves, which is what
+  // animating off the `rating`/`hype` props directly would mean, since this
+  // row stays disabled (`isPending` below) for the length of that request.
+  const [selected, setSelected] = useState(serverValue);
+
+  // The server value is the source of truth once it actually changes -- a
+  // revalidated page, a vote cast elsewhere. This only fires on a genuine
+  // change to `serverValue`, not on every `isPending` flip, so it can't race
+  // the optimistic update above: while a request is in flight `serverValue`
+  // hasn't moved yet, and once it does it already matches what this row set
+  // optimistically (or corrects to what the server actually holds).
+  useEffect(() => {
+    // Syncing local selection to a prop that only changes from outside this
+    // component's own writes; same pattern as install-prompt.tsx and
+    // mobile-navigation.tsx use for syncing to something outside React's
+    // render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelected(serverValue);
+  }, [serverValue]);
+
   const options = watched ? RATING_OPTIONS : HYPE_OPTIONS;
+  // One layoutId per row+mode -- if the row is both the rating and hype
+  // control at different times (watched toggles), the two must not share a
+  // group, or toggling `watched` would try to slide the fill between two
+  // completely different button sets.
+  const layoutGroup = `vote-fill-${movieId}-${watched ? "rating" : "hype"}`;
 
   function handleClick(value: Rating | Hype) {
-    const next = current === value ? null : value;
+    const next = selected === value ? null : value;
+    setSelected(next);
     startTransition(async () => {
       if (watched) {
         await setRating(movieId, next as Rating | null);
@@ -99,7 +135,8 @@ export function VoteControl({
       aria-label={watched ? "Rating" : "Hype"}
     >
       {options.map((option) => {
-        const isSelected = current === option.value;
+        const isSelected = selected === option.value;
+        const tone = toneFor[option.value];
         return (
           <button
             key={option.value}
@@ -107,11 +144,21 @@ export function VoteControl({
             aria-pressed={isSelected}
             disabled={isPending}
             onClick={() => handleClick(option.value)}
-            className={`${buttonBase} ${
-              isSelected ? selectedClassFor(option.value) : unselected
-            }`}
+            className={`${buttonBase} ${isSelected ? tone.text : unselected}`}
           >
-            {option.label}
+            {isSelected ? (
+              <motion.span
+                layoutId={layoutGroup}
+                aria-hidden
+                className={`absolute inset-0 ${tone.fill}`}
+                transition={
+                  reduceMotion
+                    ? { duration: 0 }
+                    : { type: "spring", stiffness: 500, damping: 40 }
+                }
+              />
+            ) : null}
+            <span className="relative">{option.label}</span>
           </button>
         );
       })}

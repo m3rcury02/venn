@@ -30,7 +30,7 @@ type PendingAction = "add" | "watched" | null;
 // filled pills. `Added`/`Watched` still carry their state, just with color
 // instead of a fill.
 const actionClass =
-  "t-label flex min-h-11 min-w-0 items-center justify-center rounded-ctl px-1.5 text-center text-[10px] leading-[1.15] tracking-[0.02em] transition-colors disabled:pointer-events-none";
+  "t-label flex min-h-11 min-w-0 items-center justify-center rounded-ctl px-1.5 text-center text-[10px] leading-[1.15] tracking-[0.02em] transition-colors motion-safe:active:scale-[0.97] disabled:pointer-events-none";
 
 export function ExploreCardActions({
   externalId,
@@ -123,7 +123,7 @@ export function ExploreCardActions({
           className={`${actionClass} flex-1 ${
             movie.isInList
               ? "text-marquee hover:text-marquee"
-              : "text-fg-dim hover:text-fg"
+              : "text-fg-dim hover:text-fg active:text-fg"
           }`}
         >
           {pendingAction === "add" ? (
@@ -140,7 +140,9 @@ export function ExploreCardActions({
           disabled={isPending}
           aria-pressed={movie.watched}
           className={`${actionClass} flex-1 ${
-            movie.watched ? "text-fg hover:text-fg" : "text-fg-dim hover:text-fg"
+            movie.watched
+              ? "text-fg hover:text-fg"
+              : "text-fg-dim hover:text-fg active:text-fg"
           }`}
         >
           {pendingAction === "watched" ? (

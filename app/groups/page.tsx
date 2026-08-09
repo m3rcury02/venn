@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppHeader, navLinkClass } from "@/components/app-header";
 import { GroupActionsFab } from "@/components/group-actions-fab";
+import { Reveal } from "@/components/ui/reveal";
 import { Screen } from "@/components/ui/screen";
 import { VennMark } from "@/components/venn-mark";
 import { getClaims } from "@/lib/supabase/claims";
@@ -60,21 +61,19 @@ export default async function GroupsPage() {
       {groups.length > 0 ? (
         <ul className="flex flex-col gap-2">
           {groups.map((m, i) => (
-            <li
-              key={m.groups.id}
-              className="motion-safe:animate-expose"
-              style={{ animationDelay: `${Math.min(i, 10) * 40}ms` }}
-            >
-              <Link
-                href={`/groups/${m.groups.id}`}
-                className="flex items-center gap-3.5 rounded-card border border-hairline bg-surface px-4 py-4 transition-colors hover:border-fg-dim"
-              >
-                <VennMark size={22} />
-                <span className="flex-1 truncate text-[15px] font-semibold text-fg">
-                  {m.groups.name}
-                </span>
-                <span className="t-label text-fg-faint">{m.role}</span>
-              </Link>
+            <li key={m.groups.id}>
+              <Reveal index={i}>
+                <Link
+                  href={`/groups/${m.groups.id}`}
+                  className="flex items-center gap-3.5 rounded-card border border-hairline bg-surface px-4 py-4 transition-colors hover:border-fg-dim active:border-fg-dim"
+                >
+                  <VennMark size={22} />
+                  <span className="flex-1 truncate text-[15px] font-semibold text-fg">
+                    {m.groups.name}
+                  </span>
+                  <span className="t-label text-fg-faint">{m.role}</span>
+                </Link>
+              </Reveal>
             </li>
           ))}
         </ul>

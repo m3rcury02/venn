@@ -4839,4 +4839,149 @@ app's own 404 ("No such reel"), not a leak; and the digest's query, run
 directly, returns the closed/logged night while excluding the still-open
 lobby.
 
+---
+
+## Motion pass: press feedback, scroll reveal, and two orchestrated moments
+
+The user's brief named the industry's current reference points for motion
+design (Jitter, Sofi, Silo) and asked for it mobile-first. Auditing against
+that surfaced three actual gaps, one of them a real bug rather than a taste
+call.
+
+### The bug: every piece of press feedback in the app was invisible on a phone
+
+Tailwind v4.3.3 compiles the `hover:` variant inside `@media (hover: hover)`
+— confirmed directly in `tailwindcss/dist/lib.js`:
+`i.static("hover", p => { p.nodes = [H("&:hover", [B("@media", "(hover:
+hover)", p.nodes)])] })`. There was not one `active:` state anywhere in the
+codebase. So on a touchscreen — this app's primary surface — every control's
+only feedback (`buttonClass`'s `hover:brightness-110`, `movie-card.tsx`'s
+`group-hover:opacity-70` backdrop bloom, every nav tab, chip, and vote
+button) simply never fired. A tap did nothing visible until the server
+answered. Fixed by adding `motion-safe:active:` states to the shared class
+constants (`buttonClass`, `overlayButtonClass`, `navLinkClass`, both
+`chipBase`s, `VoteControl`'s button base, `ExploreCardActions`' action
+class, `MobileNavigation`'s `TabLink` and drawer rows) rather than at call
+sites — the same "edit the shared string once" shape those constants exist
+for.
+
+Variant order matters and was worth getting right once rather than per file:
+`motion-safe:active:scale-[0.97]`, not `active:motion-safe:scale-[0.97]`.
+Tailwind v4 applies variants outside-in, and only the first produces `@media`
+wrapping `:active`. The transform is what `motion-safe:` gates; the
+brightness/colour half of each control's feedback is left un-gated, so
+reduced motion drops the movement but never removes the feedback entirely.
+
+### Reversed: scroll-driven reveal
+
+An earlier pass (see "Not in this pass" under the design-reset section
+above) deferred `animation-timeline: view()` — support was too unsettled to
+pin at the time, so `motion-safe:animate-expose` fired on mount with a
+hardcoded `Math.min(i, 10) * 40ms` stagger regardless of scroll position.
+Below the fold, everything had finished animating before it was ever seen.
+
+Reversed via Framer Motion's `whileInView` rather than the native CSS
+timeline, since the earlier deferral was specifically about browser support
+for the CSS primitive — `components/ui/reveal.tsx` sidesteps that question
+entirely. It is not one behaviour for every call site: a `trigger` prop
+(`"view"` | `"mount"`) makes the failure mode impossible to ship by accident.
+`whileInView` only makes sense for content genuinely below the fold in the
+*document* scroller (the list grid, groups, inbox); wrapping above-the-fold
+content (the night reveal, live search results) in the same thing risks it
+staying invisible if the observer callback races hydration, so those use a
+plain `animate` on mount instead. The Explore feed keeps its original CSS
+`animate-expose` untouched — it lives inside its own `overflow-y-scroll`
+container with live YouTube iframes, the one place a scroll-driven effect
+could plausibly cost frames, and `whileInView` without an explicit `root`
+would measure against the wrong scroller there regardless.
+
+`viewport.margin` in `Reveal` is a pixel value (`"-64px 0px"`), not a
+percentage — `margin` forwards to `IntersectionObserver`'s `rootMargin`,
+which some browsers reject as a percentage without an explicit `root`.
+
+### Not reversed: View Transitions
+
+Checked before assuming otherwise: `viewTransition` is still an
+`experimental` flag defaulting `false` in Next 16.2.12
+(`next/dist/server/config-shared.d.ts:699`, `:1416`). The original reason
+this stayed out holds, so route/page transitions are still out of scope —
+this pass is in-page motion only.
+
+### Framer Motion, added
+
+Three things in this pass have no CSS equivalent: `VoteControl`'s selected
+fill sliding between three separate buttons (a shared-element transition —
+`layoutId`), `NightPickHero`'s multi-stage orchestrated reveal
+(`staggerChildren` across letterbox, backdrop, poster, title, and reasons),
+and `/login`'s sequenced arrival (letterbox → beam wash, `beam-a` leading
+`beam-b` by ~120ms → the mark → title → a 60ms-staggered cascade of
+subtitle/button/divider/form). Added `motion` (motion.dev, current package
+name for Framer Motion; React 19 is in its peer range as of `motion@13.0.0`).
+
+Not added to the root layout — no global `<MotionConfig>`. Each animated
+component imports `motion/react` itself, so Next's per-route code-splitting
+keeps the runtime out of routes that don't use it. Measured directly rather
+than assumed: the motion runtime is a single ~120KB (~39KB gzipped) chunk
+(`05te2ssus75d-.js` in this build), and `/privacy`'s client reference
+manifest has zero references to it while `/`, `/login`, and
+`/groups/[id]/night`'s each do.
+
+`VoteControl`'s `layoutId` forecloses shrinking the bundle further with
+`LazyMotion`/`domAnimation` — layout animations aren't in that feature
+bundle. Accepted rather than worked around; it's the one place in this pass
+Framer is doing something CSS structurally cannot.
+
+`lib/motion.ts` centralizes the token layer the same way `globals.css`
+already centralizes the CSS side: one easing curve
+(`cubic-bezier(0.22, 0.8, 0.3, 1)`, identical to `--animate-expose`'s), the
+`expose` keyframe re-expressed as Framer variants, and
+`useMotionVariants()`/`useRevealVariants()` so `useReducedMotion()` is
+wrapped once rather than re-implemented per component. Every sequence built
+on it collapses to a single opacity fade under reduced motion — no
+positional movement, matching the precedent `components/venn-loader.tsx`
+already set for the CSS side of the system. The pre-existing
+`motion-reduce:` fallbacks (`venn-loader.tsx`, `ui/spinner.tsx`,
+`ui/skeleton.tsx`, `.ticker-track`) were not touched by this pass.
+
+### VoteControl's fill: optimistic by necessity, not just by nicety
+
+The selected-value fill needed to move the instant a button is tapped, not
+once `setRating`/`setHype`'s round trip resolves — the row stays disabled
+(`isPending`) for the length of that request, so animating off the
+`rating`/`hype` props directly would make the slide visibly late every time.
+`VoteControl` now tracks an optimistic `selected` value locally, updated on
+click, and syncs back to the server value in a `useEffect` keyed only on
+that prop — not on `isPending` — so the sync fires exactly once a real
+change lands and can't race the tap that caused it. This is the visual half
+of the "Optimistic UI on the vote controls" gap already named in the
+platform-layer section above; the disable behaviour and error handling are
+unchanged.
+
+### `app/accessibility/page.tsx` reworded
+
+It promised "CSS animations honor user preferences for reduced motion
+(`motion-safe` media queries)" — true before this pass, false the moment any
+animation is JS-driven. Reworded to cover both paths; this is a user-facing
+accessibility claim, not decoration, so it had to change with the code
+rather than after a complaint.
+
+### Verification
+
+`pnpm typecheck && pnpm lint && pnpm build` clean. Driven in Chrome at
+390×844: `/login`'s sequence plays letterbox → beams (staggered) → mark →
+title → cascade in order; `/groups/[id]/night`'s reveal orchestrates
+letterbox → backdrop → poster → title → reasons. Press feedback confirmed by
+dispatching a real click and screenshotting mid-press on a marquee button, an
+overlay button, a nav tab, and a vote button — each dips. Scroll reveal
+confirmed both directions: below-fold list items are hidden before scrolling
+and arrive on scroll (the bug this fixes), and nothing is left permanently
+invisible — above-fold `trigger="mount"` content paints on load, and the
+Explore feed's cards all appear scrolling its own nested container. The vote
+fill was clicked through Hated → Liked → Loved and slides rather than
+cross-fades, moving on tap rather than after the server round-trip.
+`prefers-reduced-motion: reduce` emulated and every screen above re-driven:
+nothing left mid-animation, nothing invisible, press feedback still present
+as colour with no transform. Bundle impact measured directly rather than
+assumed (§"Framer Motion, added" above).
+
 

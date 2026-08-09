@@ -89,8 +89,8 @@ function TabLink({
     <Link
       href={href}
       aria-current={active ? "page" : undefined}
-      className={`relative flex min-h-16 flex-col items-center justify-center gap-1 transition-colors ${
-        active ? "text-fg" : "text-fg-faint hover:text-fg"
+      className={`relative flex min-h-16 flex-col items-center justify-center gap-1 transition-colors motion-safe:active:scale-[0.95] ${
+        active ? "text-fg" : "text-fg-faint hover:text-fg active:text-fg"
       }`}
     >
       <ActiveLine active={active} />
@@ -218,8 +218,8 @@ export function MobileNavigation() {
             aria-expanded={moreOpen}
             aria-controls="mobile-more-menu"
             onClick={openMore}
-            className={`relative flex min-h-16 flex-col items-center justify-center gap-1 transition-colors ${
-              moreActive ? "text-fg" : "text-fg-faint hover:text-fg"
+            className={`relative flex min-h-16 flex-col items-center justify-center gap-1 transition-colors motion-safe:active:scale-[0.95] ${
+              moreActive ? "text-fg" : "text-fg-faint hover:text-fg active:text-fg"
             }`}
           >
             <ActiveLine active={moreActive} />
@@ -260,7 +260,7 @@ export function MobileNavigation() {
               autoFocus
               aria-label="Close menu"
               onClick={closeMore}
-              className="flex h-11 w-11 items-center justify-center rounded-ctl text-fg-dim transition-colors hover:bg-surface-2 hover:text-fg"
+              className="flex h-11 w-11 items-center justify-center rounded-ctl text-fg-dim transition-colors hover:bg-surface-2 hover:text-fg active:bg-surface-2 active:text-fg motion-safe:active:scale-[0.95]"
             >
               <CloseIcon />
             </button>
@@ -271,7 +271,7 @@ export function MobileNavigation() {
               href="/discover"
               aria-current={pathname.startsWith("/discover") ? "page" : undefined}
               onClick={closeMore}
-              className="flex min-h-14 items-center border-b border-hairline px-1 text-fg-dim transition-colors hover:text-fg"
+              className="flex min-h-14 items-center border-b border-hairline px-1 text-fg-dim transition-colors hover:text-fg active:text-fg"
             >
               <span className="t-label">Discover</span>
             </Link>
@@ -279,7 +279,7 @@ export function MobileNavigation() {
               href="/stats"
               aria-current={pathname.startsWith("/stats") ? "page" : undefined}
               onClick={closeMore}
-              className="flex min-h-14 items-center border-b border-hairline px-1 text-fg-dim transition-colors hover:text-fg"
+              className="flex min-h-14 items-center border-b border-hairline px-1 text-fg-dim transition-colors hover:text-fg active:text-fg"
             >
               <span className="t-label">Stats</span>
             </Link>
@@ -287,7 +287,7 @@ export function MobileNavigation() {
               href="/inbox"
               aria-current={pathname.startsWith("/inbox") ? "page" : undefined}
               onClick={closeMore}
-              className="flex min-h-14 items-center justify-between border-b border-hairline px-1 text-fg-dim transition-colors hover:text-fg"
+              className="flex min-h-14 items-center justify-between border-b border-hairline px-1 text-fg-dim transition-colors hover:text-fg active:text-fg"
             >
               <span className="t-label">Inbox</span>
               <CountBadge count={inboxCount} />
@@ -296,7 +296,7 @@ export function MobileNavigation() {
               href="/settings"
               aria-current={pathname.startsWith("/settings") ? "page" : undefined}
               onClick={closeMore}
-              className="flex min-h-14 items-center border-b border-hairline px-1 text-fg-dim transition-colors hover:text-fg"
+              className="flex min-h-14 items-center border-b border-hairline px-1 text-fg-dim transition-colors hover:text-fg active:text-fg"
             >
               <span className="t-label">Settings</span>
             </Link>
@@ -305,7 +305,7 @@ export function MobileNavigation() {
                 <button
                   type="button"
                   onClick={install}
-                  className="flex min-h-14 items-center border-b border-hairline px-1 text-left text-fg-dim transition-colors hover:text-fg"
+                  className="flex min-h-14 items-center border-b border-hairline px-1 text-left text-fg-dim transition-colors hover:text-fg active:text-fg"
                 >
                   <span className="t-label">Install app</span>
                 </button>
@@ -323,7 +323,7 @@ export function MobileNavigation() {
           <form action="/auth/signout" method="post" className="mt-auto">
             <button
               type="submit"
-              className="flex min-h-11 w-full items-center px-1 text-left text-fg-dim transition-colors hover:text-fg"
+              className="flex min-h-11 w-full items-center px-1 text-left text-fg-dim transition-colors hover:text-fg active:text-fg"
             >
               <span className="t-label">Sign out</span>
             </button>

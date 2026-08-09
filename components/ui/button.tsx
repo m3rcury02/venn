@@ -15,7 +15,7 @@ export type ButtonVariant = "marquee" | "beam" | "ghost";
 // `relative` so a <LinkPending> child can cover the button while its
 // navigation is in flight.
 const base =
-  "relative inline-flex items-center justify-center gap-2 rounded-ctl px-5 py-3 font-display uppercase text-[15px] leading-none tracking-[0.06em] transition duration-200 disabled:opacity-45 disabled:pointer-events-none";
+  "relative inline-flex items-center justify-center gap-2 rounded-ctl px-5 py-3 font-display uppercase text-[15px] leading-none tracking-[0.06em] transition duration-200 active:brightness-[0.85] motion-safe:active:scale-[0.97] disabled:opacity-45 disabled:pointer-events-none";
 
 const variants: Record<ButtonVariant, string> = {
   marquee: "bulb bg-marquee text-on-beam hover:brightness-110",
@@ -33,7 +33,7 @@ export function buttonClass(variant: ButtonVariant = "marquee", extra?: string) 
 // platform tap-target minimum (Apple HIG), not a size the poster composition
 // asked for.
 export const overlayButtonClass =
-  "flex h-11 w-11 items-center justify-center rounded-ctl border border-hairline bg-ink/70 text-fg backdrop-blur-sm transition duration-200 disabled:opacity-50";
+  "flex h-11 w-11 items-center justify-center rounded-ctl border border-hairline bg-ink/70 text-fg backdrop-blur-sm transition duration-200 active:brightness-[0.85] motion-safe:active:scale-[0.97] disabled:opacity-50";
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;

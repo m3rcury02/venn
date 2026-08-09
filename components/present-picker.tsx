@@ -27,9 +27,11 @@ export function parsePresent(raw: string | undefined, memberIds: string[]): stri
 // These are the one place in the app that stays round. Corners are square
 // everywhere else; circles are reserved for the mark and for things that
 // stand for people -- which is exactly what a present chip is.
-const chipBase = "t-label relative rounded-full px-4 py-2 transition-colors";
-const chipOn = "bg-marquee text-on-beam";
-const chipOff = "border border-hairline text-fg-dim hover:border-fg-dim hover:text-fg";
+const chipBase =
+  "t-label relative rounded-full px-4 py-2 transition-colors motion-safe:active:scale-[0.97]";
+const chipOn = "bg-marquee text-on-beam active:brightness-[0.85]";
+const chipOff =
+  "border border-hairline text-fg-dim hover:border-fg-dim hover:text-fg active:border-fg-dim active:text-fg";
 
 export function PresentPicker({
   groupId,

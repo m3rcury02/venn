@@ -54,7 +54,7 @@ export function MovieCard({
             aria-hidden
             loading="lazy"
             decoding="async"
-            className="pointer-events-none absolute inset-0 -z-10 h-full w-full scale-[1.12] object-cover opacity-0 blur-2xl saturate-[2.2] transition-opacity duration-500 group-hover:opacity-70"
+            className="pointer-events-none absolute inset-0 -z-10 h-full w-full scale-[1.12] object-cover opacity-0 blur-2xl saturate-[2.2] transition-opacity duration-500 group-hover:opacity-70 group-active:opacity-70"
           />
         ) : null}
 
@@ -67,7 +67,7 @@ export function MovieCard({
             <Link
               href={href}
               prefetch={false}
-              className="transition-colors hover:text-marquee"
+              className="transition-colors hover:text-marquee active:text-marquee"
             >
               {title}
             </Link>

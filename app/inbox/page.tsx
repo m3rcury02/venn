@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { AppHeader, navLinkClass } from "@/components/app-header";
 import { InboxItem, type InboxCandidate } from "@/components/inbox-item";
 import { buttonClass } from "@/components/ui/button";
+import { Reveal } from "@/components/ui/reveal";
 import { Screen } from "@/components/ui/screen";
 import { VennMark } from "@/components/venn-mark";
 import { extractCandidates } from "@/lib/ingest/extract";
@@ -105,11 +106,7 @@ export default async function InboxPage() {
             );
 
             return (
-              <div
-                key={item.id}
-                className="motion-safe:animate-expose"
-                style={{ animationDelay: `${Math.min(i, 10) * 40}ms` }}
-              >
+              <Reveal key={item.id} index={i}>
                 <InboxItem
                   id={item.id}
                   rawText={item.raw_text}
@@ -117,7 +114,7 @@ export default async function InboxPage() {
                   candidates={candidates}
                   searchQuery={guess?.value}
                 />
-              </div>
+              </Reveal>
             );
           })}
         </ul>

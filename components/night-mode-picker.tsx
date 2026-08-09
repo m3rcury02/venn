@@ -8,9 +8,11 @@ import type { NightMode } from "@/components/present-picker";
 // nightHref) rather than building one here, because the caller also has to
 // decide whether `exclude` survives the switch (it doesn't -- see there).
 
-const chipBase = "t-label relative rounded-full px-4 py-2 transition-colors";
-const chipOn = "bg-marquee text-on-beam";
-const chipOff = "border border-hairline text-fg-dim hover:border-fg-dim hover:text-fg";
+const chipBase =
+  "t-label relative rounded-full px-4 py-2 transition-colors motion-safe:active:scale-[0.97]";
+const chipOn = "bg-marquee text-on-beam active:brightness-[0.85]";
+const chipOff =
+  "border border-hairline text-fg-dim hover:border-fg-dim hover:text-fg active:border-fg-dim active:text-fg";
 
 export function NightModePicker({
   mode,

@@ -6,6 +6,7 @@ import { ListFilter, matchesFilter, parseFilter, type Status } from "@/component
 import { MovieCard } from "@/components/movie-card";
 import { RemoveFromListButton } from "@/components/remove-from-list-button";
 import { buttonClass } from "@/components/ui/button";
+import { Reveal } from "@/components/ui/reveal";
 import { Screen } from "@/components/ui/screen";
 import { VennMark } from "@/components/venn-mark";
 import { VoteControl } from "@/components/vote-control";
@@ -157,11 +158,7 @@ export default async function Home({ searchParams }: HomeProps) {
                   const status = item.movies.user_movie_status[0] ?? null;
                   const watched = status?.watched ?? false;
                   return (
-                    <div
-                      key={item.movie_id}
-                      className="motion-safe:animate-expose"
-                      style={{ animationDelay: `${Math.min(i, 10) * 40}ms` }}
-                    >
+                    <Reveal key={item.movie_id} index={i}>
                       <MovieCard
                         title={item.movies.title}
                         year={item.movies.year}
@@ -186,7 +183,7 @@ export default async function Home({ searchParams }: HomeProps) {
                           <RemoveFromListButton movieId={item.movie_id} />
                         </div>
                       </MovieCard>
-                    </div>
+                    </Reveal>
                   );
                 })}
               </div>
