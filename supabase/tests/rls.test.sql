@@ -19,7 +19,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(204);
+select plan(217);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -996,6 +996,117 @@ select throws_ok(
   null,
   'no delete grant: D cannot remove their own logged rejection -- it is a log, not a list'
 );
+
+-- -------------------------- C, E: remote-night lobby (SPEC §4.5 "remote nights")
+-- Exercises supabase/migrations/20260809140000_remote_night_lobby.sql, reusing
+-- the phase 11 fixtures: group 88888888... (C is owner via handle_new_group,
+-- E is the explicit member), and the already-closed night 20202020....
+
+-- D (left impersonated from the night_rejections block above) is not a
+-- member of this group, so movie_nights_select_member would hide the fixture
+-- row from a check run under D's claims -- switch to C, a real member, first.
+set local request.jwt.claims = '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+
+select is(
+  (select closed_at is not null from movie_nights
+    where id = '20202020-2020-2020-2020-202020202020'),
+  true,
+  'control: the phase 11 fixture night is closed (backfilled from held_at)'
+);
+
+-- Positive control first, per this file's own house rule -- and captured into
+-- a temp table (the _deleted_group_list idiom above) rather than re-derived,
+-- since there is no other way to name the row a security definer function
+-- just created.
+select lives_ok(
+  $$create temp table _lobby_open as
+    select public.open_movie_night(
+      '88888888-8888-8888-8888-888888888888', 'home') as night_id$$,
+  'control: C opens a remote night for their phase 11 group'
+);
+
+select is(
+  (select closed_at from movie_nights where id = (select night_id from _lobby_open)),
+  null::timestamptz,
+  'the new lobby is open'
+);
+
+select is(
+  (select count(*)::int from movie_night_attendees
+    where movie_night_id = (select night_id from _lobby_open)),
+  1,
+  'the opener is the lobby''s only attendee so far'
+);
+
+select is(
+  (select public.open_movie_night(
+    '88888888-8888-8888-8888-888888888888', 'home')),
+  (select night_id from _lobby_open),
+  'idempotent: opening again returns the same lobby, not a second one'
+);
+
+set local request.jwt.claims = '{"sub":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee","role":"authenticated"}';
+
+select lives_ok(
+  $$select public.join_movie_night((select night_id from _lobby_open))$$,
+  'control: E, a fellow member, joins the open lobby'
+);
+
+select is(
+  (select count(*)::int from movie_night_attendees
+    where movie_night_id = (select night_id from _lobby_open)),
+  2,
+  'the roster now has both C and E'
+);
+
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+select throws_ok(
+  $$select public.open_movie_night(
+      '88888888-8888-8888-8888-888888888888', 'home')$$,
+  '42501',
+  null,
+  'non-member A cannot open a remote night for the group'
+);
+
+select throws_ok(
+  $$select public.join_movie_night((select night_id from _lobby_open))$$,
+  '42501',
+  null,
+  'non-member A cannot join the open lobby'
+);
+
+set local request.jwt.claims = '{"sub":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee","role":"authenticated"}';
+
+select lives_ok(
+  $$select public.close_movie_night(
+      (select night_id from _lobby_open),
+      '33333333-3333-3333-3333-333333333333', 'theatre')$$,
+  'control: E, an attendee, closes the lobby with the group''s pick'
+);
+
+select is(
+  (select row(picked_movie_id, mode, closed_at is not null) from movie_nights
+    where id = (select night_id from _lobby_open)),
+  row('33333333-3333-3333-3333-333333333333'::uuid, 'theatre'::text, true),
+  'closing sets picked_movie_id, mode and closed_at'
+);
+
+select is(
+  (select count(*)::int from movie_night_attendees
+    where movie_night_id = (select night_id from _lobby_open)),
+  2,
+  'closing does not rewrite the roster -- C and E are still both attendees'
+);
+
+select throws_ok(
+  $$select public.join_movie_night((select night_id from _lobby_open))$$,
+  '42501',
+  null,
+  'a closed night refuses a new joiner -- attendance there is a watch claim'
+);
+
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-dddd-dddd-dddddddddddd","role":"authenticated"}';
 
 -- ------------------------------------ D: onboarding and imports (phase 8)
 

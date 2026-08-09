@@ -125,6 +125,10 @@ export async function GET(request: Request) {
         .select("picked_movie_id, movies(title), groups(name)")
         .in("group_id", groupIds)
         .gte("held_at", sevenDaysAgo)
+        // SPEC §4.5's remote-night lobby: an open lobby has no picked_movie_id
+        // yet and must not eat the row budget below ahead of nights that
+        // actually resolved.
+        .not("picked_movie_id", "is", null)
         .limit(10);
 
       if (nightsError) {

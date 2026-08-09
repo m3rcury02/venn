@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { AppHeader, navLinkClass } from "@/components/app-header";
 import { MovieCard } from "@/components/movie-card";
 import { NightModePicker } from "@/components/night-mode-picker";
+import { NightLobby, StartRemoteNight } from "@/components/night-lobby";
 import { NightPickHero } from "@/components/night-pick-hero";
 import { NoneOfThese } from "@/components/none-of-these-button";
 import {
@@ -35,7 +36,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type NightPageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ present?: string; exclude?: string; mode?: string }>;
+  searchParams: Promise<{ present?: string; exclude?: string; mode?: string; night?: string }>;
 };
 
 function nightHref(
@@ -44,10 +45,18 @@ function nightHref(
   present: string[],
   memberIds: string[],
   exclude: string[],
+  night?: string,
 ) {
   const params = new URLSearchParams();
   if (mode === "theatre") params.set("mode", mode);
-  if (present.length !== memberIds.length) params.set("present", present.join(","));
+  // In lobby mode, attendance is server-side (movie_night_attendees), not URL
+  // state -- `present` is derived from it, so it would be misleading to also
+  // reflect it back into the query string.
+  if (night) {
+    params.set("night", night);
+  } else if (present.length !== memberIds.length) {
+    params.set("present", present.join(","));
+  }
   if (exclude.length > 0) params.set("exclude", exclude.join(","));
   const qs = params.toString();
   return `/groups/${groupId}/night${qs ? `?${qs}` : ""}`;
@@ -88,13 +97,75 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
     present: rawPresent,
     exclude: rawExclude,
     mode: rawMode,
+    night: rawNight,
   } = await searchParams;
   // All come from the URL. `present` is intersected with real members, which
   // also satisfies recommend_movies' own guard; `exclude` only has to be
   // well-formed, since a stray id simply matches no candidate.
-  const present = parsePresent(rawPresent, memberIds);
   const exclude = (rawExclude?.split(",") ?? []).filter((v) => UUID.test(v));
   const mode: NightMode = rawMode === "theatre" ? "theatre" : "home";
+
+  // SPEC §4.5's remote-night lobby: `night` names an open movie_nights row
+  // and, while it's open, attendance replaces `present` as the source of
+  // truth for who's here. `.eq("group_id", id)` guards against a night from a
+  // *different* group the caller also happens to belong to; movie_nights
+  // itself is null for a non-member, same as the group read above, so both
+  // cases 404 rather than leak.
+  const requestedNightId = rawNight && UUID.test(rawNight) ? rawNight : undefined;
+  let nightRow: { id: string; mode: string; closed_at: string | null } | null = null;
+  if (requestedNightId) {
+    const { data } = await supabase
+      .from("movie_nights")
+      .select("id, mode, closed_at")
+      .eq("id", requestedNightId)
+      .eq("group_id", id)
+      .maybeSingle();
+    if (!data) notFound();
+    nightRow = data;
+  }
+  // A `night` param pointing at an already-closed night (a stale/reloaded
+  // link) is treated as absent rather than re-entering lobby UI for a
+  // finished pick.
+  const isLobby = nightRow !== null && nightRow.closed_at === null;
+
+  let attendeeIds: string[] = [];
+  if (isLobby) {
+    const { data: rawAttendees } = await supabase
+      .from("movie_night_attendees")
+      .select("user_id")
+      .eq("movie_night_id", nightRow!.id);
+    attendeeIds = (rawAttendees ?? []).map((a) => a.user_id);
+  }
+
+  const present = isLobby
+    ? attendeeIds.filter((uid) => memberIds.includes(uid))
+    : parsePresent(rawPresent, memberIds);
+
+  type OpenLobbyRow = { id: string; profiles: { display_name: string | null } | null };
+  let openLobby: { id: string; starterName: string; attendeeCount: number } | null = null;
+  if (!isLobby) {
+    // movie_nights has three paths to profiles (created_by directly, plus
+    // attendees and watch_confirmations junction tables) -- the FK has to be
+    // named or PostgREST refuses the embed as ambiguous.
+    const { data: rawOpen } = await supabase
+      .from("movie_nights")
+      .select("id, profiles!movie_nights_created_by_fkey(display_name)")
+      .eq("group_id", id)
+      .is("closed_at", null)
+      .maybeSingle();
+    const openRow = rawOpen as unknown as OpenLobbyRow | null;
+    if (openRow) {
+      const { count } = await supabase
+        .from("movie_night_attendees")
+        .select("user_id", { count: "exact", head: true })
+        .eq("movie_night_id", openRow.id);
+      openLobby = {
+        id: openRow.id,
+        starterName: openRow.profiles?.display_name ?? "Someone",
+        attendeeCount: count ?? 0,
+      };
+    }
+  }
 
   // Theatre mode's region: if every present member shares one, use it
   // silently; otherwise fall back to the caller's own and say so, rather than
@@ -168,12 +239,19 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
     return explain(pick, release ? releaseLabel(release.releaseType, release.releaseDate) : undefined);
   }
 
-  const rerollHref = nightHref(id, mode, present, memberIds, [
-    ...exclude,
-    ...picks.map((p) => p.movie_id),
-  ]);
-  const homeHref = nightHref(id, "home", present, memberIds, []);
-  const theatreHref = nightHref(id, "theatre", present, memberIds, []);
+  const lobbyNightId = isLobby ? nightRow!.id : undefined;
+
+  const rerollHref = nightHref(
+    id,
+    mode,
+    present,
+    memberIds,
+    [...exclude, ...picks.map((p) => p.movie_id)],
+    lobbyNightId,
+  );
+  const homeHref = nightHref(id, "home", present, memberIds, [], lobbyNightId);
+  const theatreHref = nightHref(id, "theatre", present, memberIds, [], lobbyNightId);
+  const startOverHref = nightHref(id, mode, present, memberIds, [], lobbyNightId);
 
   // The marquee runs whoever is actually here -- names the page already has,
   // so this costs no extra query.
@@ -211,7 +289,18 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
         ) : null}
       </div>
 
-      <PresentPicker groupId={id} members={members} present={present} mode={mode} />
+      {isLobby ? (
+        <NightLobby
+          attendees={members.filter((m) => present.includes(m.id))}
+          isAttendee={present.includes(userId)}
+          nightId={lobbyNightId!}
+        />
+      ) : (
+        <>
+          <PresentPicker groupId={id} members={members} present={present} mode={mode} />
+          <StartRemoteNight groupId={id} mode={mode} openLobby={openLobby} />
+        </>
+      )}
 
       {present.length === 0 ? (
         <Empty
@@ -238,6 +327,7 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
               mode={mode}
               movieId={winner.movie_id}
               present={present}
+              nightId={lobbyNightId}
             />
           </div>
 
@@ -291,10 +381,7 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
               rerollHref={rerollHref}
             />
             {exclude.length > 0 ? (
-              <Link
-                href={nightHref(id, mode, present, memberIds, [])}
-                className={navLinkClass}
-              >
+              <Link href={startOverHref} className={navLinkClass}>
                 Start over
                 <LinkPending size={14} />
               </Link>
@@ -321,10 +408,7 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
           }
           action={
             exclude.length > 0 ? (
-              <Link
-                href={nightHref(id, mode, present, memberIds, [])}
-                className={buttonClass("marquee", "mt-2")}
-              >
+              <Link href={startOverHref} className={buttonClass("marquee", "mt-2")}>
                 Start over
               </Link>
             ) : mode === "home" ? (

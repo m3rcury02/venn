@@ -4596,4 +4596,247 @@ when that was the only candidate); exactly one row lands in
 `mode = 'home'`; "Start over" still clears `exclude` via a plain `Link` and
 writes nothing.
 
+## SPEC §4.5's remote-night lobby, the last edge case, closed the same way
+
+Also not a new phase. §4.5's fourth and final bullet: "Remote nights: a lobby
+with a join link; `movie_night_attendees` fills as people join." Migration:
+`20260809140000_remote_night_lobby.sql`.
+
+Before this, `movie_nights` had no lifecycle: `log_movie_night` inserted the
+night and its attendees in the same statement (phase 11), so a night record
+only ever existed *after* a pick was made. The spec's own wording rules that
+out for a remote night — "attendees fills as people join" only means
+something if the row exists before the pick, since `movie_night_attendees`
+FKs to `movie_nights`. So this isn't a lobby bolted on beside the existing
+flow; it's `movie_nights` gaining an open/closed state, and everything else
+(the recommender, logging, reroll, "None of these") runs unmodified against
+whichever state it's in.
+
+**Assumption, not asked:** only existing group members can join. Every policy
+here is `is_group_member`-scoped, and `movie_night_attendees.user_id`
+references `profiles` directly — there's no invite-code layer like
+`join_group_by_code`'s. A remote night is the same group in different rooms,
+so the join link is just the lobby's own URL.
+
+### `closed_at`, not `picked_movie_id is null`, is the open/closed marker
+
+`picked_movie_id` is `on delete set null` (phase 11) specifically so a night
+record survives its movie being deleted from the catalog later — which means
+null is already overloaded to mean "no longer has a movie," and can't also
+mean "hasn't picked one yet" without collapsing two different states into
+one. `closed_at timestamptz` is unambiguous: null while the lobby is open,
+stamped the moment a pick closes it.
+
+Added with `default now()` rather than nullable-with-no-default, and that
+default is doing real work: every existing insert path —
+`log_movie_night`, and the phase 11 pgTAP fixture — is column-listed and
+never mentions `closed_at`, so they all land closed automatically. That's
+what let `log_movie_night` itself stay completely unchanged. A backfill
+`update ... set closed_at = held_at` runs once in the migration for honesty
+on a hosted database with real prior rows; it's a no-op locally, where the
+column doesn't exist until the rows do.
+
+A partial unique index, `on movie_nights (group_id) where closed_at is
+null`, caps a group at one open lobby. That's also what makes
+`open_movie_night` idempotent: rather than let two people tapping "Start a
+remote night" within the same second race the index and one of them get a
+constraint violation, the function checks for an existing open row first and
+returns its id. Two people opening a lobby at once is the ordinary case for
+this feature, not an error condition.
+
+### Three `security definer` functions, no new tables
+
+`open_movie_night(p_group_id, p_mode)`, `join_movie_night(p_night_id)`,
+`close_movie_night(p_night_id, p_movie_id, p_mode)` — same shape as
+`log_movie_night` / `request_watch_confirmations` from phase 11:
+`security definer`, `set search_path = ''`, `revoke execute ... from public,
+anon` then `grant execute ... to authenticated`, `42501` on any authz
+failure. They have to be `security definer`: `movie_night_attendees` carries
+`grant select` only, no INSERT grant and no INSERT policy — that absence is
+the enforcement, same as `group_members` in phase 3, and a plain client
+insert was never going to be an option.
+
+- `open_movie_night` requires `is_group_member`; hands back the existing open
+  lobby's id if there is one (see above); otherwise inserts the night with
+  `closed_at => null` and adds the caller as its first attendee in the same
+  call.
+- `join_movie_night` requires `is_group_member` of the night's group *and*
+  `closed_at is null`, then inserts the attendee `on conflict do nothing`.
+  The `closed_at` check matters on its own: attendance on a *closed* night is
+  a watch claim (it's what §8's `request_watch_confirmations` fires
+  against), so a late arrival can't attach themselves to a pick they never
+  saw made.
+- `close_movie_night` requires the caller to already be an attendee (the
+  same check `request_watch_confirmations` makes) and the night to still be
+  open, then sets `picked_movie_id`, `mode`, and `closed_at = now()`.
+  Deliberately does not touch `movie_night_attendees` — attendees joined
+  themselves, and rewriting the roster at close time would undo the one
+  thing this feature was built to capture.
+
+`p_mode` is passed to `close_movie_night`, not fixed at open time, so the
+URL's own `?mode=` stays authoritative for the whole time the lobby is open
+and `NightModePicker` needs no lobby-specific branch.
+
+No new tables means no new grants and no new RLS policies:
+`movie_nights_select_member` and `movie_night_attendees_select_member`
+(phase 11) already cover reading an open lobby and its roster — a lobby is
+just a `movie_nights` row like any other, at an earlier point in its life.
+
+### `logNight` gains an optional `nightId`; `log_movie_night` itself doesn't change
+
+`app/groups/[id]/night/actions.ts`'s `logNight` takes a trailing optional
+`nightId?: string`. When present, it calls `close_movie_night` instead of
+`log_movie_night` — closing the lobby's own row rather than inserting a
+second one. Without this branch, every remote night would leave two
+`movie_nights` rows behind: the open lobby (now stuck open forever, since
+nothing ever closes it) and a fresh one from `log_movie_night`, silently
+double-counting in the digest and in §10's watch-history stats. The push
+notification block after the RPC call is untouched and shared by both
+branches — a remote night's attendees get the same "movie night invite" push
+a co-located one's do.
+
+### Attendees replace `?present=` as the source of truth; `PresentPicker` disappears
+
+`app/groups/[id]/night/page.tsx` reads `?night=`, and when it names an open
+night, `present` is computed from that night's attendees (intersected with
+real `memberIds`) instead of from `parsePresent(rawPresent, memberIds)`.
+`PresentPicker` isn't rendered in that state at all — `NightLobby`
+(`components/night-lobby.tsx`) takes its place. Attendance and `?present=`
+can't both be the source of truth for who's here: a member toggling a chip
+in a remote lobby wouldn't do anything meaningful (they can't toggle
+presence on someone in another house), and would silently desync the picker
+from the actual roster if it were left in.
+
+A `?night=` naming a night whose `closed_at` is already set (a stale or
+reloaded link) is treated as if the param weren't there at all, not as an
+error and not as a frozen "here's what got picked" view — there is no
+requirement for the latter, and treating it as absent means the page falls
+back to its ordinary present/exclude behavior with no extra branch. The
+lobby URL going stale after a pick is expected, not a bug to route around.
+
+### Discovery: one query, one control
+
+The non-lobby branch runs one extra query — a group's open lobby, if any,
+plus a `count` on its attendees — feeding `StartRemoteNight`
+(`components/night-lobby.tsx`), which renders either "Start a remote night"
+or "`<name>` started a remote night · N here" with a "Join the lobby" link.
+Without this, the feature would only be reachable by whoever has the link,
+which defeats a "join link" that nobody already in the room knows to ask
+for.
+
+### Joining is always an explicit tap, never automatic on page load
+
+Opening the lobby URL shows the roster and an "I'm in" button; it does not
+call `join_movie_night` on render. Attendance is what §8's watch
+confirmations fire against, so auto-joining a member who only opened the
+link to see who else was there would later ask them to confirm they watched
+something they never actually watched. One tap removes that failure mode
+entirely rather than trying to detect or correct it after the fact.
+
+### Polling, not Realtime
+
+`components/night-lobby.tsx`'s `NightLobby` polls with `setInterval(() =>
+router.refresh(), 3000)` while mounted. `components/import-progress-refresh.tsx`
+is the only other live-updating screen in this codebase, and it polls;
+there is no Realtime subscription anywhere in the app. Adding one here would
+mean publication config plus RLS-on-realtime for what is, at most, a 4-6
+person roster refreshing a few times a minute — not a cost this feature
+needs to take on.
+
+### Digest: open lobbies must not eat the row budget
+
+`app/api/cron/digest/route.ts`'s nights query takes `.limit(10)` before its
+existing JS-side null-check filters incomplete rows out. An open lobby has
+no `picked_movie_id` yet, so left unfiltered it could occupy a slot in that
+`limit(10)` ahead of nights that actually resolved, silently shrinking what
+the digest reports. Added `.not("picked_movie_id", "is", null)` before the
+limit. The other four `movie_nights` readers were checked and need no
+change: `app/status/actions.ts` filters `.eq("picked_movie_id", movieId)`
+directly; `app/page.tsx` reaches nights through `watch_confirmations`, which
+`request_watch_confirmations` only ever creates after a pick; `app/api/
+export/route.ts` exporting an open lobby is correct — it's the user's own
+data; `app/stats/page.tsx` reads `hype_history`, not `movie_nights`, at all.
+
+### Known gaps, left out on purpose
+
+No "leave the lobby" — an attendee who joined by mistake stays an attendee
+until the night closes or the lobby is abandoned. No auto-expiry of an
+abandoned lobby — an open night with nobody closing it stays open (and
+keeps blocking a fresh one via the partial unique index) until someone
+starts a night that closes it or a future migration adds a TTL. Neither is
+in §4.5's one-line spec, and both are the kind of thing worth deferring
+until real usage shows whether they're needed.
+
+### Tests
+
+`supabase/tests/rls.test.sql`: 13 new assertions appended after the
+`night_rejections` block, `plan(204)` → `plan(217)`, reusing the phase 11
+fixtures (group `88888888...`, C as owner via `handle_new_group`, E as the
+explicit member, and the already-closed fixture night `20202020...`).
+Positive controls first, per the file's own house rule — including one the
+hard way: D, impersonated from the previous block, isn't a member of this
+group, so the very first check (confirming the fixture night reads as
+closed) had to switch to C's claims *before* asserting anything, or RLS
+would silently hide the row and read as `NULL` rather than fail loudly on
+the right cause. `open_movie_night`'s first call is wrapped in `lives_ok`
+and its result captured into a temp table (`_lobby_open`, the
+`_deleted_group_list` idiom already used elsewhere in this file) — there's
+no other way to name a row a `security definer` function just created, and
+the wrap means a bad grant fails one assertion instead of aborting the
+other 216. Then: the new lobby is open; C is its sole attendee; a second
+`open_movie_night` call from C returns the *same* id (idempotence); E joins
+and the roster becomes two; non-member A is refused both `open_movie_night`
+and `join_movie_night` with `42501`; E (an attendee, not the opener) closes
+it, and a single `row(...)` comparison confirms `picked_movie_id`, `mode`,
+and `closed_at` all landed correctly in one assertion; the roster is still
+two after close, proving attendees survive untouched; and a fresh
+`join_movie_night` on the now-closed night is refused.
+
+### Verified end to end against real infrastructure
+
+Same standard as the last two gap-fills, extended to two simultaneous
+members. **One correction to that standard, worth recording:** two Chrome
+tabs in the same profile share cookies at the origin level, so setting each
+user's session via `createBrowserClient().auth.setSession()` in a separate
+tab does not give them separate identities — the second call silently
+overwrites the first, and the first tab's next request runs as the second
+user. Caught this the hard way (a lobby's first attendee row was attributed
+to the wrong user) and re-verified from a clean lobby with a single tab used
+sequentially per user instead. For the one check that specifically needed
+two identities acting *concurrently* — confirming an already-open tab
+updates on its own within the poll interval — the second user's join was
+driven by a direct authenticated REST call against PostgREST (their own
+bearer token, no browser or cookie involved) while the first user's tab sat
+untouched on the lobby screen; it picked up the new attendee within about
+four seconds with no manual reload.
+
+Also caught and fixed during this pass: the open-lobby lookup's
+`profiles(display_name)` embed was ambiguous to PostgREST —
+`movie_nights` has three distinct relationships to `profiles`
+(`created_by` directly, plus the `movie_night_attendees` and
+`watch_confirmations` junction tables) — and the query's error was going
+unchecked, so it silently read as "no open lobby" instead of failing
+loudly. Fixed by naming the FK explicitly:
+`profiles!movie_nights_created_by_fkey(display_name)`.
+
+Confirmed: a member with no open lobby sees "Start a remote night"; starting
+one lands on `?night=<id>` with the opener as the lobby's sole attendee and
+`PresentPicker` gone; a second member on the plain page sees "`<name>`
+started a remote night · 1 here" and a working "Join the lobby" link; that
+link shows the roster and an "I'm in" button while the second member is
+still absent from `movie_night_attendees`; joining (verified both via a
+real click and via direct API) adds them, and a tab left open on the lobby
+picks the change up on its own within the poll interval; switching modes
+and using "None of these" both keep `?night=` in the URL while still
+writing to `night_rejections` correctly; "Start over" clears `exclude` but
+keeps the lobby; logging the pick closes the night — `closed_at` and
+`picked_movie_id` set, exactly one `movie_nights` row for the whole evening,
+both attendees still present — and immediately re-offers "Start a remote
+night" for a new one; a closed night refuses a new joiner with `42501`;
+opening a fresh lobby afterward succeeds cleanly (the partial index doesn't
+block on the now-closed row); a non-member opening the lobby URL gets the
+app's own 404 ("No such reel"), not a leak; and the digest's query, run
+directly, returns the closed/logged night while excluding the still-open
+lobby.
+
 

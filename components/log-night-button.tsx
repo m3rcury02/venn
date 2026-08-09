@@ -9,11 +9,15 @@ export function LogNightButton({
   mode,
   movieId,
   present,
+  nightId,
 }: {
   groupId: string;
   mode: "home" | "theatre";
   movieId: string;
   present: string[];
+  /** Set when logging closes an open remote-night lobby instead of inserting
+   *  a fresh row -- see app/groups/[id]/night/actions.ts's logNight. */
+  nightId?: string;
 }) {
   const [logged, setLogged] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +26,7 @@ export function LogNightButton({
   const handleClick = () => {
     setError(null);
     startTransition(async () => {
-      const res = await logNight(groupId, mode, movieId, present);
+      const res = await logNight(groupId, mode, movieId, present, nightId);
       if (res.ok) {
         setLogged(true);
       } else {

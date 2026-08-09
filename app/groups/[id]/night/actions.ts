@@ -16,6 +16,7 @@ export async function logNight(
   mode: "home" | "theatre",
   movieId: string,
   present: string[],
+  nightId?: string,
 ): Promise<LogNightResult> {
   const supabase = await createClient();
   const { data: claims } = await getClaims(supabase);
@@ -25,12 +26,26 @@ export async function logNight(
     return { ok: false, error: "Not signed in." };
   }
 
-  const { data, error } = await supabase.rpc("log_movie_night", {
-    p_group_id: groupId,
-    p_mode: mode,
-    p_movie_id: movieId,
-    p_present: present,
-  });
+  // A remote night's row already exists (opened via startRemoteNight) --
+  // close it rather than inserting a second one, or the digest and §10's
+  // stats would silently double-count the evening.
+  let data: string | null;
+  let error: { message: string } | null;
+  if (nightId) {
+    ({ error } = await supabase.rpc("close_movie_night", {
+      p_night_id: nightId,
+      p_movie_id: movieId,
+      p_mode: mode,
+    }));
+    data = error ? null : nightId;
+  } else {
+    ({ data, error } = await supabase.rpc("log_movie_night", {
+      p_group_id: groupId,
+      p_mode: mode,
+      p_movie_id: movieId,
+      p_present: present,
+    }));
+  }
 
   if (error) {
     return { ok: false, error: error.message };
@@ -62,7 +77,55 @@ export async function logNight(
   revalidatePath(`/groups/${groupId}`);
   revalidatePath(`/groups/${groupId}/night`);
 
-  return { ok: true, nightId: data as string };
+  return { ok: true, nightId: data ?? undefined };
+}
+
+// SPEC §4.5: "Remote nights: a lobby with a join link." Starts a lobby for
+// this group, or hands back the id of the one already open -- two members
+// tapping this within a second of each other is normal, not an error.
+export async function startRemoteNight(
+  groupId: string,
+  mode: "home" | "theatre",
+): Promise<{ ok: boolean; nightId?: string; error?: string }> {
+  const supabase = await createClient();
+  const { data: claims } = await getClaims(supabase);
+  const me = claims?.claims?.sub;
+
+  if (typeof me !== "string") {
+    return { ok: false, error: "Not signed in." };
+  }
+
+  const { data, error } = await supabase.rpc("open_movie_night", {
+    p_group_id: groupId,
+    p_mode: mode,
+  });
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  return { ok: true, nightId: data ?? undefined };
+}
+
+// Joining is always an explicit tap (see components/night-lobby.tsx), never
+// automatic on page load -- attendance here is what §8's watch confirmations
+// fire against.
+export async function joinRemoteNight(nightId: string): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: claims } = await getClaims(supabase);
+  const me = claims?.claims?.sub;
+
+  if (typeof me !== "string") {
+    return { ok: false, error: "Not signed in." };
+  }
+
+  const { error } = await supabase.rpc("join_movie_night", { p_night_id: nightId });
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  return { ok: true };
 }
 
 // SPEC §4.5: "None of these -- log it, useful signal." Best-effort and never
