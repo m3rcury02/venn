@@ -19,7 +19,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(228);
+select plan(238);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -2409,6 +2409,111 @@ select throws_ok(
   '42501',
   null,
   'anon cannot call prune_catalog'
+);
+
+reset role;
+
+-- ------------------------------------ lobby expiry (12 hours, SPEC §4.5)
+-- 20260924130000_lobby_expiry.sql. Group 88888888's earlier lobby was closed
+-- by the block above, so the group has no open lobby here. The expired lobby
+-- is inserted as postgres with a backdated held_at, since now() is fixed for
+-- the whole transaction.
+
+insert into movie_nights (id, group_id, mode, held_at, created_by, closed_at) values
+  ('ab000000-0000-0000-0000-000000000001', '88888888-8888-8888-8888-888888888888',
+   'home', now() - interval '13 hours', 'cccccccc-cccc-cccc-cccc-cccccccccccc', null);
+insert into movie_night_attendees (movie_night_id, user_id) values
+  ('ab000000-0000-0000-0000-000000000001', 'cccccccc-cccc-cccc-cccc-cccccccccccc');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee","role":"authenticated"}';
+
+select throws_ok(
+  $$select public.join_movie_night('ab000000-0000-0000-0000-000000000001')$$,
+  '42501',
+  'this night is no longer open',
+  'a member cannot join a lobby opened more than 12 hours ago'
+);
+
+set local request.jwt.claims = '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+
+select throws_ok(
+  $$select public.close_movie_night('ab000000-0000-0000-0000-000000000001',
+      '33333333-3333-3333-3333-333333333333', 'home')$$,
+  '42501',
+  'this lobby has expired',
+  'an attendee cannot log a pick against an expired lobby'
+);
+
+-- A non-member's call is refused before open_movie_night's delete runs, so
+-- it can't clear another group's lobby, expired or not.
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+select throws_ok(
+  $$select public.open_movie_night('88888888-8888-8888-8888-888888888888', 'home')$$,
+  '42501',
+  null,
+  'non-member A is refused open_movie_night on the expired lobby''s group'
+);
+
+reset role;
+
+select is(
+  (select count(*)::int from movie_nights where id = 'ab000000-0000-0000-0000-000000000001'),
+  1,
+  'the non-member''s refused call left the expired lobby in place'
+);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+
+select lives_ok(
+  $$create temp table _lobby_fresh as
+    select public.open_movie_night(
+      '88888888-8888-8888-8888-888888888888', 'home') as night_id$$,
+  'control: C starts a new remote night while an expired one is still open'
+);
+
+select isnt(
+  (select night_id from _lobby_fresh),
+  'ab000000-0000-0000-0000-000000000001'::uuid,
+  'open_movie_night hands back a new lobby, not the expired one'
+);
+
+reset role;
+
+select is(
+  (select count(*)::int from movie_nights where id = 'ab000000-0000-0000-0000-000000000001'),
+  0,
+  'the expired lobby is deleted when the group opens a new one'
+);
+
+select is(
+  (select count(*)::int from movie_night_attendees
+    where movie_night_id = 'ab000000-0000-0000-0000-000000000001'),
+  0,
+  'the expired lobby''s old roster goes with it'
+);
+
+-- The boundary from the other side: 11 hours is still open. Without this, a
+-- function that expired every lobby on sight would pass everything above.
+update movie_nights set held_at = now() - interval '11 hours'
+where id = (select night_id from _lobby_fresh);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+
+select is(
+  (select public.open_movie_night('88888888-8888-8888-8888-888888888888', 'home')),
+  (select night_id from _lobby_fresh),
+  'an 11-hour-old lobby is still open: opening again returns it'
+);
+
+set local request.jwt.claims = '{"sub":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee","role":"authenticated"}';
+
+select lives_ok(
+  $$select public.join_movie_night((select night_id from _lobby_fresh))$$,
+  'a member can still join an 11-hour-old lobby'
 );
 
 reset role;

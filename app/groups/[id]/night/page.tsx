@@ -26,6 +26,7 @@ import { provider } from "@/lib/providers";
 import { getClaims } from "@/lib/supabase/claims";
 import { LogNightButton } from "@/components/log-night-button";
 import { createClient } from "@/lib/supabase/server";
+import { lobbyCutoff } from "@/lib/lobby";
 
 // SPEC §7 screen 6. Home mode is phase 4; theatre mode is phase 9; logging is phase 11.
 type MemberRow = {
@@ -113,11 +114,12 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
   // itself is null for a non-member, same as the group read above, so both
   // cases 404 rather than leak.
   const requestedNightId = rawNight && UUID.test(rawNight) ? rawNight : undefined;
-  let nightRow: { id: string; mode: string; closed_at: string | null } | null = null;
+  let nightRow: { id: string; mode: string; closed_at: string | null; held_at: string } | null =
+    null;
   if (requestedNightId) {
     const { data } = await supabase
       .from("movie_nights")
-      .select("id, mode, closed_at")
+      .select("id, mode, closed_at, held_at")
       .eq("id", requestedNightId)
       .eq("group_id", id)
       .maybeSingle();
@@ -126,8 +128,14 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
   }
   // A `night` param pointing at an already-closed night (a stale/reloaded
   // link) is treated as absent rather than re-entering lobby UI for a
-  // finished pick.
-  const isLobby = nightRow !== null && nightRow.closed_at === null;
+  // finished pick. An expired lobby (lib/lobby.ts) is treated the same way:
+  // its roster may be from a different evening, and join/close would refuse
+  // it anyway.
+  const cutoff = lobbyCutoff();
+  const isLobby =
+    nightRow !== null &&
+    nightRow.closed_at === null &&
+    new Date(nightRow.held_at).getTime() >= new Date(cutoff).getTime();
 
   let attendeeIds: string[] = [];
   if (isLobby) {
@@ -153,6 +161,10 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
       .select("id, profiles!movie_nights_created_by_fkey(display_name)")
       .eq("group_id", id)
       .is("closed_at", null)
+      // An expired lobby still sits here until the group opens a new one
+      // (open_movie_night deletes it then), so it has to be filtered out,
+      // not just assumed gone.
+      .gte("held_at", cutoff)
       .maybeSingle();
     const openRow = rawOpen as unknown as OpenLobbyRow | null;
     if (openRow) {
