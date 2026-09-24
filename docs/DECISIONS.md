@@ -5382,7 +5382,7 @@ is visible in the workflow.
 
 ## Public-launch hardening
 
-Migration: `supabase/migrations/20260924140000_public_launch_hardening.sql`.
+Migration: `supabase/migrations/20260924231422_public_launch_hardening.sql`.
 A launch-readiness review found several decisions that were right for "4-6
 friends" and stop being right the day strangers can sign up. Some were
 recorded as "at this scale" trade-offs. The worst of them only became a
@@ -5538,3 +5538,19 @@ verifiable parental consent. Venn doesn't collect that consent, so it is
   the sandbox has no TMDB key for the region list.
 - `pnpm typecheck`, `pnpm lint`, `pnpm build`, `smoke:ingest`,
   `smoke:imports`, `smoke:refresh` clean.
+
+### How this reached the remote project
+
+Applied to `vfkkpflenfpfrrygxmto` through the Supabase MCP, the same way as
+every earlier phase, with the file's SQL unchanged. `apply_migration` stamped
+`20260924231422`, so the file was renamed from `20260924140000` to match,
+which is what `scripts/check-migrations.sh` compares. Checked afterwards in
+production: RLS is on for `rate_limit_hits` and it has no grants for anon,
+authenticated or service_role. `consume_rate_limit`, `confirm_age` and
+`log_movie_night` are executable by authenticated and not by anon.
+`profiles.age_confirmed_at` isn't updatable by authenticated. The security
+advisor's new findings are the intended ones: `rate_limit_hits` with no
+policies (reached only through the function), and three more
+SECURITY DEFINER functions callable by authenticated, the same pattern as the
+existing 20. Production had 7 profiles, 3 of them onboarded. Those 3 see the
+age step once, the first time they come back after this deploys.

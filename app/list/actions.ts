@@ -145,7 +145,7 @@ export async function removeFromList(
 
   // .select() so a delete RLS filtered out reads as a failure, not a quiet
   // success: on a group list only the adder or the group's creator may remove
-  // an item (20260924140000_public_launch_hardening.sql), and RLS answers
+  // an item (20260924231422_public_launch_hardening.sql), and RLS answers
   // everyone else with zero rows rather than an error.
   const { data: deleted, error } = await supabase
     .from("list_items")

@@ -714,7 +714,7 @@ select throws_ok(
   'D cannot add a TV title to the group''s list'
 );
 
--- Public-launch hardening (20260924140000): on a group list only the adder or
+-- Public-launch hardening (20260924231422): on a group list only the adder or
 -- the group's creator may remove an item. Phase 3 let any member remove any
 -- addition, which phase 12's instantly joinable public groups turned into
 -- "any stranger can empty the list". RLS filters rather than raises on

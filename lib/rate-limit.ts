@@ -2,7 +2,7 @@ import type { createClient } from "@/lib/supabase/server";
 
 // Per-user rate limits for every request path that reaches TMDB. The budgets
 // and the counting live in Postgres (consume_rate_limit in
-// supabase/migrations/20260924140000_public_launch_hardening.sql): a Vercel
+// supabase/migrations/20260924231422_public_launch_hardening.sql): a Vercel
 // function instance doesn't outlive its request, so an in-memory counter
 // would never see a second hit.
 export type RateLimitBucket =
