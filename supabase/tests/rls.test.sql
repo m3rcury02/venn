@@ -19,7 +19,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(217);
+select plan(228);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -2299,6 +2299,116 @@ select throws_ok(
   '42501',
   null,
   'direct update on groups throws 42501 for owner'
+);
+
+reset role;
+
+-- ------------------------------ prune_catalog (TMDB's 6-month cache limit)
+-- 20260924120000_catalog_refresh.sql. Fixtures are backdated rather than
+-- waiting a day: now() is fixed for the whole transaction, so "older than a
+-- day" has to be written into the rows. Explicit tag ids, because the phase 0
+-- fixture above inserts tags (id 1) without advancing tags_id_seq.
+
+insert into movies (id, title, fetched_at) values
+  ('0e000000-0000-0000-0000-000000000001', 'Orphan, old',       now() - interval '2 days'),
+  ('0e000000-0000-0000-0000-000000000002', 'Orphan, new',       now()),
+  ('0e000000-0000-0000-0000-000000000003', 'Orphan, on a list', now() - interval '2 days'),
+  ('0e000000-0000-0000-0000-000000000004', 'Mapped, old',       now() - interval '2 days');
+
+insert into movie_external_ids (movie_id, provider, external_id) values
+  ('0e000000-0000-0000-0000-000000000004', 'tmdb', 'movie-900000004');
+
+insert into list_items (list_id, movie_id, added_by)
+select id, '0e000000-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111'
+from lists where owner_user_id = '11111111-1111-1111-1111-111111111111' and is_default;
+
+insert into tags (id, tag_type, tag_value, fetched_at) values
+  (9001, 'keyword', 'prune test: orphan, old', now() - interval '2 days'),
+  (9002, 'keyword', 'prune test: orphan, new', now()),
+  (9003, 'keyword', 'prune test: in use, old', now() - interval '2 days');
+
+insert into movie_tags (movie_id, tag_id) values
+  ('0e000000-0000-0000-0000-000000000004', 9003);
+
+insert into movie_releases (movie_id, region, release_date, release_type, fetched_at) values
+  ('0e000000-0000-0000-0000-000000000004', 'ZZ', null, 'theatrical', now() - interval '200 days'),
+  ('0e000000-0000-0000-0000-000000000004', 'ZY', null, 'theatrical', now());
+
+select is(
+  public.prune_catalog(now() - interval '180 days'),
+  '{"releases": 1, "orphan_movies": 1, "orphan_tags": 1}'::jsonb,
+  'prune_catalog deletes one stale release, one orphan movie and one orphan tag'
+);
+
+select is(
+  (select count(*) from movies where id = '0e000000-0000-0000-0000-000000000001'),
+  0::bigint,
+  'prune_catalog deletes an unmapped, unreferenced movie older than a day'
+);
+
+select is(
+  (select count(*) from movies where id = '0e000000-0000-0000-0000-000000000002'),
+  1::bigint,
+  'prune_catalog keeps an unmapped movie younger than a day (cacheMovie may be mid-write)'
+);
+
+-- The load-bearing negative: an orphan is never supposed to be referenced, but
+-- if one ever is, deleting it would cascade into a user's list.
+select is(
+  (select count(*) from movies where id = '0e000000-0000-0000-0000-000000000003'),
+  1::bigint,
+  'prune_catalog keeps an unmapped movie that is on a list'
+);
+
+select is(
+  (select count(*) from movies where id = '0e000000-0000-0000-0000-000000000004'),
+  1::bigint,
+  'prune_catalog keeps a mapped movie however old (refreshing it is refresh.ts''s job)'
+);
+
+select is(
+  (select count(*) from tags where id = 9001),
+  0::bigint,
+  'prune_catalog deletes a tag no movie uses, older than a day'
+);
+
+select is(
+  (select count(*) from tags where id = 9002),
+  1::bigint,
+  'prune_catalog keeps an unused tag younger than a day (cacheMovie may be mid-write)'
+);
+
+select is(
+  (select count(*) from tags where id = 9003),
+  1::bigint,
+  'prune_catalog keeps a tag a movie still uses'
+);
+
+select is(
+  (select array_agg(region) from movie_releases
+   where movie_id = '0e000000-0000-0000-0000-000000000004'),
+  array['ZY']::text[],
+  'prune_catalog deletes only the release row older than the cutoff'
+);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111"}';
+
+select throws_ok(
+  $$select public.prune_catalog(now())$$,
+  '42501',
+  null,
+  'authenticated cannot call prune_catalog'
+);
+
+set local role anon;
+set local request.jwt.claims = '';
+
+select throws_ok(
+  $$select public.prune_catalog(now())$$,
+  '42501',
+  null,
+  'anon cannot call prune_catalog'
 );
 
 reset role;

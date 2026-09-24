@@ -4985,3 +4985,128 @@ as colour with no transform. Bundle impact measured directly rather than
 assumed (§"Framer Motion, added" above).
 
 
+---
+
+## TMDB's 6-month cache limit
+
+Migration: `supabase/migrations/20260924120000_catalog_refresh.sql`.
+Code: `lib/movies/refresh.ts`, `refreshMovie` in `lib/movies/cache.ts`,
+`app/api/cron/refresh-catalog/route.ts`, a second cron in `vercel.json`.
+
+### Why: the catalog was in line to breach TMDB's terms in January 2027
+
+TMDB's API Terms of Use, section 1.C, forbid you to *"Cache, for longer than
+6 months, any information obtained through or from TMDB or the TMDB APIs."*
+Found on 2026-09-24 while drafting SPEC §2's pre-launch email to TMDB. It is
+not in SPEC §2, which only records the purge-on-termination duty.
+
+Phase 1a wrote `movies.fetched_at` and deliberately never read it ("No TTL on
+`fetched_at`", phase 1a's "Deferred" list): SPEC §3 says fetch once, never per
+read. That stays true on the read path. What changes is that a background job
+now re-fetches before six months are up. The oldest rows date from phase 1a
+(late July 2026), so the first breach would have landed in late January 2027.
+
+### What counts as cached TMDB data, and how each is handled
+
+| Data | Handling |
+|---|---|
+| `movies` columns, including `trailer_key` | Re-fetched in place by `refreshMovie` once `fetched_at` is 150 days old |
+| `movie_tags` for a title | Replaced in the same refresh: new rows added first, then rows TMDB no longer lists are removed |
+| `tags` values (keyword, person and genre names) | Re-stamped every time any title carrying them is cached or refreshed (new `tags.fetched_at`). One no title uses is deleted after a day |
+| `movie_releases` | Already re-fetched per region every 12 hours by theatre.ts, but a region nobody opens keeps its rows forever. Rows older than the cutoff are deleted |
+| Orphan `movies` rows (no `movie_external_ids` mapping) | Left behind by `persistMovie` failures and races. They can't be refreshed without an external id, so they're deleted after a day |
+| `movie_external_ids` | Identifiers, refreshed with the title they point at |
+
+`user_tag_weights` stores numbers keyed by tag id, not TMDB text. It is not
+rebuilt when a title's tags change (see the trade-offs below).
+
+Watch providers aren't cached at all: `app/movies/[id]/page.tsx` calls
+`getWatchProviders` per render, and `tmdb.ts`'s plain `fetch` goes through no
+Next data cache.
+
+### The numbers
+
+`REFRESH_AFTER_DAYS = 150` leaves 30 days of slack under TMDB's 180, for a
+TMDB outage, failed runs, or a backlog. `BATCH = 150` titles a run at two
+TMDB calls each is at most 300 calls a day. At one run a day that keeps up
+with a catalog of about 150 × 150 = 22,500 titles; the slack alone clears a
+4,500-title backlog. The route reports `more: true` when a run fills its
+batch. If that shows up day after day, raise `BATCH` or run the cron more
+often. The cron is `0 21 * * *` (02:30 IST), away from the digest's
+`30 3 * * *`. On today's catalog it does nothing until late December 2026.
+
+### Design choices
+
+- **Update in place, never delete and re-cache.** `movies.id` is what every
+  list item, rating, night and hype record points at, and most of those
+  foreign keys cascade. A refresh keeps the id and rewrites the columns.
+  `insertMovie` and `refreshMovie` now share one `movieColumns()`, so a
+  refresh can't write a different set of columns than a first fetch.
+- **`fetched_at` is written last,** after tags. This is `persistMovie`'s
+  commit-marker idea again: if the tag replacement throws, the row stays old
+  and tomorrow's run retries it. Stamping first would mark a title fresh over
+  tags that were never replaced.
+- **Tags are replaced add-then-remove,** not delete-then-insert. The
+  recommender can read `movie_tags` at any moment, and a delete first would
+  score the title with no tags until the insert landed.
+- **`prune_catalog` is `SECURITY DEFINER`, service_role only.** Its
+  orphan-movie check reads `hype_history` and `night_rejections`, where
+  service_role has no grant. Revoked from `authenticated` and `anon`: nothing
+  would leak, but deleting catalog rows early isn't a user's call.
+- **The orphan-movie delete checks every cascading reference anyway.** An
+  unmapped movie id is never returned to a caller, so nothing should point at
+  one. If that reasoning is ever wrong, a user's list item or rating must not
+  disappear with it. `rls.test.sql` pins this with an orphan that is on a list.
+- **The one-day grace** on orphan movies and tags covers `cacheMovie` in
+  flight: its `movies` row exists before its mapping, and a new tag exists
+  before its `movie_tags` row.
+- **`tags.fetched_at` backfilled** from the newest title carrying each tag,
+  not left at the migration's `now()`, which would have made every tag look
+  newer than it is.
+
+### Known trade-offs, left open on purpose
+
+- **Titles TMDB has removed (404).** `refreshStaleCatalog` reports them in
+  `gone` and logs them, and leaves the row. Deleting it would cascade into
+  users' lists and ratings. There is no automatic answer that is both
+  compliant and harmless, so this needs a person. The likely fix, if it ever
+  happens, is to clear the row's descriptive columns (overview, images,
+  trailer, tags) and keep only the title the user added. A 404 row is the
+  oldest in the catalog, so it costs two TMDB calls every run until it is
+  dealt with.
+- **`user_tag_weights` goes slightly stale** when a refresh changes a title's
+  tags: a new keyword doesn't count toward a user's weights until their next
+  rating triggers `rebuild_user_tag_weights`. Rebuilding every affected user
+  from the cron needs a new RPC over the private `_rebuild_tag_weights`, which
+  isn't worth it for a keyword drifting on a few-month-old film.
+- **No new analytics event.** The route's JSON response and the Vercel cron
+  logs are the record.
+
+### TMDB email
+
+SPEC §2's pre-launch email was sent on 2026-09-24 to `sales@themoviedb.org`
+(the address TMDB's developer FAQ gives for licensing questions). It asked
+whether a free public app is fine on a developer key, about the ML/AI clause,
+and about commercial pricing. Worth noting for whoever reads the reply: §1.C's
+ML/AI restriction covers use *"in connection with, including for training, a
+machine learning (ML) or artificial intelligence (AI) based Application"*,
+which is broader than SPEC §2's "ML-trained" framing. The FAQ's test for
+commercial use is whether *"the primary purpose is to create revenue for the
+benefit of the owner."*
+
+### Verification
+
+- `supabase db reset` applies the migration clean; `supabase test db` passes
+  228/228 (11 new: counts, each keep/delete case, and 42501 for
+  `authenticated` and `anon`).
+- `pnpm smoke:refresh` (new) passes against a local stack with a stubbed
+  TMDB: a fresh catalog costs no calls; a 160-day-old title is rewritten in
+  place with its keywords swapped; a 404 title is reported and kept; the
+  dropped keyword survives its first day and is pruned after; the next run
+  retries only the 404. The script refuses to run against a non-local URL.
+- `pnpm typecheck`, `pnpm lint`, `pnpm build` clean. `pnpm start` with a
+  `CRON_SECRET`: the route answers 401 without it and 200 with the report
+  JSON with it.
+- **Not verified:** a run against live TMDB. The logic sits on the same
+  `getMovie`/`getTags` calls `pnpm smoke:tmdb` already covers, but the first
+  real refresh won't happen until late December 2026.

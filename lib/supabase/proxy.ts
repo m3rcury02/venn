@@ -31,13 +31,15 @@ import { getClaims } from "./claims";
 // fetches it to verify that the signed native wrapper may open this origin as a
 // Trusted Web Activity; a login redirect would make verification fail.
 //
-// /api/cron/digest (phase 11) is triggered by Vercel Cron without a session cookie,
-// so it must be exempted from login redirects; authentication is checked via CRON_SECRET.
+// /api/cron/digest (phase 11) and /api/cron/refresh-catalog are triggered by
+// Vercel Cron without a session cookie, so they must be exempted from login
+// redirects; authentication is checked via CRON_SECRET.
 const PUBLIC_PATHS = [
   "/login",
   "/auth",
   "/api/ingest",
   "/api/cron/digest",
+  "/api/cron/refresh-catalog",
   "/share",
   "/manifest.webmanifest",
   "/sw.js",

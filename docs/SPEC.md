@@ -38,6 +38,8 @@ Shared movie lists and group recommendations. Personal libraries, friend groups,
 
 **Attribution is a licence condition:** TMDB logo plus "This product uses the TMDB API but is not endorsed or certified by TMDB" in an About/Credits section. On termination you must purge cached TMDB content — this design caches, so it's a real obligation.
 
+**Cached TMDB data may not be older than 6 months** (API Terms of Use §1.C: you may not "Cache, for longer than 6 months, any information obtained through or from TMDB"). A daily cron re-fetches titles at 150 days and prunes what can't be refreshed — see `docs/DECISIONS.md`, "TMDB's 6-month cache limit".
+
 ### Provider interface
 
 ```ts

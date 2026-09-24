@@ -70,6 +70,54 @@ export async function cacheMovieByImdbId(imdbId: string): Promise<string | null>
   return (await lookup(db, "imdb", normalized)) ?? movieId;
 }
 
+/**
+ * Re-fetches a cached title and overwrites its catalog rows in place, keeping
+ * its `movies.id` so every list, rating and night that points at it survives.
+ * TMDB's API terms (section 1.C) forbid caching its data for more than six
+ * months; lib/movies/refresh.ts calls this before a row gets that old.
+ */
+export async function refreshMovie(movieId: string, externalId: string): Promise<void> {
+  const db = createServiceClient();
+
+  const [movie, tags] = await Promise.all([
+    provider.getMovie(externalId),
+    provider.getTags(externalId),
+  ]);
+
+  // Tags first, the movies row last -- persistMovie's commit-marker idea again.
+  // `fetched_at` is what marks this title as done, so if anything below throws
+  // the row stays old and tomorrow's run retries it. Updating the movie first
+  // would stamp it fresh over tags that never got replaced.
+  //
+  // Add-then-remove, not delete-then-insert: the recommender reads movie_tags
+  // at any moment, and a delete first would score this title with no tags at
+  // all until the insert landed.
+  const tagIds = await upsertTags(db, tags);
+
+  if (tagIds.length > 0) {
+    const { error } = await db
+      .from("movie_tags")
+      .upsert(
+        tagIds.map((tagId) => ({ movie_id: movieId, tag_id: tagId })),
+        { onConflict: "movie_id,tag_id", ignoreDuplicates: true },
+      );
+    if (error) throw error;
+  }
+
+  // Drops tags TMDB no longer lists for this title (a removed keyword, a
+  // cast change). With no tags at all, every existing row goes.
+  let stale = db.from("movie_tags").delete().eq("movie_id", movieId);
+  if (tagIds.length > 0) stale = stale.not("tag_id", "in", `(${tagIds.join(",")})`);
+  const { error: staleError } = await stale;
+  if (staleError) throw staleError;
+
+  const { error } = await db
+    .from("movies")
+    .update(movieColumns(movie))
+    .eq("id", movieId);
+  if (error) throw error;
+}
+
 async function persistMovie(db: Db, movie: Movie, tags: Tag[]): Promise<string> {
   const movieId = await insertMovie(db, movie);
   await insertTags(db, movieId, tags);
@@ -116,25 +164,7 @@ async function lookup(
 async function insertMovie(db: Db, movie: Movie): Promise<string> {
   const { data, error } = await db
     .from("movies")
-    .insert({
-      title: movie.title,
-      original_title: movie.originalTitle,
-      year: movie.year,
-      poster_path: movie.posterPath,
-      backdrop_path: movie.backdropPath,
-      runtime: movie.runtime,
-      overview: movie.overview,
-      // rating_external is numeric(3,1) -- Postgres rounds 8.456 to 8.5. That
-      // truncation is intended; do not "fix" it by rounding here first.
-      rating_external: movie.ratingExternal,
-      release_date: movie.releaseDate,
-      media_type: movie.mediaType,
-      trailer_key: movie.trailerKey,
-      // Stamped whenever a movie row is minted, because getMovie now always asks
-      // for videos. A null key here therefore means "no trailer exists", not
-      // "not looked yet" -- which is exactly what the backfill needs to skip it.
-      trailer_fetched_at: new Date().toISOString(),
-    })
+    .insert(movieColumns(movie))
     .select("id")
     .single();
 
@@ -142,28 +172,73 @@ async function insertMovie(db: Db, movie: Movie): Promise<string> {
   return data.id;
 }
 
+// Shared by insertMovie and refreshMovie, so a refresh rewrites exactly the
+// columns a first fetch writes and the two can't drift apart.
+function movieColumns(movie: Movie) {
+  const now = new Date().toISOString();
+  return {
+    title: movie.title,
+    original_title: movie.originalTitle,
+    year: movie.year,
+    poster_path: movie.posterPath,
+    backdrop_path: movie.backdropPath,
+    runtime: movie.runtime,
+    overview: movie.overview,
+    // rating_external is numeric(3,1) -- Postgres rounds 8.456 to 8.5. That
+    // truncation is intended; do not "fix" it by rounding here first.
+    rating_external: movie.ratingExternal,
+    release_date: movie.releaseDate,
+    media_type: movie.mediaType,
+    trailer_key: movie.trailerKey,
+    // Stamped whenever a movie row is minted or refreshed, because getMovie
+    // always asks for videos. A null key here therefore means "no trailer exists", not
+    // "not looked yet" -- which is exactly what the backfill needs to skip it.
+    trailer_fetched_at: now,
+    // Explicit rather than left to the column default, because refreshMovie
+    // sends this same object as an UPDATE, and a default only fires on INSERT.
+    // This is the timestamp lib/movies/refresh.ts ages against TMDB's 6-month
+    // limit.
+    fetched_at: now,
+  };
+}
+
 async function insertTags(db: Db, movieId: string, tags: Tag[]): Promise<void> {
-  if (tags.length === 0) return;
-
-  // Tags are shared across movies, so this is an upsert; the insert below is
-  // not. toTags() dedupes, which it has to -- a repeated (tag_type, tag_value)
-  // in one batch would trip "ON CONFLICT DO UPDATE cannot affect row a second
-  // time".
-  const { data: rows, error: tagsError } = await db
-    .from("tags")
-    .upsert(
-      tags.map((tag) => ({ tag_type: tag.type, tag_value: tag.value })),
-      { onConflict: "tag_type,tag_value" },
-    )
-    .select("id");
-
-  if (tagsError) throw tagsError;
+  const tagIds = await upsertTags(db, tags);
+  if (tagIds.length === 0) return;
 
   // weight keeps its column default of 1: §4.1 applies the per-type weight
   // (genre x3, person x2, keyword x1) at scoring time, read from tags.tag_type.
   const { error } = await db
     .from("movie_tags")
-    .insert(rows.map((row) => ({ movie_id: movieId, tag_id: row.id })));
+    .insert(tagIds.map((tagId) => ({ movie_id: movieId, tag_id: tagId })));
 
   if (error) throw error;
+}
+
+async function upsertTags(db: Db, tags: Tag[]): Promise<number[]> {
+  if (tags.length === 0) return [];
+
+  // Tags are shared across movies, so this is an upsert; insertTags' movie_tags
+  // insert is not. toTags() dedupes, which it has to -- a repeated (tag_type, tag_value)
+  // in one batch would trip "ON CONFLICT DO UPDATE cannot affect row a second
+  // time".
+  //
+  // fetched_at rides the upsert so an existing tag is re-stamped too: TMDB just
+  // sent this value again. prune_catalog (20260924120000_catalog_refresh.sql)
+  // relies on that to tell a live tag from one nothing uses any more.
+  const fetchedAt = new Date().toISOString();
+  const { data: rows, error } = await db
+    .from("tags")
+    .upsert(
+      tags.map((tag) => ({
+        tag_type: tag.type,
+        tag_value: tag.value,
+        fetched_at: fetchedAt,
+      })),
+      { onConflict: "tag_type,tag_value" },
+    )
+    .select("id");
+
+  if (error) throw error;
+  return rows.map((row) => row.id);
 }
