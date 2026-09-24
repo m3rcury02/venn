@@ -1,0 +1,31 @@
+# Fails when `main` has a migration production hasn't applied. See
+# scripts/check-migrations.sh for why, and docs/DECISIONS.md, "CI", for the
+# one-time setup (the ci_migration_reader role and its secret).
+#
+# Not on pull requests: a PR that adds a migration is *supposed* to be ahead
+# of production. What matters is `main`, because that is what Vercel deploys.
+# The daily run catches the other direction too, and keeps a red check red
+# until the migration is actually applied.
+
+name: Migrations applied
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Production has every migration on main
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/check-migrations.sh
+        env:
+          MIGRATIONS_DATABASE_URL: ${{ secrets.MIGRATIONS_DATABASE_URL }}

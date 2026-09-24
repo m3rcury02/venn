@@ -1,0 +1,113 @@
+# Runs on every push and pull request. Three jobs, so a failure says which
+# kind of check broke. docs/DECISIONS.md, "CI", has the reasoning.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    name: Typecheck, lint, smoke, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+
+      # The two smoke scripts that need no network, database or env.
+      - run: pnpm smoke:ingest
+      - run: pnpm smoke:imports
+
+      # Placeholders only. The build reads these at module load and throws
+      # without them (INGEST_TOKEN_PEPPER does on purpose), but nothing here
+      # talks to a real service.
+      - run: pnpm build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: ci-placeholder
+          INGEST_TOKEN_PEPPER: ci-placeholder
+          TMDB_API_KEY: ci-placeholder
+
+  database:
+    name: Migrations, RLS tests, catalog refresh
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Pinned to package.json's devDependency, installed by Supabase's own
+      # action rather than through pnpm, whose build-script allowlist
+      # (pnpm-workspace.yaml) decides whether the package fetches its binary.
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.109.1
+
+      # Applies every migration from scratch, which is the check that each
+      # one runs clean in order. Studio, storage, realtime and the rest aren't
+      # needed: the tests use Postgres, and smoke:refresh uses PostgREST.
+      - run: supabase start -x studio,imgproxy,edge-runtime,logflare,vector,supavisor,realtime,storage-api,mailpit,postgres-meta
+
+      - run: supabase test db
+
+      # smoke:refresh reads .env.local and refuses any non-local URL. TMDB is
+      # stubbed inside the script, so no key is needed.
+      - name: Write .env.local for the local stack
+        run: |
+          supabase status -o env \
+            | sed -nE 's/^API_URL="?([^"]*)"?$/NEXT_PUBLIC_SUPABASE_URL=\1/p; s/^SERVICE_ROLE_KEY="?([^"]*)"?$/SUPABASE_SERVICE_ROLE_KEY=\1/p' \
+            > .env.local
+          grep -c = .env.local | grep -qx 2
+
+      - run: pnpm smoke:refresh
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # SPEC §11: "Public repo ... gitleaks as a pre-commit hook." A hook only
+      # guards machines that installed it; this guards every push. The
+      # binary rather than gitleaks-action, which needs a paid licence for
+      # organisation-owned repos.
+      - name: Install gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz \
+            | tar -xz gitleaks
+      - run: ./gitleaks git . --redact --no-banner

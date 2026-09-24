@@ -5238,3 +5238,128 @@ The other known gap, no "leave the lobby", is still open.
 - `pnpm typecheck`, `pnpm lint`, `pnpm build` clean.
 - Not driven: `joinPublicGroup`'s event. Same shape as `joinGroup`'s, one
   line apart.
+
+---
+
+## CI
+
+Files: `.github/workflows/ci.yml`, `.github/workflows/migrations.yml`,
+`scripts/check-migrations.sh`. No migration; one production role, created by
+hand (below).
+
+### What set this off: production had drifted six weeks behind `main`
+
+On 2026-09-24, applying the catalog-refresh and lobby-expiry migrations turned
+up four more that had been on `main` since 2026-08-08/09 and never reached
+production: `onboarding_five_rating_minimum`, `widen_candidate_pool`,
+`none_of_these_log` and `remote_night_lobby`. Vercel deploys `main` on push,
+and migrations reach production by hand, so for about six weeks the deployed
+code called a table (`night_rejections`), a column (`movie_nights.closed_at`)
+and functions (`widen_seeds`, `open/join/close_movie_night`) that didn't
+exist. Onboarding was the serious one: the page accepted five ratings while
+the database's `complete_onboarding()` still demanded ten. All six were
+applied through the Supabase MCP that day, with their recorded versions
+reset to the repo filenames, and verified object by object.
+
+Nothing had noticed, because nothing compared the two. `migrations.yml` does.
+
+### `ci.yml`, on every push and pull request
+
+- **app**: `pnpm install --frozen-lockfile`, `typecheck`, `lint`,
+  `smoke:ingest`, `smoke:imports` (the two smoke scripts that need no
+  network, database or env), and `build` with placeholder env.
+- **database**: `supabase start` (Postgres + PostgREST + auth only) applies
+  every migration from scratch in order, then `supabase test db` runs
+  `rls.test.sql` and `smoke:refresh` runs against the stack. The Supabase CLI
+  comes from `supabase/setup-cli`, pinned to package.json's 2.109.1, not from
+  `pnpm exec`: whether the npm package fetches its binary depends on
+  pnpm-workspace.yaml's build-script allowlist, which is a bad thing for CI
+  to depend on.
+- **secrets**: gitleaks 8.28.0 over full history. SPEC §11 asked for a
+  pre-commit hook, which only guards machines that installed it. The binary
+  is used rather than `gitleaks-action`, which needs a paid licence for
+  organisation-owned repos. The full history (54 commits) was clean when
+  this was added.
+
+The TMDB smoke scripts (`smoke:tmdb`, `smoke:theatre`, `smoke:explore`) aren't
+in CI: they need a live TMDB key, and putting the key in CI secrets for a
+public repo's workflow widens where it can leak for little gain.
+
+### `migrations.yml`, on push to `main`, daily, and by hand
+
+`scripts/check-migrations.sh` lists the 14-digit versions in
+`supabase/migrations/`, reads production's
+`supabase_migrations.schema_migrations`, and:
+
+- **fails** for any version in the repo that production lacks. That's the
+  failure mode above: deployed code calling schema that isn't there.
+- **warns** for any version production has that the repo doesn't: a
+  migration applied from elsewhere. Worth knowing, but not breaking.
+- **fails** if the secret isn't set, rather than skipping. A skipped check
+  looks like a passing one, and a silent gap is what this exists to close.
+
+Not on pull requests: a PR adding a migration is supposed to be ahead of
+production until it merges. The daily run keeps a red check red until the
+migration is applied, instead of waiting for the next push.
+
+It does **not** stop Vercel from deploying. It tells you, within minutes of
+the push, that the deploy is running against a schema it doesn't match. The
+order that avoids the gap entirely is still: apply the migration, then push
+to `main`. Wiring this script into Vercel's "Ignored Build Step" would turn
+it into a gate. Not done: a failed database connection would then block
+every deploy.
+
+### `ci_migration_reader`: the only production credential CI holds
+
+Created in production on 2026-09-24:
+
+```sql
+create role ci_migration_reader login noinherit;
+alter role ci_migration_reader set statement_timeout = '10s';
+alter role ci_migration_reader set default_transaction_read_only = on;
+grant usage on schema supabase_migrations to ci_migration_reader;
+grant select (version) on supabase_migrations.schema_migrations to ci_migration_reader;
+```
+
+Checked after creation: it can select `version` and nothing else. It can't
+read the migrations' SQL text, `profiles`, `user_movie_status` or
+`auth.users`, can't insert into `movies`, and has no elevated attributes.
+It can't execute a single `security definer` function in `public`, because
+every one was revoked from `public` in its own migration. The column-level
+grant is deliberate: `schema_migrations.statements` holds every migration's
+full SQL, which is public in this repo anyway, but there's no reason for the
+role to have it. `default_transaction_read_only` is a guard, not a boundary,
+since a session can switch it off. The grants are the boundary.
+
+It was created **without a password**, so nobody can sign in as it until the
+owner sets one. The password never passed through an agent session. Setup,
+once:
+
+1. Supabase SQL editor: `alter role ci_migration_reader with password '<long random>';`
+2. Dashboard → Connect → **Session pooler** string. GitHub's runners have no
+   IPv6, and the direct `db.<ref>.supabase.co` host is IPv6-only. Replace
+   the user `postgres.vfkkpflenfpfrrygxmto` with
+   `ci_migration_reader.vfkkpflenfpfrrygxmto`, and the password with the
+   one above.
+3. GitHub → Settings → Secrets and variables → Actions → repository secret
+   `MIGRATIONS_DATABASE_URL`.
+4. Actions → "Migrations applied" → Run workflow, to confirm.
+
+A local stack doesn't have the role (it isn't in a migration: CI's local
+database has nothing to check against). To exercise the script locally,
+create it the same way with a throwaway password.
+
+### Verification
+
+- `scripts/check-migrations.sh` against a local stack, connected as a local
+  `ci_migration_reader`: in sync → exit 0 ("All 29 migrations…"); an extra
+  repo file → exit 1 with a file annotation; an extra production row →
+  warning, exit 0; unset secret → exit 1; the role is refused on `profiles`
+  and on `schema_migrations.statements`.
+- The `.env.local` step's `sed` run against real `supabase status -o env`
+  output, then `pnpm smoke:refresh` passing through it.
+- `actionlint` 1.7.7 clean on both workflows.
+- **Not verified here:** a real GitHub Actions run, and whether Supavisor
+  accepts `ci_migration_reader` (it supports custom roles in the
+  `role.projectref` form, but this project hasn't used one before). The
+  first push will show the former, and step 4 above the latter.
