@@ -5359,7 +5359,21 @@ create it the same way with a throwaway password.
 - The `.env.local` step's `sed` run against real `supabase status -o env`
   output, then `pnpm smoke:refresh` passing through it.
 - `actionlint` 1.7.7 clean on both workflows.
-- **Not verified here:** a real GitHub Actions run, and whether Supavisor
-  accepts `ci_migration_reader` (it supports custom roles in the
-  `role.projectref` form, but this project hasn't used one before). The
-  first push will show the former, and step 4 above the latter.
+- On GitHub, 2026-09-24: `ci.yml`'s first run (`6bc2f8a`) passed all three
+  jobs. `migrations.yml`'s first push run failed as designed, before the
+  secret existed. Once the owner set the password and secret, a manual run
+  passed ("All 29 migrations in supabase/migrations/ are applied to
+  production"), which also confirmed Supavisor accepts `ci_migration_reader`
+  in the `role.projectref` form over the session pooler.
+
+### Action versions
+
+`actions/checkout@v7`, `actions/setup-node@v7`, `pnpm/action-setup@v6`,
+`supabase/setup-cli@v3`. The first run used the v4/v4/v4/v1 majors, and
+GitHub warned that they target Node 20, which is deprecated on its runners.
+Each newer major runs on Node 24 (setup-cli v3 is a composite action). Their
+breaking changes don't touch these workflows: setup-node v6 stopped
+auto-caching for pnpm, but `cache: pnpm` is set explicitly, and v7's move to
+ESM is internal. setup-cli v3 would read the CLI version from
+`pnpm-lock.yaml` if `version` were omitted; it stays pinned so the version
+is visible in the workflow.
