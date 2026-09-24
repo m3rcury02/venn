@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { captureServer } from "@/lib/analytics/server";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
@@ -30,6 +31,10 @@ export async function createGroup(
     .insert({ id, name, created_by: userId });
 
   if (error) return { error: "Couldn't create the group." };
+
+  // Before redirect(), which throws. group_id rather than the name: names are
+  // free text and don't belong in a third-party analytics store.
+  await captureServer(userId, "group_created", { group_id: id });
 
   revalidatePath("/groups");
   redirect(`/groups/${id}`);
@@ -100,12 +105,20 @@ export async function joinGroup(
   if (!code) return { error: "Enter an invite code." };
 
   const supabase = await createClient();
+  const { data: claims } = await getClaims(supabase);
+  const userId = claims?.claims?.sub;
+  if (typeof userId !== "string") return { error: "Not signed in." };
+
   const { data: groupId, error } = await supabase.rpc("join_group_by_code", {
     p_code: code,
   });
 
   if (error) return { error: "Couldn't join the group." };
   if (!groupId) return { error: "No group with that code." };
+
+  // An invite code joining is the growth loop working: one member bringing in
+  // the next. `via` separates it from the public directory below.
+  await captureServer(userId, "group_joined", { group_id: groupId, via: "invite_code" });
 
   revalidatePath("/groups");
   redirect(`/groups/${groupId}`);
@@ -117,12 +130,18 @@ export async function joinPublicGroup(groupId: string): Promise<GroupFormState> 
   if (!groupId) return { error: "Missing group." };
 
   const supabase = await createClient();
+  const { data: claims } = await getClaims(supabase);
+  const userId = claims?.claims?.sub;
+  if (typeof userId !== "string") return { error: "Not signed in." };
+
   const { data: id, error } = await supabase.rpc("join_public_group", {
     p_group_id: groupId,
   });
 
   if (error) return { error: "Couldn't join the group." };
   if (!id) return { error: "That group isn't open to join." };
+
+  await captureServer(userId, "group_joined", { group_id: id, via: "public" });
 
   revalidatePath("/groups");
   revalidatePath("/discover");

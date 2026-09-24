@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { captureServer } from "@/lib/analytics/server";
 import { sendPush } from "@/lib/notifications/send";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
@@ -50,6 +51,16 @@ export async function logNight(
   if (error) {
     return { ok: false, error: error.message };
   }
+
+  // The event the whole product hinges on: a group actually settled on a
+  // film. Weekly unique group_ids on this event are "groups that come back",
+  // which is the number that decides whether Venn is ready for more users.
+  await captureServer(me, "night_logged", {
+    group_id: groupId,
+    mode,
+    remote: Boolean(nightId),
+    attendees: present.length,
+  });
 
   const { data: group } = await supabase
     .from("groups")
@@ -156,6 +167,13 @@ export async function noneOfThese(
       mode,
     })),
   );
+
+  // night_rejections holds the detail; this is only the count PostHog needs
+  // to put rejections next to night_logged. captureServer never throws, so
+  // the reroll still can't be broken by analytics.
+  if (!error) {
+    await captureServer(me, "picks_rejected", { group_id: groupId, mode });
+  }
 
   return { ok: !error };
 }

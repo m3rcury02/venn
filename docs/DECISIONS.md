@@ -5110,3 +5110,131 @@ benefit of the owner."*
 - **Not verified:** a run against live TMDB. The logic sits on the same
   `getMovie`/`getTags` calls `pnpm smoke:tmdb` already covers, but the first
   real refresh won't happen until late December 2026.
+
+---
+
+## Group and movie-night analytics events
+
+No migration. Server-side PostHog events through the existing
+`captureServer` (`lib/analytics/server.ts`), in the actions where each
+thing actually happens:
+
+| Event | Fired from | Properties |
+|---|---|---|
+| `group_created` | `createGroup` (`app/groups/actions.ts`) | `group_id` |
+| `group_joined` | `joinGroup`, `joinPublicGroup` | `group_id`, `via: "invite_code" \| "public"` |
+| `night_logged` | `logNight` (`app/groups/[id]/night/actions.ts`), after the RPC succeeds | `group_id`, `mode`, `remote`, `attendees` |
+| `picks_rejected` | `noneOfThese`, only when the insert succeeded | `group_id`, `mode` |
+
+### Why these four
+
+Before this, PostHog saw page views plus per-user events (`movie_added`,
+`vote_cast`, `onboarding_completed`, ingest, imports) and nothing about
+groups. Venn is a group product, and the question that decides whether it's
+ready for more users is "do groups come back and use it week after week?"
+`night_logged` answers that on its own. Distinct `group_id`s per week is the
+number, and `group_created` → `group_joined` → `night_logged` is the funnel
+behind it. PostHog's per-person counts can't give this: a group's nights are
+logged by whichever member taps the button.
+
+The query, as a PostHog SQL insight (no Group Analytics add-on needed):
+
+```sql
+select toStartOfWeek(timestamp) as week,
+       count(distinct properties.group_id) as groups_with_a_night
+from events
+where event = 'night_logged'
+group by week
+order by week
+```
+
+### What was left out
+
+- **No group names, ever.** Names are free text (SPEC §11), and a
+  third-party analytics store is no place for them. `group_id` is an opaque
+  uuid. `/privacy` already names PostHog as the product-analytics provider,
+  so no copy change.
+- **No lobby-opened or lobby-joined events.** `open_movie_night` returns the
+  existing lobby's id when one is open, so the action can't tell "opened"
+  from "tapped start on one already open" without an extra query just for
+  analytics. `night_logged`'s `remote` flag already shows whether lobbies
+  lead to picks. The recommendations shown are the `$pageview` on
+  `/groups/<id>/night`.
+- `joinGroup` and `joinPublicGroup` now read claims, which they didn't need
+  before, because `captureServer` needs a distinct id. Both also return "Not
+  signed in." early, matching `createGroup`.
+
+---
+
+## Remote-night lobbies expire after 12 hours
+
+Migration: `supabase/migrations/20260924130000_lobby_expiry.sql`. Closes the
+first of the lobby's "Known gaps, left out on purpose" above.
+
+### The gap was worse than recorded
+
+The lobby entry says an abandoned lobby "keeps blocking a fresh one". It
+doesn't block: `open_movie_night` hands back the open lobby instead of
+refusing. So a group starting a remote night the next week was sent into the
+old lobby, with the old attendees still in its roster. `present` comes from
+that roster in lobby mode, so the picker excluded films people who weren't
+there had watched, scored for their taste, and pushed them a movie-night
+invite on logging. "Wait for real usage" was the right call for a group of
+friends who would notice. It isn't for strangers.
+
+### The rule, and where it lives
+
+A lobby expires 12 hours after it was opened (`held_at`, which the lobby
+flow sets on open and never touches again). There's no last-activity
+timestamp to measure from, and adding `joined_at` to
+`movie_night_attendees` would be more than the gap needs.
+
+- `open_movie_night` deletes the group's expired lobby, after the
+  membership check, before looking for an open one.
+- `join_movie_night` refuses an expired lobby with the closed-night message.
+- `close_movie_night` refuses one ("this lobby has expired"). Reaching that
+  means a tab left open across the cutoff. After a reload, the pick logs as
+  an ordinary night.
+- The night page (`app/groups/[id]/night/page.tsx`) treats an expired
+  `?night=` like a closed one (falls back to the normal page), and its "X
+  started a remote night" query filters out expired rows.
+
+The 12 hours is written twice, in the migration and in `lib/lobby.ts`
+(`LOBBY_TTL_HOURS`), each pointing at the other. That's a knowing trade: the
+alternative was new RPCs for the page's two lobby reads just to share one
+constant.
+
+**Deleted, not closed**: closing would leave `closed_at` set with
+`picked_movie_id` null, which the lobby entry already rules out, because
+null there means "the movie left the catalog". Nothing of value goes with
+it: attendee rows cascade, and there are no watch confirmations before a
+pick.
+
+**Lazy, not a cron**: an expired lobby is inert (hidden, unjoinable,
+unclosable) and only needs to go when the group opens a new one, because of
+the one-open-lobby index. `open_movie_night` deletes it at exactly that
+point. An expired lobby of a group that never plays again sits there
+harmlessly. The digest already filters out nights with no pick.
+
+The other known gap, no "leave the lobby", is still open.
+
+### Tests and verification
+
+- `supabase/tests/rls.test.sql`: `plan(228)` → `plan(238)`. An expired
+  lobby can't be joined or closed. A non-member's refused `open_movie_night`
+  leaves it in place (the delete runs after the membership check). A
+  member's `open_movie_night` hands back a new lobby, deletes the expired one
+  along with its roster, and an 11-hour-old lobby is still returned and
+  joinable, so a function that expired every lobby on sight would fail.
+  238/238 pass.
+- Driven end to end in Chromium (390×844) against a local stack with two
+  real users signed in by magic-link token, and PostHog pointed at a local
+  sink. All four events arrive with the right `distinct_id` and properties,
+  and none carries the group name. A lobby backdated to 13 hours disappears
+  from the other member's night page, its own link falls back to the normal
+  page, and starting a new night creates a fresh lobby whose roster is only
+  the person who opened it. The remote `night_logged` reports `remote: true,
+  attendees: 2`.
+- `pnpm typecheck`, `pnpm lint`, `pnpm build` clean.
+- Not driven: `joinPublicGroup`'s event. Same shape as `joinGroup`'s, one
+  line apart.
