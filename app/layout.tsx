@@ -4,6 +4,7 @@ import { InstallPrompt } from "@/components/install-prompt";
 import { ImportRunner } from "@/components/import-runner";
 import { MobileNavigation } from "@/components/mobile-navigation";
 import { Analytics } from "@/components/analytics";
+import { ErrorReporter } from "@/components/error-reporter";
 import { RegisterServiceWorker } from "@/components/register-service-worker";
 import { SiteFooter } from "@/components/site-footer";
 import "./globals.css";
@@ -77,6 +78,7 @@ export default function RootLayout({
         </div>
         <RegisterServiceWorker />
         <ImportRunner />
+        <ErrorReporter />
       </body>
     </html>
   );

@@ -35,6 +35,12 @@ import { getClaims } from "./claims";
 // /api/cron/digest (phase 11) and /api/cron/refresh-catalog are triggered by
 // Vercel Cron without a session cookie, so they must be exempted from login
 // redirects; authentication is checked via CRON_SECRET.
+//
+// /api/errors receives browser error reports (lib/errors/client.ts), and the
+// pages that most need them are the login page and onboarding, where the
+// caller has no session or isn't onboarded. Behind the redirect, a report
+// would be answered with /login HTML and silently lost. It guards itself: see
+// the route.
 // Bumped from "1" when the 18+ confirmation joined the onboarding gate; see
 // the comment in updateSession.
 const ONBOARDED_COOKIE_VALUE = "2";
@@ -45,6 +51,7 @@ const PUBLIC_PATHS = [
   "/api/ingest",
   "/api/cron/digest",
   "/api/cron/refresh-catalog",
+  "/api/errors",
   "/share",
   "/manifest.webmanifest",
   "/sw.js",
