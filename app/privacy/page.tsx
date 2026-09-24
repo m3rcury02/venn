@@ -29,7 +29,10 @@ export default function PrivacyPage() {
           <h2 className="t-section text-lg text-fg">1. Information We Collect</h2>
           <div className="t-body mt-3 flex flex-col gap-3 text-[14px] text-fg-dim">
             <p>
-              <strong className="text-fg">Account Credentials &amp; Profile:</strong> Email address (via Google OAuth or magic link authentication), username, display name, avatar URL, and regional preferences.
+              <strong className="text-fg">Account Credentials &amp; Profile:</strong> Email address (via Google OAuth or magic link authentication), username, display name, avatar URL, and regional preferences. If you sign in with Google, Google shares your name and email address with us.
+            </p>
+            <p>
+              <strong className="text-fg">Age Confirmation:</strong> The date and time you confirmed you are 18 or older.
             </p>
             <p>
               <strong className="text-fg">Movie Activity &amp; Taste Signals:</strong> Movie ratings (hate, like, love), hype statuses (dont_care, hyped, superhyped), watch history timestamps, personal and group list items, and group memberships.
@@ -37,18 +40,27 @@ export default function PrivacyPage() {
             <p>
               <strong className="text-fg">Ingestion Text:</strong> Title text or URLs sent via the share target, iOS shortcut, or paste interface.
             </p>
+            <p>
+              <strong className="text-fg">Usage Analytics:</strong> Pages you view and in-app events (for example, adding a movie, casting a vote, creating a group or logging a movie night), linked to your account ID. Collected only after you have confirmed you are 18 or older and finished onboarding. Nothing is collected on the sign-in page, the legal pages or during onboarding.
+            </p>
+            <p>
+              <strong className="text-fg">Abuse-Prevention Counters:</strong> Counts of how many searches and other requests your account made in the current time window (one minute to one hour, depending on the action), used to enforce fair-use limits. Only the latest count of each kind is kept, and all of them are deleted with your account.
+            </p>
           </div>
         </Panel>
 
         <Panel>
           <h2 className="t-section text-lg text-fg">2. Service Providers &amp; Data Sharing</h2>
           <div className="t-body mt-3 flex flex-col gap-3 text-[14px] text-fg-dim">
-            <p>We share data only with infrastructure providers necessary to operate the app:</p>
+            <p>We share data only with the providers needed to run the app. We do not sell your data.</p>
             <ul className="list-disc pl-5 flex flex-col gap-1.5">
               <li><strong className="text-fg">Supabase:</strong> Database host and authentication provider.</li>
               <li><strong className="text-fg">Vercel:</strong> Application hosting platform.</li>
-              <li><strong className="text-fg">TMDB:</strong> External metadata provider (queried server-side for title metadata and imagery).</li>
-              <li><strong className="text-fg">PostHog:</strong> Product analytics.</li>
+              <li><strong className="text-fg">Google (sign-in):</strong> If you choose &quot;Sign in with Google&quot;, Google authenticates you and shares your name and email address with us. Google&apos;s own privacy policy covers what Google does with that sign-in.</li>
+              <li><strong className="text-fg">TMDB:</strong> External metadata provider, queried from our servers for title metadata and imagery. Poster and backdrop images load directly from TMDB&apos;s image servers, so TMDB receives your IP address when your browser loads them.</li>
+              <li><strong className="text-fg">YouTube (Google):</strong> Trailers on the Explore screen are embedded YouTube players, using YouTube&apos;s privacy-enhanced (youtube-nocookie.com) mode. When a trailer loads, which happens automatically for the card on screen unless your device asks for reduced motion or data saving, your browser connects to YouTube, and YouTube receives your IP address and device information and may store data on your device. YouTube&apos;s privacy policy applies to that player.</li>
+              <li><strong className="text-fg">JustWatch:</strong> Where-to-watch availability is supplied by JustWatch through TMDB. We fetch it from our servers using only the title and your region; no personal data is sent to JustWatch. Streaming links on a movie page open the provider&apos;s own site, whose policies then apply.</li>
+              <li><strong className="text-fg">PostHog:</strong> Product analytics (hosted in the EU), as described in section 1.</li>
               <li><strong className="text-fg">Resend:</strong> Transactional email service for weekly digests.</li>
             </ul>
           </div>
@@ -78,14 +90,26 @@ export default function PrivacyPage() {
         </Panel>
 
         <Panel>
-          <h2 className="t-section text-lg text-fg">4. Advertising</h2>
+          <h2 className="t-section text-lg text-fg">4. Children</h2>
+          <div className="t-body mt-3 flex flex-col gap-3 text-[14px] text-fg-dim">
+            <p>
+              Venn is only for people aged 18 and over. India&apos;s Digital Personal Data Protection Act treats anyone under 18 as a child, and processing a child&apos;s data requires verifiable parental consent, which we do not collect. Every account must confirm it is 18 or older before it can use the app. If you say you are under 18, your account and its data are deleted immediately.
+            </p>
+            <p>
+              If you believe someone under 18 is using Venn, contact us at the address below and we will delete the account.
+            </p>
+          </div>
+        </Panel>
+
+        <Panel>
+          <h2 className="t-section text-lg text-fg">5. Advertising</h2>
           <p className="t-body mt-3 text-[14px] text-fg-dim">
             Venn does not currently serve targeted advertisements. Placeholder ad surfaces exist in list views but are disabled by default, and no personal data or taste signals have been shared with any advertising network or external partner.
           </p>
         </Panel>
 
         <Panel>
-          <h2 className="t-section text-lg text-fg">5. Contact &amp; Grievance Redressal</h2>
+          <h2 className="t-section text-lg text-fg">6. Contact &amp; Grievance Redressal</h2>
           <p className="t-body mt-3 text-[14px] text-fg-dim">
             For privacy inquiries or grievance redressal, contact us at:{" "}
             <a href={`mailto:${CONTACT_EMAIL}`} className="text-marquee underline hover:text-fg">

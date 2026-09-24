@@ -34,7 +34,7 @@ export async function GET() {
   ] = await Promise.all([
     supabase
       .from("profiles")
-      .select("id, username, display_name, avatar_url, default_list_visibility, region, created_at")
+      .select("id, username, display_name, avatar_url, default_list_visibility, region, created_at, onboarded_at, age_confirmed_at")
       .eq("id", userId)
       .maybeSingle(),
     supabase

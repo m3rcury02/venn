@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { ANALYTICS_COOKIE } from "../analytics/cookie";
 import { getClaims } from "./claims";
 
 // /api/ingest is listed one path at a time, never as "/api": it authenticates
@@ -34,6 +35,10 @@ import { getClaims } from "./claims";
 // /api/cron/digest (phase 11) and /api/cron/refresh-catalog are triggered by
 // Vercel Cron without a session cookie, so they must be exempted from login
 // redirects; authentication is checked via CRON_SECRET.
+// Bumped from "1" when the 18+ confirmation joined the onboarding gate; see
+// the comment in updateSession.
+const ONBOARDED_COOKIE_VALUE = "2";
+
 const PUBLIC_PATHS = [
   "/login",
   "/auth",
@@ -105,32 +110,49 @@ export async function updateSession(request: NextRequest) {
     // request skip this profiles query entirely. auth/signout clears the
     // cookie, so a different, non-onboarded account signing in on the same
     // browser still gets the redirect.
-    const onboardedCookie = request.cookies.get("venn_onboarded")?.value === "1";
+    //
+    // "Onboarded" now also means "confirmed 18+" (public-launch hardening,
+    // DPDP). The cookie value moved from "1" to "2" so every cookie set
+    // before that is ignored, and those users go back through the proxy
+    // query, which sends anyone who hasn't confirmed to the age step.
+    const onboardedCookie =
+      request.cookies.get("venn_onboarded")?.value === ONBOARDED_COOKIE_VALUE;
 
     if (!onboardedCookie) {
-      const { data: profile } = await supabase
+      const { data: row } = await supabase
         .from("profiles")
-        .select("onboarded_at")
+        .select("onboarded_at, age_confirmed_at")
         .eq("id", data.claims.sub)
         .maybeSingle();
+      // Treating an unconfirmed user as "not onboarded" is what routes users
+      // from before the age gate to it: app/onboarding/page.tsx shows the age
+      // step first.
+      const onboarded = Boolean(row?.onboarded_at && row?.age_confirmed_at);
 
-      if (!profile?.onboarded_at && !isOnboarding) {
+      if (!onboarded && !isOnboarding) {
         const url = request.nextUrl.clone();
         url.pathname = "/onboarding";
         url.search = "";
         return NextResponse.redirect(url);
       }
 
-      if (profile?.onboarded_at && isOnboarding) {
+      if (onboarded && isOnboarding) {
         const url = request.nextUrl.clone();
         url.pathname = "/";
         url.search = "";
         return NextResponse.redirect(url);
       }
 
-      if (profile?.onboarded_at) {
-        supabaseResponse.cookies.set("venn_onboarded", "1", {
+      if (onboarded) {
+        supabaseResponse.cookies.set("venn_onboarded", ONBOARDED_COOKIE_VALUE, {
           httpOnly: true,
+          sameSite: "lax",
+          path: "/",
+        });
+        // Readable by script, unlike the cookie above: see
+        // lib/analytics/cookie.ts. It is a switch, not a credential -- forging
+        // it only opts a browser *in* to analytics.
+        supabaseResponse.cookies.set(ANALYTICS_COOKIE, "1", {
           sameSite: "lax",
           path: "/",
         });

@@ -39,6 +39,13 @@ export function ImportRunner() {
         const response = await fetch(`/api/imports/${job.id}/process`, {
           method: "POST",
         });
+        // Rate limited (lib/rate-limit.ts): wait as long as the server asks
+        // rather than retrying every 3s into the same closed window.
+        if (response.status === 429) {
+          const seconds = Number(response.headers.get("Retry-After")) || 30;
+          if (!cancelled) timer = setTimeout(tick, seconds * 1000);
+          return;
+        }
         if (!response.ok) throw new Error("import processor failed");
         const result = (await response.json()) as { status?: string };
 

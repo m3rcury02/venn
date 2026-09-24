@@ -11,6 +11,7 @@
 
 import { after, NextResponse } from "next/server";
 import { captureServer } from "@/lib/analytics/server";
+import { ingestRateLimited } from "@/lib/ingest/limit";
 import { resolveInBackground } from "@/lib/ingest/resolve";
 import { verifyToken } from "@/lib/ingest/tokens";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -18,17 +19,6 @@ import { createServiceClient } from "@/lib/supabase/service";
 /** §3's `source` values. Phase 6 made all three reachable. */
 const SOURCES = ["android_share", "ios_shortcut", "paste"] as const;
 type Source = (typeof SOURCES)[number];
-
-/**
- * §11: "Rate-limit /api/ingest per token."
- *
- * Departure, stated rather than glossed: this counts per USER, not per token.
- * §3 gives ingest_inbox no token_id column, and adding one purely to carry a
- * rate limit is more schema than the constraint justifies at 4-6 users. A user
- * with two tokens shares one budget, which is the safer direction to be wrong.
- */
-const RATE_LIMIT = 20;
-const RATE_WINDOW_MS = 60_000;
 
 function toSource(raw: unknown): Source {
   return SOURCES.includes(raw as Source) ? (raw as Source) : "paste";
@@ -65,14 +55,8 @@ export async function POST(request: Request) {
 
   const db = createServiceClient();
 
-  const since = new Date(Date.now() - RATE_WINDOW_MS).toISOString();
-  const { count } = await db
-    .from("ingest_inbox")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .gte("created_at", since);
-
-  if ((count ?? 0) >= RATE_LIMIT) {
+  // lib/ingest/limit.ts: 20 a minute, shared with /share.
+  if (await ingestRateLimited(db, userId)) {
     return NextResponse.json({ error: "rate limited" }, { status: 429 });
   }
 

@@ -3,10 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { Hype, Rating } from "@/app/status/actions";
+import { deleteAccount } from "@/app/settings/actions";
 import { captureServer } from "@/lib/analytics/server";
-import { cacheMovie } from "@/lib/movies/cache";
+import { cacheMovieForUser } from "@/lib/movies/cache";
 import { isUsernameBlocked } from "@/lib/moderation/blocklist";
 import { PROVIDER_NAME, provider } from "@/lib/providers";
+import { assertRateLimit, RateLimitedError } from "@/lib/rate-limit";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
@@ -38,6 +40,46 @@ async function authenticatedUserId() {
   const { data } = await getClaims(supabase);
   const userId = data?.claims?.sub;
   return typeof userId === "string" ? userId : null;
+}
+
+// The 18+ step (public-launch hardening). India's DPDP Act treats everyone
+// under 18 as a child whose data needs verifiable parental consent, which Venn
+// doesn't collect, so Venn is 18+. confirm_age() is the only writer of
+// age_confirmed_at, and complete_onboarding() refuses without it.
+export async function confirmAge(): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const userId = await authenticatedUserId();
+  if (!userId) return { error: "Not signed in." };
+
+  const { error } = await supabase.rpc("confirm_age");
+  if (error) return { error: "Couldn't save that. Please try again." };
+
+  // Someone who onboarded before this step existed goes straight home; a new
+  // user continues to the profile step. Decided here rather than by
+  // redirecting to /onboarding and letting that page redirect again: a
+  // redirect chained off a server action's redirect renders the right page
+  // but leaves /onboarding in the address bar.
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("onboarded_at")
+    .eq("id", userId)
+    .single();
+
+  if (profile?.onboarded_at) {
+    revalidatePath("/", "layout");
+    redirect("/");
+  }
+  revalidatePath("/onboarding");
+  redirect("/onboarding");
+}
+
+// Under 18: the account is deleted, not kept waiting. Signing in with Google
+// already created it (email, name), and holding a child's data without
+// parental consent is the thing the age step exists to prevent. deleteAccount
+// signs out, deletes the auth user (profiles and everything under it
+// cascade) and redirects to /login.
+export async function declineAge(): Promise<{ error?: string }> {
+  return deleteAccount("DELETE");
 }
 
 export async function saveOnboardingProfile(
@@ -95,6 +137,10 @@ export async function loadPopularOnboarding(
   const supabase = await createClient();
   const userId = await authenticatedUserId();
   if (!userId) return [];
+  // Same budget as Explore: a page of the onboarding grid is a TMDB list
+  // call. Throws past it rather than returning [], which
+  // components/onboarding-taste.tsx would take as a page and skip over.
+  await assertRateLimit(supabase, "feed");
 
   const { data: profile } = await supabase
     .from("profiles")
@@ -169,14 +215,19 @@ export async function rateOnboardingMovie(
   const userId = await authenticatedUserId();
   if (!userId) return { ok: false, count: 0, message: "Not signed in." };
 
+  const supabase = await createClient();
   let movieId: string;
   try {
-    movieId = await cacheMovie(externalId);
-  } catch {
-    return { ok: false, count: 0, message: "Couldn't load that movie." };
+    movieId = await cacheMovieForUser(supabase, externalId);
+  } catch (error) {
+    return {
+      ok: false,
+      count: 0,
+      message:
+        error instanceof RateLimitedError ? error.message : "Couldn't load that movie.",
+    };
   }
 
-  const supabase = await createClient();
   const { error } = await supabase.from("user_movie_status").upsert({
     user_id: userId,
     movie_id: movieId,
@@ -213,14 +264,18 @@ export async function hypeOnboardingMovie(
   const userId = await authenticatedUserId();
   if (!userId) return { ok: false, message: "Not signed in." };
 
+  const supabase = await createClient();
   let movieId: string;
   try {
-    movieId = await cacheMovie(externalId);
-  } catch {
-    return { ok: false, message: "Couldn't load that movie." };
+    movieId = await cacheMovieForUser(supabase, externalId);
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof RateLimitedError ? error.message : "Couldn't load that movie.",
+    };
   }
 
-  const supabase = await createClient();
   const { error } = await supabase.from("user_movie_status").upsert({
     user_id: userId,
     movie_id: movieId,

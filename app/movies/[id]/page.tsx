@@ -19,6 +19,7 @@ import {
   type WatchProvider,
   type WatchProviderType,
 } from "@/lib/providers";
+import { withinRateLimit } from "@/lib/rate-limit";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
@@ -162,7 +163,15 @@ export default async function MovieDetailPage({ params }: MovieDetailPageProps) 
   let availabilityFailed = false;
   let imdbId: string | null = null;
 
-  if (externalId) {
+  // Live availability is two TMDB calls per page view, so it has a budget
+  // (lib/rate-limit.ts). Past it the page still renders from the cache and
+  // shows the same "couldn't load availability" state a TMDB outage does.
+  const withinBudget = externalId
+    ? await withinRateLimit(supabase, "detail")
+    : false;
+  if (externalId && !withinBudget) availabilityFailed = true;
+
+  if (externalId && withinBudget) {
     const [watchResult, idsResult] = await Promise.allSettled([
       provider.getWatchProviders(externalId, region),
       provider.getExternalIds(externalId),

@@ -16,6 +16,7 @@
 
 import { after, NextResponse } from "next/server";
 import { captureServer } from "@/lib/analytics/server";
+import { ingestRateLimited } from "@/lib/ingest/limit";
 import { resolveInBackground } from "@/lib/ingest/resolve";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
@@ -30,6 +31,22 @@ export async function POST(request: Request) {
 
   if (!userId) {
     url.pathname = "/login";
+    return NextResponse.redirect(url, { status: 303 });
+  }
+
+  // /share is in the proxy's PUBLIC_PATHS (see lib/supabase/proxy.ts for why),
+  // so the proxy's onboarding gate never runs here. Without this check, an
+  // account that hasn't confirmed it is 18+ could still send data through
+  // (DPDP; public-launch hardening). Checked on the row rather than the
+  // venn_onboarded cookie, which is httpOnly but still client-supplied.
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("onboarded_at, age_confirmed_at")
+    .eq("id", userId)
+    .maybeSingle();
+  if (!profile?.onboarded_at || !profile?.age_confirmed_at) {
+    url.pathname = "/onboarding";
+    url.search = "";
     return NextResponse.redirect(url, { status: 303 });
   }
 
@@ -53,6 +70,13 @@ export async function POST(request: Request) {
   }
 
   const db = createServiceClient();
+
+  // Over budget: drop the share and land on the Inbox, which is where a
+  // share goes anyway. There's no error page to show on a share-sheet
+  // launch.
+  if (await ingestRateLimited(db, userId)) {
+    return NextResponse.redirect(url, { status: 303 });
+  }
 
   // Hardcoded, not read from the form: this route IS the Android path, so a
   // client-supplied value would be spoofable and would defeat the one purpose

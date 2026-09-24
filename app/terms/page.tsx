@@ -25,16 +25,31 @@ export default function TermsPage() {
         </Panel>
 
         <Panel>
-          <h2 className="t-section text-lg text-fg">1. Acceptable Use &amp; Community Standards</h2>
+          <h2 className="t-section text-lg text-fg">1. Eligibility</h2>
           <div className="t-body mt-3 flex flex-col gap-3 text-[14px] text-fg-dim">
             <p>
-              You agree to use Venn responsibly. You must not upload, post, or share any abusive, harassing, hateful, or illegal content in usernames, display names, list titles, or movie notes.
+              You must be 18 or older to use Venn. By confirming your age during sign-up you state that you are. We delete accounts we learn belong to someone under 18.
             </p>
           </div>
         </Panel>
 
         <Panel>
-          <h2 className="t-section text-lg text-fg">2. Account Removal &amp; Moderation</h2>
+          <h2 className="t-section text-lg text-fg">2. Acceptable Use &amp; Community Standards</h2>
+          <div className="t-body mt-3 flex flex-col gap-3 text-[14px] text-fg-dim">
+            <p>
+              You agree to use Venn responsibly. You must not upload, post, or share any abusive, harassing, hateful, or illegal content in usernames, display names, list titles, or movie notes.
+            </p>
+            <p>
+              You must not scrape Venn, access it with automated scripts, or try to get around its usage limits. Searches and other requests are limited per account, and requests over the limit are paused for a short time.
+            </p>
+            <p>
+              On a group&apos;s shared list, an item can be removed by the member who added it or by the person who created the group.
+            </p>
+          </div>
+        </Panel>
+
+        <Panel>
+          <h2 className="t-section text-lg text-fg">3. Account Removal &amp; Moderation</h2>
           <div className="t-body mt-3 flex flex-col gap-3 text-[14px] text-fg-dim">
             <p>
               We provide block and report tools to keep the platform safe. We reserve the right to review reported content and remove accounts or content that violate these community standards.
@@ -43,7 +58,7 @@ export default function TermsPage() {
         </Panel>
 
         <Panel>
-          <h2 className="t-section text-lg text-fg">3. Movie Data &amp; TMDB Terms</h2>
+          <h2 className="t-section text-lg text-fg">4. Movie Data &amp; TMDB Terms</h2>
           <div className="t-body mt-3 flex flex-col gap-3 text-[14px] text-fg-dim">
             <p>
               Movie and TV metadata, poster images, and watch availability data are supplied by TMDB and JustWatch.
@@ -55,14 +70,14 @@ export default function TermsPage() {
         </Panel>
 
         <Panel>
-          <h2 className="t-section text-lg text-fg">4. Disclaimer of Warranties</h2>
+          <h2 className="t-section text-lg text-fg">5. Disclaimer of Warranties</h2>
           <p className="t-body mt-3 text-[14px] text-fg-dim">
             Venn is provided &quot;as is&quot; and &quot;as available&quot; without warranties of any kind, express or implied, during its free development and operation.
           </p>
         </Panel>
 
         <Panel>
-          <h2 className="t-section text-lg text-fg">5. Questions &amp; Contact</h2>
+          <h2 className="t-section text-lg text-fg">6. Questions &amp; Contact</h2>
           <p className="t-body mt-3 text-[14px] text-fg-dim">
             For questions regarding these terms, please contact us at:{" "}
             <a href={`mailto:${CONTACT_EMAIL}`} className="text-marquee underline hover:text-fg">

@@ -26,6 +26,7 @@ import { createClient } from "@/lib/supabase/server";
 // user_movie_status is genuinely to-many (0 or 1 row per caller, RLS-scoped).
 type GroupItemRow = {
   movie_id: string;
+  added_by: string;
   movies: {
     title: string;
     year: number | null;
@@ -81,7 +82,7 @@ export default async function GroupPage({ params }: GroupPageProps) {
     ? await supabase
         .from("list_items")
         .select(
-          "movie_id, added_at, movies(title, year, poster_path, user_movie_status(watched, rating, hype)), profiles(display_name)",
+          "movie_id, added_by, added_at, movies(title, year, poster_path, user_movie_status(watched, rating, hype)), profiles(display_name)",
         )
         .eq("list_id", list.id)
         .order("added_at", { ascending: false })
@@ -189,7 +190,12 @@ export default async function GroupPage({ params }: GroupPageProps) {
                   >
                     <div className="flex gap-1">
                       <WatchedToggle movieId={item.movie_id} watched={watched} />
-                      {list ? (
+                      {/* Mirrors list_items_delete_via_list: only the adder or
+                          the group's creator can remove an item, so nobody
+                          else is shown a button that would do nothing. */}
+                      {list &&
+                      (item.added_by === claims.claims.sub ||
+                        group.created_by === claims.claims.sub) ? (
                         <RemoveFromListButton movieId={item.movie_id} listId={list.id} />
                       ) : null}
                     </div>

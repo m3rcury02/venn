@@ -154,23 +154,34 @@ async function refresh(db: Db, region: string): Promise<TheatreCandidate[]> {
 
   const rows = [...rowsByKey.values()];
 
-  // Delete-then-insert, not an upsert-plus-diff: this refresh just recomputed
-  // the *complete* wanted set for the region, so anything not in `rows` --
-  // most importantly a film that has left cinemas and dropped out of
-  // nowPlaying -- has to go, or the pool grows monotonically and a `max(fetched_at)`
-  // freshness check would keep reporting "fresh" over titles that closed
-  // months ago. Two calls, not one transaction: phase 1a's precedent for this
-  // cache (cacheMovie's write order) is that a partial write here is a
-  // harmless leak at this scale, not worth an RPC.
-  const { error: deleteError } = await db.from("movie_releases").delete().eq("region", region);
-  if (deleteError) throw deleteError;
-
+  // Upsert, then prune what this refresh didn't write. This used to be
+  // delete-then-insert, justified as "a harmless leak at this scale", and at
+  // 4-6 users it was. With more users, two renders in the same region hit an
+  // expired TTL at once. Their deletes and inserts interleave: the second
+  // insert fails on the primary key, and a reader landing between a delete and
+  // an insert sees an empty pool, calls it stale and starts a third TMDB
+  // refresh. Upsert-then-prune never leaves the region empty. Concurrent
+  // refreshes converge because each one prunes only rows older than its own
+  // stamp. The prune is still needed: this refresh computed the *complete*
+  // wanted set, so a film that left cinemas has to go, or the pool grows
+  // forever and the max(fetched_at) freshness check reports "fresh" over
+  // titles that closed months ago.
   if (rows.length > 0) {
-    const { error: insertError } = await db
+    const { error: upsertError } = await db
       .from("movie_releases")
-      .insert(rows.map((r) => ({ ...r, region })));
-    if (insertError) throw insertError;
+      .upsert(
+        rows.map((r) => ({ ...r, region })),
+        { onConflict: "movie_id,region,release_type" },
+      );
+    if (upsertError) throw upsertError;
   }
+
+  const { error: pruneError } = await db
+    .from("movie_releases")
+    .delete()
+    .eq("region", region)
+    .lt("fetched_at", fetchedAt);
+  if (pruneError) throw pruneError;
 
   return rows.map(toCandidate);
 }

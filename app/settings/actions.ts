@@ -3,6 +3,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { ANALYTICS_COOKIE } from "@/lib/analytics/cookie";
 import { hashToken, mintToken } from "@/lib/ingest/tokens";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
@@ -176,6 +177,7 @@ export async function deleteAccount(
 
   const cookieStore = await cookies();
   cookieStore.delete("venn_onboarded");
+  cookieStore.delete(ANALYTICS_COOKIE);
 
   redirect("/login");
 }

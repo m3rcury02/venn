@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { loadPopularOnboarding } from "@/app/onboarding/actions";
+import { AgeGate } from "@/components/age-gate";
 import { OnboardingProfileForm } from "@/components/onboarding-profile-form";
 import { OnboardingTaste } from "@/components/onboarding-taste";
 import { Screen } from "@/components/ui/screen";
@@ -16,9 +17,39 @@ export default async function OnboardingPage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("username, region, onboarded_at")
+    .select("username, region, onboarded_at, age_confirmed_at")
     .eq("id", userId)
     .single();
+
+  // First, and ahead of the onboarded_at redirect below: someone who
+  // onboarded before the age step existed is sent here by lib/supabase/proxy.ts
+  // and has to see it, not bounce to "/" and back in a loop.
+  if (!profile?.age_confirmed_at) {
+    return (
+      <Screen width="narrow">
+        <div className="flex items-center gap-3">
+          <VennMark size={30} />
+          <span className="font-display text-2xl uppercase tracking-[0.08em] text-fg">
+            Venn
+          </span>
+        </div>
+        <div className="flex flex-col gap-3">
+          {profile?.onboarded_at ? null : (
+            <p className="t-label text-marquee">Step 1 of 3</p>
+          )}
+          <h1 className="t-display text-[clamp(48px,14vw,88px)] text-fg">
+            Are you 18 or older?
+          </h1>
+          <p className="max-w-lg text-[16px] leading-relaxed text-fg-dim">
+            Venn is for adults only. Under India&rsquo;s data protection law,
+            anyone under 18 needs a parent&rsquo;s verified consent before an
+            app can hold their data, and Venn doesn&rsquo;t collect that.
+          </p>
+        </div>
+        <AgeGate />
+      </Screen>
+    );
+  }
 
   if (profile?.onboarded_at) redirect("/");
 
@@ -33,7 +64,7 @@ export default async function OnboardingPage() {
           </span>
         </div>
         <div className="flex flex-col gap-3">
-          <p className="t-label text-marquee">Step 1 of 2</p>
+          <p className="t-label text-marquee">Step 2 of 3</p>
           <h1 className="t-display text-[clamp(48px,14vw,88px)] text-fg">
             Make it yours
           </h1>
@@ -68,7 +99,7 @@ export default async function OnboardingPage() {
         </span>
       </div>
       <div className="flex flex-col gap-3">
-        <p className="t-label text-marquee">Step 2 of 2</p>
+        <p className="t-label text-marquee">Step 3 of 3</p>
         <h1 className="t-display text-[clamp(48px,14vw,96px)] text-fg">
           Show us your taste
         </h1>

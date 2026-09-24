@@ -19,7 +19,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(238);
+select plan(258);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -714,20 +714,99 @@ select throws_ok(
   'D cannot add a TV title to the group''s list'
 );
 
--- Documented decision, not an oversight: at 4-6 friends a per-adder delete rule
--- buys friction rather than safety.
+-- Public-launch hardening (20260924140000): on a group list only the adder or
+-- the group's creator may remove an item. Phase 3 let any member remove any
+-- addition, which phase 12's instantly joinable public groups turned into
+-- "any stranger can empty the list". RLS filters rather than raises on
+-- DELETE/UPDATE, so these read the row back instead of expecting an error.
 select lives_ok(
   $$delete from list_items
     where added_by = 'cccccccc-cccc-cccc-cccc-cccccccccccc'$$,
-  'control: any member may remove any member''s addition'
+  'D''s delete of C''s addition runs without error'
+);
+
+select is(
+  (select count(*)::int from list_items
+   where added_by = 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
+  1,
+  'D (a plain member) cannot remove C''s addition from the group list'
+);
+
+update list_items set note = 'hijacked'
+where added_by = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+
+select is(
+  (select note from list_items
+   where added_by = 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
+  null::text,
+  'D cannot edit the note on C''s addition'
+);
+
+-- The positive that makes the two negatives above mean something: D can
+-- still write its own additions through the same two policies.
+select lives_ok(
+  $$insert into list_items (list_id, movie_id, added_by)
+    select id, '66666666-6666-6666-6666-666666666666',
+           'dddddddd-dddd-dddd-dddd-dddddddddddd'
+    from lists where owner_group_id = '99999999-9999-9999-9999-999999999999'$$,
+  'control: D adds a second film to the group list'
+);
+
+update list_items set note = 'D''s own note'
+where movie_id = '66666666-6666-6666-6666-666666666666'
+  and added_by = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+
+select is(
+  (select note from list_items
+   where movie_id = '66666666-6666-6666-6666-666666666666'
+     and added_by = 'dddddddd-dddd-dddd-dddd-dddddddddddd'),
+  'D''s own note'::text,
+  'control: D can edit the note on its own addition'
+);
+
+-- C created the group, so C is its moderator: C can remove D's addition,
+-- and its own.
+set local request.jwt.claims = '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+
+delete from list_items
+where movie_id = '66666666-6666-6666-6666-666666666666'
+  and added_by = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+
+select is(
+  (select count(*)::int from list_items
+   where movie_id = '66666666-6666-6666-6666-666666666666'
+     and added_by = 'dddddddd-dddd-dddd-dddd-dddddddddddd'),
+  0,
+  'the group''s creator C can remove member D''s addition'
+);
+
+-- The creator's power is removal, not editing: C cannot rewrite D's words.
+update list_items set note = 'rewritten by C'
+where movie_id = '55555555-5555-5555-5555-555555555555'
+  and added_by = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+
+select is(
+  (select note from list_items
+   where movie_id = '55555555-5555-5555-5555-555555555555'
+     and added_by = 'dddddddd-dddd-dddd-dddd-dddddddddddd'),
+  null::text,
+  'the group''s creator cannot edit a member''s note'
+);
+
+select lives_ok(
+  $$delete from list_items
+    where added_by = 'cccccccc-cccc-cccc-cccc-cccccccccccc'$$,
+  'control: C removes its own addition'
 );
 
 select is(
   (select count(*)::int from list_items
    where added_by = 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
   0,
-  'control: D''s delete of C''s item actually landed'
+  'control: C''s delete of its own item actually landed'
 );
+
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-dddd-dddd-dddddddddddd","role":"authenticated"}';
 
 -- ------------------------------------------ D: tag weights (phase 4)
 -- Tag weights are ratings in another shape, so SPEC §11 applies to them
@@ -1125,10 +1204,38 @@ select lives_ok(
   'control: D can save its onboarding profile fields'
 );
 
+-- Public-launch hardening: the 18+ confirmation gates onboarding, and only
+-- confirm_age() can set it.
+select throws_ok(
+  $$update profiles set age_confirmed_at = now()
+    where id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'$$,
+  '42501',
+  null,
+  'D cannot set its age confirmation directly'
+);
+
 select throws_ok(
   $$select public.complete_onboarding()$$,
   '22023',
-  null,
+  'age confirmation required',
+  'onboarding cannot complete without the 18+ confirmation'
+);
+
+select lives_ok(
+  $$select public.confirm_age()$$,
+  'control: D confirms it is 18 or older'
+);
+
+select ok(
+  (select age_confirmed_at is not null from profiles
+   where id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'),
+  'confirm_age stamps the protected profile field'
+);
+
+select throws_ok(
+  $$select public.complete_onboarding()$$,
+  '22023',
+  'five ratings required',
   'onboarding cannot complete with fewer than five ratings'
 );
 
@@ -2514,6 +2621,103 @@ set local request.jwt.claims = '{"sub":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee","r
 select lives_ok(
   $$select public.join_movie_night((select night_id from _lobby_fresh))$$,
   'a member can still join an 11-hour-old lobby'
+);
+
+reset role;
+
+-- ------------------------------------ rate limits (public-launch hardening)
+-- consume_rate_limit is the only path into rate_limit_hits, and the budgets
+-- live inside it. now() is fixed for the whole transaction, so every call
+-- below lands in the same window: the boundary test is deterministic.
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-dddd-dddd-dddddddddddd","role":"authenticated"}';
+
+select throws_ok(
+  $$select public.consume_rate_limit('made_up_bucket')$$,
+  '22023',
+  null,
+  'an unknown bucket is refused rather than counted'
+);
+
+-- widen's budget is 20 per minute: 20 calls pass, the 21st is refused.
+select is(
+  (select bool_and(public.consume_rate_limit('widen')) from generate_series(1, 20)),
+  true,
+  'control: D''s first 20 widen calls in a window are allowed'
+);
+
+select is(
+  public.consume_rate_limit('widen'),
+  false,
+  'D''s 21st widen call in the same window is refused'
+);
+
+-- Budgets are per user: D using up widen leaves E's untouched.
+set local request.jwt.claims = '{"sub":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee","role":"authenticated"}';
+
+select is(
+  public.consume_rate_limit('widen'),
+  true,
+  'E''s widen budget is independent of D''s'
+);
+
+select throws_ok(
+  $$select count(*) from rate_limit_hits$$,
+  '42501',
+  null,
+  'E cannot read the rate limit counters directly'
+);
+
+select throws_ok(
+  $$delete from rate_limit_hits$$,
+  '42501',
+  null,
+  'E cannot reset the rate limit counters directly'
+);
+
+reset role;
+set local role anon;
+
+select throws_ok(
+  $$select public.consume_rate_limit('search')$$,
+  '42501',
+  null,
+  'anon cannot call consume_rate_limit'
+);
+
+reset role;
+
+-- log_movie_night counts against 'night' (10 an hour). Fill E's budget for
+-- this window as postgres rather than logging ten nights, then check the
+-- eleventh is refused.
+insert into rate_limit_hits (user_id, bucket, window_start, hits)
+values ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'night',
+        to_timestamp(floor(extract(epoch from now()) / 3600) * 3600), 10)
+on conflict (user_id, bucket, window_start) do update set hits = 10;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee","role":"authenticated"}';
+
+select throws_ok(
+  $$select public.log_movie_night(
+      '88888888-8888-8888-8888-888888888888', 'home',
+      '55555555-5555-5555-5555-555555555555',
+      array['cccccccc-cccc-cccc-cccc-cccccccccccc']::uuid[])$$,
+  'P0429',
+  null,
+  'log_movie_night refuses once the caller''s hourly night budget is spent'
+);
+
+-- The positive for the line above: C, with budget left, logs the same night.
+set local request.jwt.claims = '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+
+select lives_ok(
+  $$select public.log_movie_night(
+      '88888888-8888-8888-8888-888888888888', 'home',
+      '55555555-5555-5555-5555-555555555555',
+      array['eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee']::uuid[])$$,
+  'control: a member with night budget left can still log a night'
 );
 
 reset role;

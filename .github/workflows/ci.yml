@@ -93,6 +93,9 @@ jobs:
 
       - run: pnpm smoke:refresh
 
+      # Same local stack and stubbed TMDB: concurrent theatre-pool refreshes.
+      - run: pnpm smoke:theatre-race
+
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest

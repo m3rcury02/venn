@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { setWatched, type Hype, type Rating } from "@/app/status/actions";
 import { captureServer } from "@/lib/analytics/server";
-import { cacheMovie } from "@/lib/movies/cache";
+import { cacheMovieForUser } from "@/lib/movies/cache";
+import { RateLimitedError } from "@/lib/rate-limit";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
@@ -49,9 +50,15 @@ export async function addToList(
 
   let movieId: string;
   try {
-    movieId = await cacheMovie(externalId);
-  } catch {
-    return { status: "error", message: "Couldn't fetch movie details." };
+    movieId = await cacheMovieForUser(supabase, externalId);
+  } catch (error) {
+    return {
+      status: "error",
+      message:
+        error instanceof RateLimitedError
+          ? error.message
+          : "Couldn't fetch movie details.",
+    };
   }
 
   const { error } = await supabase
@@ -136,12 +143,17 @@ export async function removeFromList(
     targetListId = list.id;
   }
 
-  const { error } = await supabase
+  // .select() so a delete RLS filtered out reads as a failure, not a quiet
+  // success: on a group list only the adder or the group's creator may remove
+  // an item (20260924140000_public_launch_hardening.sql), and RLS answers
+  // everyone else with zero rows rather than an error.
+  const { data: deleted, error } = await supabase
     .from("list_items")
     .delete()
     .eq("list_id", targetListId)
-    .eq("movie_id", movieId);
-  if (error) return false;
+    .eq("movie_id", movieId)
+    .select("movie_id");
+  if (error || !deleted || deleted.length === 0) return false;
 
   // "/groups/[id]" is the page-file form: it invalidates every path matching
   // that dynamic route. Targeting "/groups" with type "layout" would not work

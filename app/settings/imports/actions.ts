@@ -1,12 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { cacheMovie } from "@/lib/movies/cache";
+import { cacheMovieForUser } from "@/lib/movies/cache";
 import type {
   ImportSource,
   NormalizedImportRow,
 } from "@/lib/imports/types";
 import { provider, type MediaType } from "@/lib/providers";
+import { RateLimitedError, withinRateLimit } from "@/lib/rate-limit";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
@@ -166,9 +167,13 @@ export async function resolveImportRow(
 
   let movieId: string;
   try {
-    movieId = await cacheMovie(externalId);
-  } catch {
-    return { ok: false, error: "Couldn't load that title." };
+    movieId = await cacheMovieForUser(supabase, externalId);
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof RateLimitedError ? error.message : "Couldn't load that title.",
+    };
   }
 
   const { error } = await supabase.rpc("apply_import_match", {
@@ -214,6 +219,7 @@ export async function searchImportMovies(
       : Promise.resolve({ data: null }),
   ]);
   if (!row) return [];
+  if (!(await withinRateLimit(supabase, "search"))) return [];
 
   const results = await provider.search(trimmed, profile?.region ?? "IN");
   return results

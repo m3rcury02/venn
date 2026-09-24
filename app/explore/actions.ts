@@ -1,6 +1,7 @@
 "use server";
 
 import { exploreFeed, type ExploreCard } from "@/lib/movies/explore";
+import { withinRateLimit } from "@/lib/rate-limit";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
@@ -13,6 +14,9 @@ export async function loadExploreFeed(page: number): Promise<ExploreCard[]> {
   const { data: claims } = await getClaims(supabase);
   const userId = claims?.claims?.sub;
   if (typeof userId !== "string") return [];
+  // Past the limit the feed just stops growing for a minute, same as a feed
+  // that has run out -- components/explore-feed.tsx handles [] already.
+  if (!(await withinRateLimit(supabase, "feed"))) return [];
 
   const { data: profile } = await supabase
     .from("profiles")

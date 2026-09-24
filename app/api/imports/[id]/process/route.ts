@@ -6,6 +6,7 @@ import {
 } from "@/lib/movies/cache";
 import { normalizeImportTitle } from "@/lib/imports/normalize";
 import { provider } from "@/lib/providers";
+import { withinRateLimit } from "@/lib/rate-limit";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
@@ -104,6 +105,18 @@ export async function POST(_request: Request, { params }: RouteContext) {
   if (!row) {
     const status = await finishIfReady(supabase, importId, userId);
     return NextResponse.json({ status });
+  }
+
+  // Counted per row, after the "no rows left" exit, so polling a finished
+  // import costs nothing. A row can be a search plus three title fetches, and
+  // the runner loops as fast as responses come back, so this is the path a
+  // huge crafted import would push through. components/import-runner.tsx
+  // waits out Retry-After and resumes; the row stays pending.
+  if (!(await withinRateLimit(supabase, "import"))) {
+    return NextResponse.json(
+      { error: "Too many import rows processed. Resuming shortly." },
+      { status: 429, headers: { "Retry-After": "30" } },
+    );
   }
 
   try {

@@ -2,6 +2,7 @@
 
 import type { Hype, Rating } from "@/app/status/actions";
 import { PROVIDER_NAME, provider, type MovieSummary } from "@/lib/providers";
+import { assertRateLimit } from "@/lib/rate-limit";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
@@ -24,9 +25,15 @@ export async function searchMovies(query: string, listId?: string): Promise<Sear
   const supabase = await createClient();
   const { data: claims } = await getClaims(supabase);
   const userId = claims?.claims?.sub;
-  const { data: profile } = typeof userId === "string"
-    ? await supabase.from("profiles").select("region").eq("id", userId).single()
-    : { data: null };
+  if (typeof userId !== "string") return [];
+  // Throws past the limit; components/search-form.tsx already shows a thrown
+  // search as "Search failed. Try again in a moment."
+  await assertRateLimit(supabase, "search");
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("region")
+    .eq("id", userId)
+    .single();
 
   // Resolve the target list up front, in both branches: a passed listId needs
   // to be checked for group ownership, and an absent one still resolves to the

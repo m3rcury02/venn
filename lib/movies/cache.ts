@@ -6,6 +6,7 @@
 
 import { PROVIDER_NAME, provider } from "../providers";
 import type { Movie, Tag } from "../providers/types";
+import { assertRateLimit } from "../rate-limit";
 import { createServiceClient } from "../supabase/service";
 
 type Db = ReturnType<typeof createServiceClient>;
@@ -27,6 +28,27 @@ export async function cacheMovie(externalId: string): Promise<string> {
   ]);
 
   return persistMovie(db, movie, tags);
+}
+
+/**
+ * cacheMovie for a request a user started with an external id they chose:
+ * add-to-list, onboarding votes, import fixes, /movies/external/<id>. Each of
+ * those can name any title on TMDB, and an uncached one costs two provider
+ * calls. So the "catalog" budget is charged only on a cache miss: re-adding
+ * cached titles is free, and a script walking TMDB's id space is not.
+ *
+ * Throws RateLimitedError past the budget. Every caller already catches a
+ * cacheMovie failure and shows its own "couldn't load" message.
+ */
+export async function cacheMovieForUser(
+  supabase: Parameters<typeof assertRateLimit>[0],
+  externalId: string,
+): Promise<string> {
+  const cached = await lookup(createServiceClient(), PROVIDER_NAME, externalId);
+  if (cached) return cached;
+
+  await assertRateLimit(supabase, "catalog");
+  return cacheMovie(externalId);
 }
 
 /**

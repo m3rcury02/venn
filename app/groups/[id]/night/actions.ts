@@ -31,7 +31,7 @@ export async function logNight(
   // close it rather than inserting a second one, or the digest and §10's
   // stats would silently double-count the evening.
   let data: string | null;
-  let error: { message: string } | null;
+  let error: { message: string; code?: string } | null;
   if (nightId) {
     ({ error } = await supabase.rpc("close_movie_night", {
       p_night_id: nightId,
@@ -49,8 +49,29 @@ export async function logNight(
   }
 
   if (error) {
-    return { ok: false, error: error.message };
+    // P0429: log_movie_night's per-user budget (public-launch hardening).
+    return {
+      ok: false,
+      error:
+        error.code === "P0429"
+          ? "You've logged a lot of nights this hour. Try again later."
+          : error.message,
+    };
   }
+
+  // Who to notify comes from the attendee rows Postgres wrote, not from
+  // `present`. `present` is whatever the client sent: log_movie_night already
+  // drops anyone who isn't a member, but the push loop below used to trust
+  // the raw array, so any signed-in user could push a "movie night invite"
+  // to any user id. movie_night_attendees_select_member lets a member read
+  // these rows.
+  const { data: attendeeRows } = data
+    ? await supabase
+        .from("movie_night_attendees")
+        .select("user_id")
+        .eq("movie_night_id", data)
+    : { data: [] as { user_id: string }[] };
+  const attendees = (attendeeRows ?? []).map((row) => row.user_id as string);
 
   // The event the whole product hinges on: a group actually settled on a
   // film. Weekly unique group_ids on this event are "groups that come back",
@@ -59,7 +80,7 @@ export async function logNight(
     group_id: groupId,
     mode,
     remote: Boolean(nightId),
-    attendees: present.length,
+    attendees: attendees.length,
   });
 
   const { data: group } = await supabase
@@ -74,7 +95,7 @@ export async function logNight(
   // serverless function's response returns before the underlying fetches
   // complete. sendPush never throws, so this cannot fail the caller.
   await Promise.all(
-    present
+    attendees
       .filter((attendeeId) => attendeeId !== me)
       .map((attendeeId) =>
         sendPush(attendeeId, "night_invite", {

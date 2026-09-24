@@ -5377,3 +5377,164 @@ auto-caching for pnpm, but `cache: pnpm` is set explicitly, and v7's move to
 ESM is internal. setup-cli v3 would read the CLI version from
 `pnpm-lock.yaml` if `version` were omitted; it stays pinned so the version
 is visible in the workflow.
+
+---
+
+## Public-launch hardening
+
+Migration: `supabase/migrations/20260924140000_public_launch_hardening.sql`.
+A launch-readiness review found several decisions that were right for "4-6
+friends" and stop being right the day strangers can sign up. Some were
+recorded as "at this scale" trade-offs. The worst of them only became a
+problem once phase 12 made public groups instantly joinable.
+
+### Group list items: adder or creator only
+
+Phase 3's `list_items_delete_via_list` let any member remove any member's
+addition ("at 4-6 friends a per-adder delete rule buys friction, not
+safety"). With `join_public_group`, that let one stranger empty a public
+group's list with a single `delete from list_items`.
+
+- **Delete**: your own personal list, or on a group list the item's adder or
+  the group's creator (`groups.created_by`, the same test
+  `groups_delete_owner` uses). The creator is the group's only moderator.
+  Without that clause an item whose adder left could never be removed:
+  leaving deletes the `group_members` row, not the item.
+- **Update**: the adder only. The update grant is table-wide, so the old
+  policy also let any member rewrite someone else's note or change which
+  film an item points at. The creator can remove but not edit. The media-type
+  rule from `20260727200002_media_type_tv.sql` is kept in `WITH CHECK`.
+- `app/groups/[id]/page.tsx` shows the remove button only to those two
+  people. `removeFromList` now asks for the deleted row back, because RLS
+  answers a forbidden DELETE with zero rows, not an error, so the old
+  action reported success for a delete that never happened.
+
+### Per-user rate limits on every TMDB path
+
+Only `/api/ingest` was limited, so one account (or one script) could use up
+the TMDB quota every user shares. The new `rate_limit_hits` table and
+`consume_rate_limit(bucket)` count fixed windows per user. The budgets live
+in the function, so a caller can't choose its own, and an unknown bucket is
+an error:
+
+| bucket  | budget      | charged by |
+|---------|-------------|------------|
+| search  | 60 / min    | `searchMovies`, the import-fix search |
+| catalog | 100 / 10 min | `cacheMovieForUser`, on a cache **miss** only: add-to-list, onboarding votes, import fixes, `/movies/external/[id]` |
+| feed    | 30 / min    | Explore (page and load-more), onboarding's popular grid |
+| detail  | 120 / min   | a movie page's live availability |
+| widen   | 20 / min    | a group night's widen step |
+| import  | 120 / min   | one import row in `/api/imports/[id]/process` |
+| night   | 10 / hour   | `log_movie_night`, checked inside the function |
+
+Decisions inside it:
+
+- **Postgres, not memory.** A Vercel function instance doesn't outlive its
+  request.
+- **Fixed windows.** The function deletes the caller's older windows for a
+  bucket on each call, so the table holds at most one row per user per
+  bucket. A boundary can let 2x through, which doesn't matter for "don't use
+  up the quota".
+- **Per user, not global.** A global cap would let one abuser lock everyone
+  out, which is the outage this exists to prevent.
+- **Fails open** (`lib/rate-limit.ts`). A counter error lets the request
+  through, rather than a database blip breaking search for everyone.
+- **Each path degrades in its own way**: search throws (the form already
+  shows "Search failed"), Explore says "Slow down a moment" rather than the
+  false "Nothing left to rate", the movie page shows its existing
+  availability-failed state, the night page skips widening (the same result
+  as TMDB being down), and imports return 429 with `Retry-After`, which
+  `components/import-runner.tsx` now waits out.
+- `/share` (Android share target) now draws on `/api/ingest`'s budget too.
+  Both write `ingest_inbox`, and `lib/ingest/limit.ts` counts that table
+  whatever the source. It was unlimited before, although each share
+  resolves against TMDB.
+
+### 18+ only (DPDP)
+
+India's DPDP Act treats everyone under 18 as a child whose data needs
+verifiable parental consent. Venn doesn't collect that consent, so it is
+18+ by declaration:
+
+- `profiles.age_confirmed_at`, written only by `confirm_age()` (not in the
+  column-scoped update grant, same as `onboarded_at`).
+  `complete_onboarding()` refuses without it.
+- The age step comes first in `/onboarding`. The proxy treats "onboarded"
+  as `onboarded_at` **and** `age_confirmed_at`, and the `venn_onboarded`
+  cookie value moved from `"1"` to `"2"`, so everyone who onboarded before
+  this passes through the age step once on their next visit (no step counter
+  for them).
+- "I'm under 18" deletes the account on the spot, using `deleteAccount`.
+  Google sign-in had already created it with a name and email, and keeping
+  a child's data while waiting for them to turn 18 is what the rule forbids.
+- PostHog in the browser starts only when the `venn_analytics` cookie is
+  present. The proxy sets it alongside `venn_onboarded=2`, and it's cleared
+  on sign-out and deletion. Login, legal pages and onboarding are never
+  tracked. The server-side `captureServer` events all sit behind the
+  proxy's gate, apart from `/share`, which is exempt from the proxy, so
+  `/share` now checks both columns itself.
+- A self-declaration, not verification. That's the usual standard for a
+  service that isn't aimed at children. It isn't legal advice: have it
+  reviewed before relying on it.
+
+### Smaller fixes found on the way
+
+- **`logNight` pushed to client-supplied ids.** `log_movie_night` filtered
+  `p_present` to members, but the push loop in
+  `app/groups/[id]/night/actions.ts` used the raw array, so any signed-in
+  user could send a "movie night invite" push to any user id. It now reads
+  recipients back from `movie_night_attendees`.
+- **Theatre pool refresh race** (`lib/movies/theatre.ts`). Delete-then-insert
+  ("a harmless leak at this scale") gave 4 of 8 concurrent renders an empty
+  pool when a region's TTL expired. Now upsert-then-prune (`fetched_at` older
+  than this refresh's stamp). `scripts/theatre-race-smoke.ts` pins it
+  against a stubbed TMDB. It fails on the old code and runs in CI.
+- **Privacy policy**: names Google sign-in, YouTube (the Explore embeds, which
+  connect to YouTube even in nocookie mode), JustWatch, the analytics
+  consent point, the rate-limit counters, and a Children section. The Terms
+  gain Eligibility (18+), no scraping or automated access, and the
+  group-list removal rule. `LAST_UPDATED` is shared, so the About and
+  Accessibility pages show the new date too.
+- The data export now includes `onboarded_at` and `age_confirmed_at`.
+
+### Still open
+
+- **Many accounts.** Per-user limits don't stop one person with many
+  sign-ups. That needs signup friction (captcha on magic link) or per-IP
+  limits at the edge (Vercel Firewall).
+- **Taste inference in public groups.** Explanations are counts ("1 of 2
+  are hyped"), but a stranger who joins a public group and marks only
+  themselves and one member present can read that member's hype from the
+  count. Friends accepted this. Strangers shouldn't get it. The likely fix
+  is hiding counts below 3 present in public groups, which is a product
+  call.
+- **Group list size.** The night page's widen path reads the group list
+  unbounded "because 1000 rows is far past anything a 4-6 person group's
+  list will ever hold". A large public group could pass `max_rows` and
+  silently truncate the pool.
+- The SPEC §2 email to TMDB (developer key for a free public app) is still
+  unsent.
+
+### Tests and verification
+
+- `supabase/tests/rls.test.sql`: `plan(238)` → `plan(258)`. A plain member
+  can't delete or edit another's group item. The adder can edit their own.
+  The creator can remove a member's item but not edit it. Age confirmation
+  can't be set directly, `complete_onboarding` refuses without it, and
+  `confirm_age` stamps it. Rate limits: an unknown bucket is refused, 20
+  widen calls pass and the 21st is refused, budgets are per user, the table
+  can't be read or reset directly, anon can't call the function, and
+  `log_movie_night` refuses past the night budget while a member with budget
+  left still logs. 258/258 pass.
+- `pnpm smoke:theatre-race` (new): PASS, and FAIL on the pre-fix
+  `theatre.ts`.
+- The age gate, driven in Chromium against a local stack and production
+  build (17 checks): a new user lands on the age step, can't reach
+  `/search`, gets past it, and has no analytics cookie before onboarding is
+  done. A pre-gate user holding the old cookie is sent to the age step with
+  no step counter, confirms, lands on `/`, and gets `venn_onboarded=2` plus a
+  script-readable `venn_analytics`. "I'm under 18" deletes both the auth user
+  and the profile. The profile step after it couldn't be rendered, because
+  the sandbox has no TMDB key for the region list.
+- `pnpm typecheck`, `pnpm lint`, `pnpm build`, `smoke:ingest`,
+  `smoke:imports`, `smoke:refresh` clean.

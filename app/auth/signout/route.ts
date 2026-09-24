@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { ANALYTICS_COOKIE } from "@/lib/analytics/cookie";
 import { createClient } from "@/lib/supabase/server";
 
 export async function POST(request: NextRequest) {
@@ -13,5 +14,6 @@ export async function POST(request: NextRequest) {
   // would skip proxy.ts's onboarding redirect entirely -- see the comment
   // there on venn_onboarded.
   response.cookies.delete("venn_onboarded");
+  response.cookies.delete(ANALYTICS_COOKIE);
   return response;
 }

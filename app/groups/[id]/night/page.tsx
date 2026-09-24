@@ -26,6 +26,7 @@ import { provider } from "@/lib/providers";
 import { getClaims } from "@/lib/supabase/claims";
 import { LogNightButton } from "@/components/log-night-button";
 import { createClient } from "@/lib/supabase/server";
+import { withinRateLimit } from "@/lib/rate-limit";
 import { lobbyCutoff } from "@/lib/lobby";
 
 // SPEC §7 screen 6. Home mode is phase 4; theatre mode is phase 9; logging is phase 11.
@@ -226,7 +227,13 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
         ),
       ];
 
-      const widened = await widenCandidates(supabase, id, present, exclude, poolIds);
+      // Widening fetches TMDB recommendations and caches new titles on every
+      // render, and this page re-renders on every pick/reroll. Past the
+      // budget it degrades to the group's own list -- the same result
+      // widenCandidates gives when TMDB is unreachable.
+      const widened = (await withinRateLimit(supabase, "widen"))
+        ? await widenCandidates(supabase, id, present, exclude, poolIds)
+        : [];
       widenedIds = new Set(widened);
 
       const { data } = await supabase.rpc(
