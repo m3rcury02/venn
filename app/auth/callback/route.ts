@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { homeOrInvite, INVITE_COOKIE } from "@/lib/invite";
 import { createClient } from "@/lib/supabase/server";
 
 // Google (and any future OAuth provider) uses the PKCE code-exchange flow,
@@ -9,8 +10,10 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
 
+  // An invite followed while signed out is waiting in a cookie (lib/invite.ts).
+  // The proxy still sends a new account through onboarding first.
   const redirectTo = request.nextUrl.clone();
-  redirectTo.pathname = "/";
+  redirectTo.pathname = homeOrInvite(request.cookies.get(INVITE_COOKIE)?.value);
   redirectTo.search = "";
 
   if (code) {

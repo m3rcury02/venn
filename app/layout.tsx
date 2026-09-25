@@ -7,6 +7,7 @@ import { Analytics } from "@/components/analytics";
 import { ErrorReporter } from "@/components/error-reporter";
 import { RegisterServiceWorker } from "@/components/register-service-worker";
 import { SiteFooter } from "@/components/site-footer";
+import { SITE_DESCRIPTION, SITE_URL } from "@/lib/site";
 import "./globals.css";
 
 // Two families, and the second one does three jobs. Archivo is variable on
@@ -26,9 +27,24 @@ const archivo = Archivo({
   axes: ["wdth"],
 });
 
+// openGraph and twitter are what a pasted link unfurls into. The image is
+// app/opengraph-image.tsx, which Next attaches to every page on its own;
+// metadataBase is what turns its path into the absolute URL unfurlers need.
 export const metadata: Metadata = {
+  metadataBase: SITE_URL,
   title: "Venn",
-  description: "Shared movie and TV lists for your group.",
+  description: SITE_DESCRIPTION,
+  openGraph: {
+    type: "website",
+    siteName: "Venn",
+    title: "Venn: pick a movie nobody hates",
+    description: SITE_DESCRIPTION,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Venn: pick a movie nobody hates",
+    description: SITE_DESCRIPTION,
+  },
   manifest: "/manifest.webmanifest",
   icons: {
     apple: "/apple-touch-icon.png",

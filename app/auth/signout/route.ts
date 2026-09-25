@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { ANALYTICS_COOKIE } from "@/lib/analytics/cookie";
+import { INVITE_COOKIE } from "@/lib/invite";
 import { createClient } from "@/lib/supabase/server";
 
 export async function POST(request: NextRequest) {
@@ -15,5 +16,8 @@ export async function POST(request: NextRequest) {
   // there on venn_onboarded.
   response.cookies.delete("venn_onboarded");
   response.cookies.delete(ANALYTICS_COOKIE);
+  // An invite this browser hasn't used yet belongs to whoever followed it,
+  // not to the next account that signs in here.
+  response.cookies.delete(INVITE_COOKIE);
   return response;
 }

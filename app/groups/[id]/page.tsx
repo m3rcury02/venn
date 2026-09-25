@@ -6,6 +6,7 @@ import { DeleteGroupPanel } from "@/components/delete-group-panel";
 import { GroupVisibilityPanel } from "@/components/group-visibility-panel";
 import type { Status } from "@/components/list-filter";
 import { InviteCode } from "@/components/invite-code";
+import { ShareInviteButton } from "@/components/share-invite-button";
 import { LeaveGroupPanel } from "@/components/leave-group-panel";
 import { MovieCard } from "@/components/movie-card";
 import { RemoveFromListButton } from "@/components/remove-from-list-button";
@@ -133,6 +134,7 @@ export default async function GroupPage({ params }: GroupPageProps) {
         <h1 className="t-display text-[clamp(40px,12vw,96px)] text-fg">{group.name}</h1>
         <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
           <InviteCode code={group.invite_code} />
+          <ShareInviteButton code={group.invite_code} groupName={group.name} />
           {/* Round, because these stand for people -- the one exception to the
               square-corner rule (see globals.css). */}
           <ul className="flex flex-wrap items-center gap-2">

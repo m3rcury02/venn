@@ -50,6 +50,17 @@ export default function LoginPage() {
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const awaitingCaptcha = Boolean(TURNSTILE_SITE_KEY) && !captchaToken;
 
+  // app/auth/confirm and app/auth/callback send a failed sign-in here with
+  // ?error=link_invalid, which this page never read: an expired or already
+  // used magic link (mail scanners open them before people do) landed on a
+  // blank form with no hint why. Read in an effect, not useSearchParams(),
+  // which would need a Suspense boundary around this whole static page.
+  const [linkInvalid, setLinkInvalid] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- window is not available during SSR
+    setLinkInvalid(new URLSearchParams(window.location.search).get("error") === "link_invalid");
+  }, []);
+
   const [showMark, setShowMark] = useState(false);
   useEffect(() => {
     if (reduceMotion) {
@@ -165,6 +176,11 @@ export default function LoginPage() {
           <motion.p variants={cascadeItem} className="t-body mt-5 text-[15px] text-fg-dim">
             Sign in to see where your list overlaps with theirs.
           </motion.p>
+          {linkInvalid ? (
+            <p role="alert" className={`${errorClass} mt-4`}>
+              That sign-in link has expired or was already used. Send yourself a new one below.
+            </p>
+          ) : null}
 
           <motion.button
             variants={cascadeItem}

@@ -1,5 +1,6 @@
 import { type EmailOtpType } from "@supabase/supabase-js";
 import { type NextRequest, NextResponse } from "next/server";
+import { homeOrInvite, INVITE_COOKIE } from "@/lib/invite";
 import { createClient } from "@/lib/supabase/server";
 
 // Magic links in an SSR app use the token-hash flow, not the OAuth code
@@ -11,8 +12,10 @@ export async function GET(request: NextRequest) {
   const token_hash = searchParams.get("token_hash");
   const type = searchParams.get("type") as EmailOtpType | null;
 
+  // An invite followed while signed out is waiting in a cookie (lib/invite.ts).
+  // The proxy still sends a new account through onboarding first.
   const redirectTo = request.nextUrl.clone();
-  redirectTo.pathname = "/";
+  redirectTo.pathname = homeOrInvite(request.cookies.get(INVITE_COOKIE)?.value);
   redirectTo.search = "";
 
   if (token_hash && type) {

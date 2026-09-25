@@ -1,10 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { Hype, Rating } from "@/app/status/actions";
 import { deleteAccount } from "@/app/settings/actions";
 import { captureServer } from "@/lib/analytics/server";
+import { homeOrInvite, INVITE_COOKIE } from "@/lib/invite";
 import { cacheMovieForUser } from "@/lib/movies/cache";
 import { isUsernameBlocked } from "@/lib/moderation/blocklist";
 import { PROVIDER_NAME, provider } from "@/lib/providers";
@@ -34,6 +36,12 @@ export type OnboardingHypeResult = {
   ok: boolean;
   message?: string;
 };
+
+// Someone who followed an invite link before they had an account goes to it
+// now, instead of home (lib/invite.ts).
+async function afterOnboardingPath() {
+  return homeOrInvite((await cookies()).get(INVITE_COOKIE)?.value);
+}
 
 async function authenticatedUserId() {
   const supabase = await createClient();
@@ -67,7 +75,7 @@ export async function confirmAge(): Promise<{ error?: string }> {
 
   if (profile?.onboarded_at) {
     revalidatePath("/", "layout");
-    redirect("/");
+    redirect(await afterOnboardingPath());
   }
   revalidatePath("/onboarding");
   redirect("/onboarding");
@@ -304,5 +312,5 @@ export async function completeOnboarding(): Promise<{ error?: string }> {
   }
 
   revalidatePath("/", "layout");
-  redirect("/");
+  redirect(await afterOnboardingPath());
 }

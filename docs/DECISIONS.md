@@ -5752,3 +5752,136 @@ Checked afterwards:
    Turnstile, with the secret key. Only after step 2 is live.
 4. PostHog → Error Tracking: check issues are arriving, and add an alert.
 
+
+---
+
+## Public-launch growth surface: landing page, invite links, link previews
+
+No migration. A second launch-readiness pass, this time asking what a
+stranger sees, rather than what they can break. On production, 2026-09-25:
+
+- A signed-out visit to `/` redirected to `/login`: one sentence and a
+  sign-in form. Every marketing link and every installed-app launch by a
+  signed-out user started there.
+- An invite was a code to read out. The invitee had to find the site, sign
+  up, finish onboarding, then find the form on `/groups` and type the code.
+  Groups are the product (§4 runs on members marked present), so that's the
+  one growth loop the app has.
+- A pasted link unfurled as the word "Venn": no `og:*` or Twitter tags, no
+  image.
+- `/accessibility`, `/robots.txt` and `/sitemap.xml` answered signed-out
+  requests with the login page. The first is linked from the footer on every
+  page.
+- `/login?error=link_invalid` was never read (noted as a gap in the Google
+  OAuth entry above), so an expired or pre-opened magic link landed on a
+  blank form.
+
+### `/welcome`, not `/`
+
+`lib/supabase/proxy.ts` redirects a signed-out `/` to `/welcome`; every other
+path still goes to `/login`, since a deep link usually means a returning
+user. The landing page has its own path because `components/mobile-navigation.tsx`
+and `components/site-footer.tsx` decide what to show from the pathname alone,
+and at `/` the tab bar would have rendered for signed-out visitors. The page
+redirects a signed-in visitor home.
+
+Every claim on it maps to something the code does: the sample reasons are
+`lib/recommend/explain.ts`'s strings, "leans toward the film the least happy
+person still likes" is §4.3's `0.7 × min + 0.3 × mean`, the lobby copy says
+"the picks count whoever joined" because only group members can join one. No
+poster art: TMDB's images are for showing a title, not for marketing the app
+around them.
+
+### Invite links: the code never reaches a rendered URL
+
+`/join/<code>` never renders. The proxy moves the code into an httpOnly
+`venn_invite` cookie (24 hours) and redirects: signed in → `/join`, signed out
+→ `/welcome?invite=1`. The code is a bearer credential for the group, and
+`components/analytics.tsx` sends every pathname to PostHog, so a page at
+`/join/<code>` would have leaked every code into analytics. The Chromium run
+below asserts that no rendered URL ever carried the code.
+
+It's a cookie and not a `next` parameter because nothing would carry a
+parameter through: Google returns to `/auth/callback` and the magic link to
+`/auth/confirm`, each with a fixed URL, and the proxy puts a new account
+through the age step and onboarding before any page it asked for. So the
+four places that end sign-in or onboarding — both auth routes,
+`confirmAge`'s already-onboarded exit and `completeOnboarding` — go to
+`/join` while the cookie is set (`homeOrInvite` in `lib/invite.ts`). `/join`
+isn't in `PUBLIC_PATHS`, so the age gate still runs before anyone can join a
+group.
+
+- **Joining takes a POST.** `/join` shows "Join the group" and "Not now"
+  buttons, each a server action. A GET that joined would let any page join a
+  signed-in visitor to a group with one link.
+- **The cookie is cleared** on join, on dismiss, on a failed join, on
+  sign-out and on account deletion, so it can't follow the next person on a
+  shared device.
+- **No group name before joining.** `groups_select_member` hides the group
+  from non-members, and a lookup by code would be a new SECURITY DEFINER
+  function for one line of copy. The group page names the group the moment
+  the join lands.
+- **Errors come back as `?error=`, not as action state.** The first version
+  returned them through `useActionState`, and testing showed the message
+  never appeared. Deleting a cookie in a server action makes Next re-render
+  the route, the re-render found no invite, and the component holding the
+  error unmounted, leaving "No invite waiting". Server-rendering the error
+  from the URL survives that re-render.
+- `group_joined` gains `via: "invite_link"` beside `invite_code` and
+  `public`, which is the measure of whether links beat codes.
+- The group page's "Share invite link" opens the system share sheet
+  (`navigator.share`, on phones) or copies the link.
+
+### Link previews
+
+`app/layout.tsx` sets `metadataBase` from `lib/site.ts` (`NEXT_PUBLIC_SITE_URL`,
+else Vercel's `VERCEL_PROJECT_PRODUCTION_URL`), plus `openGraph` and
+`twitter` blocks. `app/opengraph-image.tsx` renders once at build with the
+app's two faces fetched from Google Fonts. It uses both fonts or neither,
+because custom fonts replace `next/og`'s default and the renderer takes each
+glyph from the first font that has it. With Anton alone, the subtitle's
+capital T came out in Anton. A failed font fetch falls back to the default
+face, never to a failed build. The mark is drawn as three shapes (the lens is
+circle B clipped to circle A, filled white), since the renderer has no
+`plus-lighter`.
+
+`app/robots.ts` disallows `/api/`, `/auth/`, `/join/` and `/share`.
+`app/sitemap.ts` lists the five pages a signed-out visitor can read. All of
+these, plus `/opengraph-image`, are in `PUBLIC_PATHS`, because crawlers and
+link unfurlers have no session.
+
+Also removed: the five create-next-app SVGs in `public/`, which nothing
+referenced.
+
+### Verification
+
+- In Chromium, against a production build and the local stack (41 checks, two
+  consecutive clean runs): signed-out `/` lands on `/welcome` at 360px and
+  1280px with no horizontal overflow, no tab bar and the footer links, and
+  `/accessibility` reads signed out. An invite followed while signed out
+  sets the cookie (httpOnly, code uppercased), shows the banner, survives
+  magic-link sign-in and the age step, lands on `/join` with the code absent
+  from the page, and joins. The group page names the group, the membership
+  row exists, the cookie is gone, and no navigated URL contained the code.
+  An onboarded user following a link goes straight to `/join`, and "Not now"
+  goes home without joining. Bare `/join` says nothing is waiting. A
+  well-formed code that matches no group shows its error and clears the
+  cookie, and sign-out clears a waiting invite. The share button copies
+  `<origin>/join/<code>`, and the group page still fits 360px.
+- A bogus `/auth/confirm` token lands on `/login?error=link_invalid` with the
+  message. Plain `/login` shows none.
+- `pnpm typecheck`, `pnpm lint`, `pnpm build` (CI's placeholder env too),
+  `smoke:ingest`, `smoke:imports`. `supabase test db`: 282/282 on a fresh
+  `db reset`. It failed one control, "A sees all non-blocked profiles"
+  (25 against 7), when run after the browser tests without a reset, because
+  those tests had added profiles.
+- Not verified here: the profile and rating steps of onboarding, which need
+  a TMDB key the sandbox doesn't have. `completeOnboarding` shares its exit
+  (`afterOnboardingPath`) with `confirmAge`, which was driven.
+
+### By hand, and what this doesn't settle
+
+See `docs/LAUNCH.md` for the launch checklist and why revenue waits. In short:
+set `NEXT_PUBLIC_SITE_URL` when a custom domain lands (before marketing, since
+every shared invite link carries the domain), and confirm that magic links
+reach addresses outside the Supabase organization.

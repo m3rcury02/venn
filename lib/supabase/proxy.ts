@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { ANALYTICS_COOKIE } from "../analytics/cookie";
+import { INVITE_COOKIE, INVITE_MAX_AGE_SECONDS, parseInviteCode } from "../invite";
 import { getClaims } from "./claims";
 
 // /api/ingest is listed one path at a time, never as "/api": it authenticates
@@ -41,6 +42,19 @@ import { getClaims } from "./claims";
 // caller has no session or isn't onboarded. Behind the redirect, a report
 // would be answered with /login HTML and silently lost. It guards itself: see
 // the route.
+//
+// /accessibility is linked from the footer on every page, signed out
+// included, like the three legal pages beside it. It was missing here, so a
+// signed-out visitor who followed that link got the login page instead.
+//
+// /welcome is the landing page, where a signed-out visitor to / is sent. It
+// is the first thing anyone who follows a link to the bare domain sees, so
+// it has to explain the product before it asks for an account.
+//
+// /robots.txt, /sitemap.xml and /opengraph-image are for crawlers and link
+// unfurlers (WhatsApp, iMessage, Slack), none of which have a session. Behind
+// the redirect, robots.txt answered with the login page's HTML and a shared
+// link had no preview image.
 // Bumped from "1" when the 18+ confirmation joined the onboarding gate; see
 // the comment in updateSession.
 const ONBOARDED_COOKIE_VALUE = "2";
@@ -60,7 +74,16 @@ const PUBLIC_PATHS = [
   "/privacy",
   "/terms",
   "/about",
+  "/accessibility",
+  "/welcome",
+  "/robots.txt",
+  "/sitemap.xml",
+  "/opengraph-image",
 ];
+
+// `/join/<code>`: see lib/invite.ts. Only a well-formed code is handled here;
+// anything else gets the ordinary handling (sign-in, then not-found).
+const INVITE_PATH = /^\/join\/([A-Za-z0-9]{4,32})\/?$/;
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -100,6 +123,31 @@ export async function updateSession(request: NextRequest) {
   // underneath, so the getSession()-driven refresh above is unaffected.
   const { data } = await getClaims(supabase);
 
+  // Before the onboarding gate on purpose: a new account is sent through the
+  // age step and onboarding with the invite waiting in its cookie, instead of
+  // arriving there with the invite lost. /join itself is not public, so the
+  // gate below still applies to it.
+  const invite = request.nextUrl.pathname.match(INVITE_PATH);
+  const inviteCode = invite ? parseInviteCode(invite[1]) : null;
+  if (inviteCode) {
+    const url = request.nextUrl.clone();
+    url.search = "";
+    if (data?.claims) {
+      url.pathname = "/join";
+    } else {
+      url.pathname = "/welcome";
+      url.searchParams.set("invite", "1");
+    }
+    const response = redirectKeepingSession(url, supabaseResponse);
+    response.cookies.set(INVITE_COOKIE, inviteCode, {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: INVITE_MAX_AGE_SECONDS,
+    });
+    return response;
+  }
+
   const isPublic = PUBLIC_PATHS.some((path) =>
     request.nextUrl.pathname.startsWith(path),
   );
@@ -107,7 +155,17 @@ export async function updateSession(request: NextRequest) {
 
   if (!data?.claims && !isPublic) {
     const url = request.nextUrl.clone();
-    url.pathname = "/login";
+    // The bare domain is what gets shared and what the installed app opens,
+    // so a signed-out visitor there gets the landing page, not a sign-in
+    // form with one line of explanation. Every other path keeps going
+    // straight to /login: someone following a deep link has usually been
+    // here before.
+    if (request.nextUrl.pathname === "/") {
+      url.pathname = "/welcome";
+      url.search = "";
+    } else {
+      url.pathname = "/login";
+    }
     return NextResponse.redirect(url);
   }
 
@@ -173,4 +231,13 @@ export async function updateSession(request: NextRequest) {
   }
 
   return supabaseResponse;
+}
+
+// A fresh redirect response drops any auth cookies getClaims() just refreshed
+// onto supabaseResponse, which would sign the user out if their access token
+// had expired on this exact request. The invite redirect copies them over.
+function redirectKeepingSession(url: URL, from: NextResponse) {
+  const response = NextResponse.redirect(url);
+  from.cookies.getAll().forEach((cookie) => response.cookies.set(cookie));
+  return response;
 }
