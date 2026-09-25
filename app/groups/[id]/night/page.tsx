@@ -77,10 +77,17 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
   // non-member, so this 404s rather than leaking the group's existence.
   const { data: group } = await supabase
     .from("groups")
-    .select("id, name")
+    .select("id, name, opened_to_public_at")
     .eq("id", id)
     .single();
   if (!group) notFound();
+
+  // A group that has ever been public (supabase/migrations/
+  // 20260925063651_public_group_nights.sql): strangers may be members, so a
+  // member's taste only enters a night they joined themselves. recommend_movies
+  // and widen_seeds enforce this; the page mirrors it so it never asks them
+  // for a night they'd refuse.
+  const publicGroup = group.opened_to_public_at !== null;
 
   const { data: rawMembers } = await supabase
     .from("group_members")
@@ -147,9 +154,17 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
     attendeeIds = (rawAttendees ?? []).map((a) => a.user_id);
   }
 
+  // In a public group: the lobby's attendees, but only for someone who is one
+  // of them (watching from outside would read their taste without being in
+  // the night); outside a lobby, just the caller.
+  const mustJoinToSeePicks = publicGroup && isLobby && !attendeeIds.includes(userId);
   const present = isLobby
-    ? attendeeIds.filter((uid) => memberIds.includes(uid))
-    : parsePresent(rawPresent, memberIds);
+    ? mustJoinToSeePicks
+      ? []
+      : attendeeIds.filter((uid) => memberIds.includes(uid))
+    : publicGroup
+      ? [userId]
+      : parsePresent(rawPresent, memberIds);
 
   type OpenLobbyRow = { id: string; profiles: { display_name: string | null } | null };
   let openLobby: { id: string; starterName: string; attendeeCount: number } | null = null;
@@ -212,27 +227,18 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
       });
       picks = (data as unknown as Recommendation[] | null) ?? [];
     } else {
-      // SPEC §4.2's widen step, home mode only. recommend_movies' own
-      // group-list pool (p_candidates null) is exactly `poolIds` below, so
-      // this read has to be unbounded to stay correct once p_candidates is
-      // passed non-null: 1000 rows (supabase/config.toml's max_rows) is far
-      // past anything a 4-6 person group's list will ever hold.
-      const { data: rawPoolItems } = await supabase
-        .from("list_items")
-        .select("movie_id, lists!inner(owner_group_id)")
-        .eq("lists.owner_group_id", id);
-      const poolIds = [
-        ...new Set(
-          ((rawPoolItems as { movie_id: string }[] | null) ?? []).map((r) => r.movie_id),
-        ),
-      ];
-
+      // SPEC §4.2's widen step, home mode only. The widened titles go in as
+      // p_extra, on top of the group list recommend_movies reads for itself.
+      // This page used to read the list and pass it back as p_candidates,
+      // and PostgREST caps that read at max_rows (1000), so a big public
+      // group's pool was silently cut short.
+      //
       // Widening fetches TMDB recommendations and caches new titles on every
       // render, and this page re-renders on every pick/reroll. Past the
       // budget it degrades to the group's own list -- the same result
       // widenCandidates gives when TMDB is unreachable.
       const widened = (await withinRateLimit(supabase, "widen"))
-        ? await widenCandidates(supabase, id, present, exclude, poolIds)
+        ? await widenCandidates(supabase, id, present, exclude)
         : [];
       widenedIds = new Set(widened);
 
@@ -243,7 +249,7 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
               p_group_id: id,
               p_present: present,
               p_exclude: exclude,
-              p_candidates: [...poolIds, ...widened],
+              p_extra: widened,
             }
           : { p_group_id: id, p_present: present, p_exclude: exclude },
       );
@@ -317,12 +323,25 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
         />
       ) : (
         <>
-          <PresentPicker groupId={id} members={members} present={present} mode={mode} />
+          {publicGroup ? (
+            <p className="t-body text-[14px] text-fg-dim">
+              This is a public group, so picks only use the taste of people who join the
+              night themselves. These are just for you. Start a remote night and share the
+              link to pick together.
+            </p>
+          ) : (
+            <PresentPicker groupId={id} members={members} present={present} mode={mode} />
+          )}
           <StartRemoteNight groupId={id} mode={mode} openLobby={openLobby} />
         </>
       )}
 
-      {present.length === 0 ? (
+      {mustJoinToSeePicks ? (
+        <Empty
+          title="Join to see the picks"
+          body="In a public group the picks are only shown to the people in the night. Tap I'm in to join."
+        />
+      ) : present.length === 0 ? (
         <Empty
           title="Nobody’s here yet"
           body="Pick who’s watching tonight and the overlap will do the rest."

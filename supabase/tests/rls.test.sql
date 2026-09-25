@@ -19,7 +19,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(258);
+select plan(282);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -2718,6 +2718,270 @@ select lives_ok(
       '55555555-5555-5555-5555-555555555555',
       array['eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee']::uuid[])$$,
   'control: a member with night budget left can still log a night'
+);
+
+reset role;
+
+-- ------------------------- public-group nights (20260925063651_public_group_nights.sql)
+-- A stranger (A) in a group that has been public must not be able to read a
+-- member's (C's) taste or watch history back off the picker. C's data enters
+-- a night only through a lobby C joined, and only for someone who is in it.
+
+insert into movies (id, title, year) values
+  ('b1000000-0000-0000-0000-000000000001', 'Public List Film', 2020),
+  ('b1000000-0000-0000-0000-000000000002', 'Film C Has Watched', 2021),
+  ('b1000000-0000-0000-0000-000000000003', 'Widened Film', 2022);
+
+-- handle_new_group makes C the owner and creates the group list.
+insert into groups (id, name, invite_code, created_by, visibility) values
+  ('b2000000-0000-0000-0000-000000000001', 'Strangers Welcome', 'STRANGERS',
+   'cccccccc-cccc-cccc-cccc-cccccccccccc', 'public');
+
+insert into group_members (group_id, user_id) values
+  ('b2000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111');
+
+insert into list_items (list_id, movie_id, added_by)
+select l.id, m.id, 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+from lists l,
+     (values ('b1000000-0000-0000-0000-000000000001'::uuid),
+             ('b1000000-0000-0000-0000-000000000002'::uuid)) as m (id)
+where l.owner_group_id = 'b2000000-0000-0000-0000-000000000001';
+
+insert into user_movie_status (user_id, movie_id, watched, rating) values
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+   'b1000000-0000-0000-0000-000000000002', true, 'love');
+
+select isnt(
+  (select opened_to_public_at from groups where id = 'b2000000-0000-0000-0000-000000000001'),
+  null::timestamptz,
+  'creating a group as public stamps opened_to_public_at'
+);
+
+-- The owner flips it back. The stranger is still a member, so the rule has to
+-- hold anyway -- every assertion below runs against the flipped group.
+update groups set visibility = 'invite'
+where id = 'b2000000-0000-0000-0000-000000000001';
+
+select isnt(
+  (select opened_to_public_at from groups where id = 'b2000000-0000-0000-0000-000000000001'),
+  null::timestamptz,
+  'flipping back to invite-only keeps the stamp'
+);
+
+update groups set opened_to_public_at = null
+where id = 'b2000000-0000-0000-0000-000000000001';
+
+select isnt(
+  (select opened_to_public_at from groups where id = 'b2000000-0000-0000-0000-000000000001'),
+  null::timestamptz,
+  'even a direct update can''t clear the stamp'
+);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+select is(
+  (select opened_to_public_at is not null from groups
+   where id = 'b2000000-0000-0000-0000-000000000001'),
+  true,
+  'control: a member can read the stamp (the night page decides its UI from it)'
+);
+
+-- Positive control before the negatives: picking for yourself alone works.
+select is(
+  (select count(*)::int from public.recommend_movies(
+     'b2000000-0000-0000-0000-000000000001',
+     array['11111111-1111-1111-1111-111111111111']::uuid[])),
+  2,
+  'control: the stranger can run the picker for themselves alone'
+);
+
+-- C watched this film. Counting the whole membership, "Nobody here has seen
+-- it" would vanish and tell A so.
+select is(
+  (select seen_count from public.recommend_movies(
+     'b2000000-0000-0000-0000-000000000001',
+     array['11111111-1111-1111-1111-111111111111']::uuid[])
+   where movie_id = 'b1000000-0000-0000-0000-000000000002'),
+  0,
+  'in a public group seen_count counts present members only, so absent members'' watches don''t leak'
+);
+
+select throws_ok(
+  $$select * from public.recommend_movies(
+      'b2000000-0000-0000-0000-000000000001',
+      array['cccccccc-cccc-cccc-cccc-cccccccccccc']::uuid[])$$,
+  '42501',
+  null,
+  'a stranger cannot run the picker on a member alone'
+);
+
+select throws_ok(
+  $$select * from public.recommend_movies(
+      'b2000000-0000-0000-0000-000000000001',
+      array['11111111-1111-1111-1111-111111111111',
+            'cccccccc-cccc-cccc-cccc-cccccccccccc']::uuid[])$$,
+  '42501',
+  null,
+  'a stranger cannot mark a member present without a lobby'
+);
+
+select throws_ok(
+  $$select * from public.widen_seeds(
+      'b2000000-0000-0000-0000-000000000001',
+      array['cccccccc-cccc-cccc-cccc-cccccccccccc']::uuid[])$$,
+  '42501',
+  null,
+  'a stranger cannot read a member''s top-rated films through widen_seeds'
+);
+
+-- p_extra (part 2): scored on top of the group list, not instead of it.
+select is(
+  (select count(*)::int from public.recommend_movies(
+     'b2000000-0000-0000-0000-000000000001',
+     array['11111111-1111-1111-1111-111111111111']::uuid[],
+     p_extra => array['b1000000-0000-0000-0000-000000000003']::uuid[])),
+  3,
+  'p_extra adds widened titles to the group list pool rather than replacing it'
+);
+
+-- C opens a lobby. A isn't in it yet, so still can't count C.
+set local request.jwt.claims = '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+
+select lives_ok(
+  $$create temp table _public_lobby as
+    select public.open_movie_night(
+      'b2000000-0000-0000-0000-000000000001', 'home') as night_id$$,
+  'control: C opens a remote night in the public group'
+);
+
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+select throws_ok(
+  $$select * from public.recommend_movies(
+      'b2000000-0000-0000-0000-000000000001',
+      array['cccccccc-cccc-cccc-cccc-cccccccccccc']::uuid[])$$,
+  '42501',
+  null,
+  'watching a lobby from outside it doesn''t let a stranger read its attendees'
+);
+
+select lives_ok(
+  $$select public.join_movie_night((select night_id from _public_lobby))$$,
+  'control: A joins the lobby'
+);
+
+-- Both chose to be in this night, so both are counted. C's watched film drops
+-- out, as it would in any night C is at.
+select results_eq(
+  $$select movie_id from public.recommend_movies(
+      'b2000000-0000-0000-0000-000000000001',
+      array['11111111-1111-1111-1111-111111111111',
+            'cccccccc-cccc-cccc-cccc-cccccccccccc']::uuid[])$$,
+  $$values ('b1000000-0000-0000-0000-000000000001'::uuid)$$,
+  'once both have joined the lobby, the picker counts them both'
+);
+
+reset role;
+
+-- An expired lobby doesn't count, same 12 hours as lib/lobby.ts.
+update movie_nights set held_at = now() - interval '13 hours'
+where id = (select night_id from _public_lobby);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+select throws_ok(
+  $$select * from public.recommend_movies(
+      'b2000000-0000-0000-0000-000000000001',
+      array['11111111-1111-1111-1111-111111111111',
+            'cccccccc-cccc-cccc-cccc-cccccccccccc']::uuid[])$$,
+  '42501',
+  null,
+  'an expired lobby no longer counts as consent'
+);
+
+reset role;
+
+-- ------------------------------ per-network rate limits (20260925063716_ip_rate_limits.sql)
+
+set local role service_role;
+
+select throws_ok(
+  $$select public.consume_ip_rate_limit('network-key-0000000001', 'made_up_bucket')$$,
+  '22023',
+  null,
+  'an unknown network bucket is refused rather than counted'
+);
+
+select throws_ok(
+  $$select public.consume_ip_rate_limit('short', 'errors')$$,
+  '22023',
+  null,
+  'a key too short to be an HMAC is refused'
+);
+
+select is(
+  (select bool_and(public.consume_ip_rate_limit('network-key-0000000001', 'errors'))
+   from generate_series(1, 30)),
+  true,
+  'control: a network''s first 30 error reports in a window are allowed'
+);
+
+select is(
+  public.consume_ip_rate_limit('network-key-0000000001', 'errors'),
+  false,
+  'the 31st error report from the same network is refused'
+);
+
+select is(
+  public.consume_ip_rate_limit('network-key-0000000002', 'errors'),
+  true,
+  'another network''s budget is independent'
+);
+
+reset role;
+
+-- A network that never comes back: its old window is swept by the next call
+-- from anywhere.
+insert into ip_rate_limit_hits (ip_key, bucket, window_start, hits)
+values ('network-key-gone-away', 'search', now() - interval '2 hours', 5);
+
+set local role service_role;
+select public.consume_ip_rate_limit('network-key-0000000003', 'search');
+reset role;
+
+select is(
+  (select count(*)::int from ip_rate_limit_hits where ip_key = 'network-key-gone-away'),
+  0,
+  'windows older than an hour are swept'
+);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-dddd-dddd-dddddddddddd","role":"authenticated"}';
+
+select throws_ok(
+  $$select public.consume_ip_rate_limit('network-key-0000000004', 'search')$$,
+  '42501',
+  null,
+  'a signed-in user cannot charge a network budget (they could pick any key)'
+);
+
+select throws_ok(
+  $$select count(*) from ip_rate_limit_hits$$,
+  '42501',
+  null,
+  'a signed-in user cannot read the network counters'
+);
+
+reset role;
+set local role anon;
+
+select throws_ok(
+  $$select public.consume_ip_rate_limit('network-key-0000000005', 'errors')$$,
+  '42501',
+  null,
+  'anon cannot call consume_ip_rate_limit'
 );
 
 reset role;

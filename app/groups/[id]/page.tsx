@@ -78,22 +78,28 @@ export default async function GroupPage({ params }: GroupPageProps) {
   if (!group) notFound();
   const members = (rawMembers as unknown as MemberRow[] | null) ?? [];
 
-  const { data: rawItems } = list
+  // PostgREST returns at most max_rows (1000, supabase/config.toml) rows. A
+  // public group's list can be longer, so ask for the true count alongside
+  // and say when the grid is showing only the newest part of it. The movie
+  // night picker reads the list in SQL and isn't capped.
+  const { data: rawItems, count: totalItems } = list
     ? await supabase
         .from("list_items")
         .select(
           "movie_id, added_by, added_at, movies(title, year, poster_path, user_movie_status(watched, rating, hype)), profiles(display_name)",
+          { count: "exact" },
         )
         .eq("list_id", list.id)
         .order("added_at", { ascending: false })
-    : { data: null };
+    : { data: null, count: null };
 
   const items = (rawItems as unknown as GroupItemRow[] | null) ?? [];
+  const total = totalItems ?? items.length;
 
   return (
     <Screen>
       <AppHeader
-        subtitle={`${items.length} movie${items.length === 1 ? "" : "s"}`}
+        subtitle={`${total} movie${total === 1 ? "" : "s"}`}
         actions={
           <>
             <Link href="/groups" className={navLinkClass}>
@@ -148,6 +154,11 @@ export default async function GroupPage({ params }: GroupPageProps) {
       {items.length > 0 ? (
         <>
           <AdSlot slot="group-list-top" />
+          {total > items.length ? (
+            <p className="t-label text-fg-faint">
+              Showing the newest {items.length} of {total}. Movie night still picks from all of them.
+            </p>
+          ) : null}
           <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
             {items.map((item, i) => {
               const status = item.movies.user_movie_status[0] ?? null;

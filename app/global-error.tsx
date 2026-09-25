@@ -1,5 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
+import { reportClientError } from "@/lib/errors/client";
+
 // Last resort: this replaces the root layout, so `globals.css` and both fonts
 // are never loaded here. Everything is inline for that reason -- a class name
 // would resolve to nothing. Keep it dependency-free and keep it short.
@@ -10,6 +13,13 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  // Same rule as app/error.tsx: a digest means instrumentation.ts already
+  // reported it from the server. lib/errors/client.ts imports nothing, so this
+  // stays within "dependency-free".
+  useEffect(() => {
+    if (!error.digest) reportClientError(error, "global-boundary");
+  }, [error]);
+
   return (
     <html lang="en">
       <body

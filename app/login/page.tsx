@@ -5,11 +5,15 @@ import { motion, useReducedMotion, type Variants } from "motion/react";
 import { createClient } from "@/lib/supabase/client";
 import { buttonClass } from "@/components/ui/button";
 import { errorClass, inputClass } from "@/components/ui/input";
+import { Turnstile } from "@/components/turnstile";
 import { VennMark } from "@/components/venn-mark";
 import { EASE_EXPOSE } from "@/lib/motion";
 import { signIn, type LoginState } from "./actions";
 
 const initialState: LoginState = {};
+
+// Unset in local dev and CI, where the form works without a captcha.
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
 // The mark's own one-shot sweep (`mode="arrive"`) is plain CSS, timed by when
 // it mounts, not by anything below -- delaying the mount is what times it
@@ -43,6 +47,8 @@ function GoogleIcon() {
 export default function LoginPage() {
   const [state, formAction, pending] = useActionState(signIn, initialState);
   const reduceMotion = useReducedMotion();
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const awaitingCaptcha = Boolean(TURNSTILE_SITE_KEY) && !captchaToken;
 
   const [showMark, setShowMark] = useState(false);
   useEffect(() => {
@@ -194,9 +200,19 @@ export default function LoginPage() {
                 placeholder="you@example.com"
                 className={inputClass}
               />
+              {TURNSTILE_SITE_KEY ? (
+                <>
+                  <Turnstile
+                    siteKey={TURNSTILE_SITE_KEY}
+                    onToken={setCaptchaToken}
+                    resetSignal={state}
+                  />
+                  <input type="hidden" name="captchaToken" value={captchaToken ?? ""} />
+                </>
+              ) : null}
               <button
                 type="submit"
-                disabled={pending}
+                disabled={pending || awaitingCaptcha}
                 className={buttonClass("ghost", "h-12 py-0")}
               >
                 {pending ? "Sending…" : "Send magic link"}

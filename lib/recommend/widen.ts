@@ -30,8 +30,9 @@ type WidenSeeds = {
 };
 
 /**
- * Extra movie ids to append to recommend_movies' p_candidates when the
- * group's own list pool has thinned out. Returns [] when the pool is still
+ * Extra movie ids to pass as recommend_movies' p_extra when the group's own
+ * list pool has thinned out. Never a title already on the group list: those
+ * are scored anyway, and would wrongly read "Not on your lists yet". Returns [] when the pool is still
  * wide enough, when nobody present has a positive-rated list film to seed
  * from, or when TMDB is unreachable -- widening degrading to today's
  * behaviour, not failing the picker, mirrors theatreCandidates' precedent
@@ -42,7 +43,6 @@ export async function widenCandidates(
   groupId: string,
   present: string[],
   exclude: string[],
-  poolIds: string[],
 ): Promise<string[]> {
   const { data, error } = await supabase.rpc("widen_seeds", {
     p_group_id: groupId,
@@ -98,13 +98,29 @@ export async function widenCandidates(
     }
   });
 
-  const poolSet = new Set(poolIds);
   const excludeSet = new Set(exclude);
-  return externalIds.flatMap((externalId) => {
-    const movieId = resolved.get(externalId);
-    if (!movieId || poolSet.has(movieId) || excludeSet.has(movieId)) return [];
-    return [movieId];
-  });
+  const widened = [
+    ...new Set(
+      externalIds.flatMap((externalId) => {
+        const movieId = resolved.get(externalId);
+        return movieId && !excludeSet.has(movieId) ? [movieId] : [];
+      }),
+    ),
+  ];
+  if (widened.length === 0) return [];
+
+  // Which of these are already on the group list, asked about just these ids
+  // (a few dozen at most) rather than reading the whole list, which PostgREST
+  // would cap at max_rows.
+  const { data: onList, error: onListError } = await supabase
+    .from("list_items")
+    .select("movie_id, lists!inner(owner_group_id)")
+    .eq("lists.owner_group_id", groupId)
+    .in("movie_id", widened);
+  if (onListError) return [];
+
+  const listed = new Set(((onList as { movie_id: string }[] | null) ?? []).map((r) => r.movie_id));
+  return widened.filter((movieId) => !listed.has(movieId));
 }
 
 async function mapLimit<T>(

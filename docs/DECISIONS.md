@@ -5499,19 +5499,9 @@ verifiable parental consent. Venn doesn't collect that consent, so it is
 
 ### Still open
 
-- **Many accounts.** Per-user limits don't stop one person with many
-  sign-ups. That needs signup friction (captcha on magic link) or per-IP
-  limits at the edge (Vercel Firewall).
-- **Taste inference in public groups.** Explanations are counts ("1 of 2
-  are hyped"), but a stranger who joins a public group and marks only
-  themselves and one member present can read that member's hype from the
-  count. Friends accepted this. Strangers shouldn't get it. The likely fix
-  is hiding counts below 3 present in public groups, which is a product
-  call.
-- **Group list size.** The night page's widen path reads the group list
-  unbounded "because 1000 rows is far past anything a 4-6 person group's
-  list will ever hold". A large public group could pass `max_rows` and
-  silently truncate the pool.
+- ~~**Many accounts.**~~ ~~**Taste inference in public groups.**~~ ~~**Group
+  list size.**~~ Closed by "Public-launch follow-ups" below. The taste
+  inference fix is not the one suggested here: hiding counts wasn't enough.
 - The SPEC §2 email to TMDB (developer key for a free public app) is still
   unsent.
 
@@ -5554,3 +5544,211 @@ policies (reached only through the function), and three more
 SECURITY DEFINER functions callable by authenticated, the same pattern as the
 existing 20. Production had 7 profiles, 3 of them onboarded. Those 3 see the
 age step once, the first time they come back after this deploys.
+
+---
+
+## Public-launch follow-ups: error tracking, many accounts, public-group nights
+
+Migrations: `supabase/migrations/20260925063651_public_group_nights.sql`,
+`supabase/migrations/20260925063716_ip_rate_limits.sql`. Three of the four
+"Still open" items above, plus error tracking, which the launch-readiness
+review found missing: uncaught errors went to Vercel's runtime logs (an
+hour of history on Hobby, no alerts) and nowhere else.
+
+### Error tracking: PostHog, not Sentry
+
+- `instrumentation.ts` implements Next's `onRequestError`, so every uncaught
+  error in a render, route handler, server action or the proxy is sent as a
+  `$exception` event (`lib/errors/report.ts`), with the digest the error page
+  shows the user, the route, and the deploy's commit.
+- In the browser, `components/error-reporter.tsx` catches `window.onerror`
+  and unhandled rejections, and `app/error.tsx` / `app/global-error.tsx`
+  report render errors that have no digest (a digest means the server
+  already reported it). They post to `/api/errors`, which forwards
+  server-side.
+- **Why PostHog:** it's already the analytics vendor (SPEC §1), already in
+  the privacy policy, and its Error Tracking groups `$exception` events into
+  issues and alerts on them. Sentry would have been a new dependency, a new
+  vendor and a new account for the same outcome at this size.
+- **Anonymous on purpose.** No user id, `$process_person_profile: false`,
+  email addresses stripped from messages and stacks, query strings dropped.
+  That keeps error reports outside the analytics consent gate
+  (`venn_analytics`), which matters because login and onboarding, the pages
+  a broken deploy costs the most users on, are never tracked.
+- **`/api/errors` is public** (it's in `PUBLIC_PATHS`, since the login page
+  has no session), so it's also a way to spend PostHog's quota from
+  outside. It takes same-origin requests only (`Sec-Fetch-Site`, `Origin` as
+  the fallback) up to 16 KB, with a budget of 30 reports a minute per
+  network. The browser side sends at most 5 per page load, each distinct
+  error once.
+- Next's control-flow throws (`notFound()`, `redirect()`, dynamic-rendering
+  bailouts) are filtered out by digest.
+- Setup: `NEXT_PUBLIC_POSTHOG_KEY` must be set in production (without it,
+  reports only reach the logs), and an alert has to be created in PostHog →
+  Error Tracking. The code can't do that part.
+
+### Many accounts: a captcha, and per-network budgets
+
+Per-user budgets reset with every new account, and a magic link needs only
+an email address.
+
+- **Captcha:** Cloudflare Turnstile on the magic-link form
+  (`components/turnstile.tsx`), with the token passed to `signInWithOtp`.
+  Supabase verifies it, using the secret held in the project's Auth
+  settings. Explicit rendering, because the script's implicit scan runs once
+  and would miss a client-side navigation back to `/login`. The widget is
+  reset after every submit, since tokens are single-use. Google sign-in has
+  no captcha: Supabase can't put one in front of OAuth, and Google accounts
+  already cost something to make. When `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is
+  unset (local, CI) the form works without one. Supabase ignores the token
+  until captcha is switched on, so the code ships first and the dashboard
+  switch comes second. The other order would break magic-link sign-in until
+  the deploy lands.
+- **Trade-off:** with the key set, a browser that can't reach
+  `challenges.cloudflare.com` (a strict blocker, a filtering network) can't
+  send a magic link. Google sign-in still works. Accepted.
+- **Per-network budgets:** `withinRateLimit` now charges the caller's
+  network as well as their account (`consume_ip_rate_limit`), so a script
+  cycling accounts from one machine shares one budget. The budgets are about
+  5x the per-user ones, because carrier-grade NAT on Indian mobile networks
+  and hostel Wi-Fi put many real people behind one address. IPv6 is
+  counted per /64, since one host can rotate addresses inside its /64 for
+  free. The key is an HMAC of the address (`RATE_LIMIT_IP_SECRET`, falling
+  back to the service-role key so a missing env var can't switch it off),
+  so the table never holds an address. Rows older than an hour are swept on
+  every call. Only `service_role` can call the function: a signed-in user
+  who could would choose their own key.
+- The IP comes from `x-forwarded-for`, which Vercel overwrites with the real
+  client address. On another host that header is client-controlled and this
+  limit would be trivial to dodge. It fails open, like the per-user limit,
+  and is skipped outside a request (the smoke scripts).
+- Supabase Auth's own per-IP limits on OTP sends and verifications still
+  apply underneath all of this.
+
+### Public-group nights: consent, not hidden counts
+
+The suggestion above (hide counts below 3 present) would not have closed
+the leak. `p_present` was whatever the caller passed, so a stranger could
+pass the victim alone. The picks were then the victim's own ranking, and
+worded "You're hyped for this". Rerolling to "That's everything" listed
+every group-list film the victim hadn't watched, so the rest was their
+watch history. `widen_seeds` returned their top-rated list films. And
+`seen_count` counted every group member, so even without marking the victim
+present, "Nobody here has seen it" appearing or not showed whether someone
+in the group had watched each pick.
+
+The rule now, in `_assert_night_consent`, called by `recommend_movies` and
+`widen_seeds`: **in a group that has ever been public, every present member
+other than the caller must be an attendee of the group's open, unexpired
+lobby, and so must the caller.** Joining a lobby is always an explicit
+"I'm in" tap, so a member's taste enters a night only when they chose to be
+in it, and the lobby shows them who else is. The caller alone is always
+allowed, since that reads only their own rows. Invite-only groups keep the
+checklist unchanged, because those members were handed the code by someone.
+
+- **`groups.opened_to_public_at`**, stamped by trigger the first time a group
+  becomes public and never cleared. An owner who flips back to invite-only
+  keeps every stranger who joined, since there's no way to remove a member,
+  so `visibility` alone can't decide. Groups flipped back before this
+  migration can't be recovered, because nothing recorded it.
+- **`seen_count`** in those groups counts present members only, so it's 0
+  for every candidate and "Nobody here has seen it" always shows. That's
+  accurate for the people who are here.
+- **The night page** mirrors the rule instead of asking for a night it
+  would be refused. In a public group, outside a lobby, it picks for you
+  alone and says why, with no checklist. In a lobby you haven't joined, it
+  shows "Join to see the picks".
+- **Still true after this:** two people who both joined a lobby can each
+  read the other's hype from the counts. That's what a joint night is, and
+  both chose it with the roster on screen.
+- The 12 hours is now in four places (see `lib/lobby.ts`).
+
+### Group lists past `max_rows`
+
+The night page read the group list through PostgREST so it could pass it
+back as `p_candidates` alongside widened titles, and PostgREST caps a read
+at 1000 rows. `recommend_movies` gains `p_extra`: titles scored on top of
+the group list, which it now always reads itself in SQL, uncapped. The page
+no longer reads the list at all. The group page shows the list through the
+same cap, so it now asks for the true count and says "Showing the newest
+1000 of N" rather than quietly showing 1000. `widenCandidates` checks list membership
+only for its own few dozen candidates, so a title already on the list
+isn't labelled "Not on your lists yet". It's a new signature, so the old
+function is dropped rather than overloaded, which would make PostgREST's
+named-argument resolution ambiguous.
+
+### Tests and verification
+
+- `supabase/tests/rls.test.sql`: `plan(258)` → `plan(282)`. The stamp is
+  set on creation and survives a flip back and a direct update. A stranger
+  can pick for themselves alone. `seen_count` doesn't leak an absent
+  member's watch. The stranger can't run the picker on the member alone,
+  with themselves, or through `widen_seeds`, and can't from outside the
+  member's lobby, but can once they've joined it. An expired lobby doesn't
+  count. `p_extra` adds to the pool rather than replacing it. Network
+  budgets: unknown bucket and short key refused, 30 pass and the 31st
+  doesn't, per-network independence, the sweep, and no access for
+  `authenticated` or `anon`. With `_assert_night_consent` stubbed to a
+  no-op, exactly the five leak assertions fail.
+- In Chromium, against a production build and the local stack (12 night
+  checks, 4 error-tracking checks, 5 captcha checks):
+  - **Public group:** a stranger gets solo picks with no checklist, and
+    `?present=<victim>` is ignored. The stranger is asked to join a lobby
+    before seeing picks, and is scored with the victim once joined.
+  - **Invite-only group:** the checklist is unchanged.
+  - **Server errors:** a `permission denied` error thrown in `/movies/[id]`
+    reaches the (stubbed) PostHog endpoint with the digest shown on the
+    error page. A `notFound()` sends nothing.
+  - **Browser errors:** an uncaught error arrives through `/api/errors`.
+    The endpoint answers 403 cross-site, 413 when oversized, and 429 on
+    the 31st report from one network, and the table holds only HMACs.
+  - **List size:** with 1,103 films on a group list, the group page says
+    "Showing the newest 1000 of 1103". The night picker still picks the
+    oldest film, which the grid can't show, because both friends are
+    superhyped for it.
+  - **Captcha:** Turnstile was stubbed with its explicit-render API,
+    because this sandbox's browser can't reach Cloudflare. The button stays
+    disabled until there's a token, the token reaches the form, the widget
+    resets after a submit, and there's no overflow at 360px.
+- `pnpm typecheck`, `pnpm lint`, `pnpm build`, `smoke:ingest`,
+  `smoke:imports`, `smoke:refresh`, `smoke:theatre-race` clean.
+
+### How this reached the remote project
+
+Applied to `vfkkpflenfpfrrygxmto` through the Supabase MCP on 2026-09-25,
+file SQL unchanged. `apply_migration` stamped `20260925063651` and
+`20260925063716`, so the files were renamed from `20260925000100` and
+`20260925000200` to match. Before that, production matched the repo
+exactly, with 0 public groups and 0 open lobbies. The largest group list
+was 15 films.
+
+Applying it ahead of the code is safe for what `main` deploys today. The
+old night page calls `recommend_movies` with named arguments, which resolve
+to the new function because `p_extra` defaults to null. The consent rule
+only touches groups that have been public, and there were none.
+
+Checked afterwards:
+- **Grants:** one `recommend_movies`, the five-argument one, executable by
+  authenticated and not anon. `widen_seeds` is the same.
+  `_assert_night_consent` is executable by neither. `consume_ip_rate_limit`
+  is executable by service_role only.
+- **Tables and columns:** `ip_rate_limit_hits` has RLS on and no grants.
+  `groups.opened_to_public_at` is readable by authenticated and not
+  updatable, and the trigger exists.
+- **Live calls:** as a real member of the largest group, in a transaction,
+  the old-style call, the old-style call with `p_candidates`, and the new
+  `p_extra` call each returned 3 picks, and `widen_seeds` answered.
+- **Security advisor:** only the expected findings. `ip_rate_limit_hits`
+  has no policies, and the count of SECURITY DEFINER functions signed-in
+  users can execute is unchanged at 23.
+
+### To do by hand, in this order
+
+1. ~~Apply both migrations to production.~~ Done, above.
+2. Cloudflare → Turnstile: create a widget for the production domain. Put
+   the site key in Vercel as `NEXT_PUBLIC_TURNSTILE_SITE_KEY`. Optionally
+   set `RATE_LIMIT_IP_SECRET` to a long random string. Deploy.
+3. Supabase → Authentication → Attack Protection: enable CAPTCHA, provider
+   Turnstile, with the secret key. Only after step 2 is live.
+4. PostHog → Error Tracking: check issues are arriving, and add an alert.
+

@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { buttonClass } from "@/components/ui/button";
 import { VennMark } from "@/components/venn-mark";
+import { reportClientError } from "@/lib/errors/client";
 
 // Catches render and data errors anywhere under the root layout. Until now the
 // app had none, so any thrown Supabase error showed Next's default overlay in
@@ -19,6 +20,10 @@ export default function Error({
     // The digest is the only handle on the server-side stack in production;
     // the message itself is redacted before it reaches the client.
     console.error("[venn] unhandled error", error.digest ?? "", error);
+    // A digest means the error was thrown on the server, and
+    // instrumentation.ts has already reported it with the full stack. Without
+    // one it happened in this browser, and this is the only place that sees it.
+    if (!error.digest) reportClientError(error, "route-boundary");
   }, [error]);
 
   return (
