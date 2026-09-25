@@ -2722,7 +2722,7 @@ select lives_ok(
 
 reset role;
 
--- ------------------------- public-group nights (20260925000100_public_group_nights.sql)
+-- ------------------------- public-group nights (20260925063651_public_group_nights.sql)
 -- A stranger (A) in a group that has been public must not be able to read a
 -- member's (C's) taste or watch history back off the picker. C's data enters
 -- a night only through a lobby C joined, and only for someone who is in it.
@@ -2903,7 +2903,7 @@ select throws_ok(
 
 reset role;
 
--- ------------------------------ per-network rate limits (20260925000200_ip_rate_limits.sql)
+-- ------------------------------ per-network rate limits (20260925063716_ip_rate_limits.sql)
 
 set local role service_role;
 

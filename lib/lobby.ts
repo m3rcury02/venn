@@ -5,7 +5,7 @@
 //
 // The same 12 hours is written into those three functions in
 // supabase/migrations/20260924130000_lobby_expiry.sql, and into
-// _assert_night_consent in 20260925000100_public_group_nights.sql. Change them
+// _assert_night_consent in 20260925063651_public_group_nights.sql. Change them
 // all together; the first migration explains why the number is repeated.
 export const LOBBY_TTL_HOURS = 12;
 

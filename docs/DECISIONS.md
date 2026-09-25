@@ -5549,8 +5549,8 @@ age step once, the first time they come back after this deploys.
 
 ## Public-launch follow-ups: error tracking, many accounts, public-group nights
 
-Migrations: `supabase/migrations/20260925000100_public_group_nights.sql`,
-`supabase/migrations/20260925000200_ip_rate_limits.sql`. Three of the four
+Migrations: `supabase/migrations/20260925063651_public_group_nights.sql`,
+`supabase/migrations/20260925063716_ip_rate_limits.sql`. Three of the four
 "Still open" items above, plus error tracking, which the launch-readiness
 review found missing: uncaught errors went to Vercel's runtime logs (an
 hour of history on Hobby, no alerts) and nowhere else.
@@ -5713,11 +5713,38 @@ named-argument resolution ambiguous.
 - `pnpm typecheck`, `pnpm lint`, `pnpm build`, `smoke:ingest`,
   `smoke:imports`, `smoke:refresh`, `smoke:theatre-race` clean.
 
+### How this reached the remote project
+
+Applied to `vfkkpflenfpfrrygxmto` through the Supabase MCP on 2026-09-25,
+file SQL unchanged. `apply_migration` stamped `20260925063651` and
+`20260925063716`, so the files were renamed from `20260925000100` and
+`20260925000200` to match. Before that, production matched the repo
+exactly, with 0 public groups and 0 open lobbies. The largest group list
+was 15 films.
+
+Applying it ahead of the code is safe for what `main` deploys today. The
+old night page calls `recommend_movies` with named arguments, which resolve
+to the new function because `p_extra` defaults to null. The consent rule
+only touches groups that have been public, and there were none.
+
+Checked afterwards:
+- **Grants:** one `recommend_movies`, the five-argument one, executable by
+  authenticated and not anon. `widen_seeds` is the same.
+  `_assert_night_consent` is executable by neither. `consume_ip_rate_limit`
+  is executable by service_role only.
+- **Tables and columns:** `ip_rate_limit_hits` has RLS on and no grants.
+  `groups.opened_to_public_at` is readable by authenticated and not
+  updatable, and the trigger exists.
+- **Live calls:** as a real member of the largest group, in a transaction,
+  the old-style call, the old-style call with `p_candidates`, and the new
+  `p_extra` call each returned 3 picks, and `widen_seeds` answered.
+- **Security advisor:** only the expected findings. `ip_rate_limit_hits`
+  has no policies, and the count of SECURITY DEFINER functions signed-in
+  users can execute is unchanged at 23.
+
 ### To do by hand, in this order
 
-1. Apply both migrations to production *before* pushing to `main`, as
-   "CI" above says. The night page calls `recommend_movies` with `p_extra`,
-   which doesn't exist until the migration does.
+1. ~~Apply both migrations to production.~~ Done, above.
 2. Cloudflare → Turnstile: create a widget for the production domain. Put
    the site key in Vercel as `NEXT_PUBLIC_TURNSTILE_SITE_KEY`. Optionally
    set `RATE_LIMIT_IP_SECRET` to a long random string. Deploy.

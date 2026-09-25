@@ -6,7 +6,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 // Rate limits for every request path that reaches TMDB, counted twice: per
 // user and per client network. The budgets and the counting live in Postgres
 // (consume_rate_limit in 20260924231422_public_launch_hardening.sql,
-// consume_ip_rate_limit in 20260925000200_ip_rate_limits.sql): a Vercel
+// consume_ip_rate_limit in 20260925063716_ip_rate_limits.sql): a Vercel
 // function instance doesn't outlive its request, so an in-memory counter
 // would never see a second hit.
 //

@@ -83,7 +83,7 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
   if (!group) notFound();
 
   // A group that has ever been public (supabase/migrations/
-  // 20260925000100_public_group_nights.sql): strangers may be members, so a
+  // 20260925063651_public_group_nights.sql): strangers may be members, so a
   // member's taste only enters a night they joined themselves. recommend_movies
   // and widen_seeds enforce this; the page mirrors it so it never asks them
   // for a night they'd refuse.
