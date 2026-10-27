@@ -5752,3 +5752,285 @@ Checked afterwards:
    Turnstile, with the secret key. Only after step 2 is live.
 4. PostHog → Error Tracking: check issues are arriving, and add an alert.
 
+
+---
+
+## Launch pass: liquid glass, a front door, and leaving a lobby
+
+Migration: `supabase/migrations/20261027120000_leave_movie_night.sql`.
+Requested as "release it and market it to the public: make it look stable,
+use liquid glass and animations, finish the whole app". Before building
+anything, an audit of what a stranger arriving from a shared link would
+actually hit found the gaps were mostly not visual:
+
+- A signed-out visitor at `/` was redirected straight to `/login`. There was
+  no page saying what Venn is.
+- A shared link previewed as the bare word "Venn" with no image. No Open
+  Graph or Twitter tags, no `metadataBase`, no robots.txt, no sitemap.
+- The browser tab showed Next.js's default favicon (`app/favicon.ico` was
+  byte-identical to create-next-app's, 25,931 bytes), and `public/` still
+  held its five demo SVGs.
+- 17 of the 23 pages had no title, so every tab read "Venn".
+- `/accessibility` wasn't in the proxy's `PUBLIC_PATHS`, so the footer link to
+  it bounced signed-out visitors to `/login`.
+- The README was create-next-app's.
+- The last recorded lobby gap, no way to leave one, had become a consent
+  problem since public-group nights (below).
+
+### Glass: where it goes, and where it doesn't
+
+The "Vibrant/bold/immersive" entry above rejected glassmorphism, and the
+reason it gave still holds for most of the app: on a `#000` ground there is
+nothing behind a glass panel to bend, so a glass card on black is a grey
+box. What changed is where it's used. Glass here is the layer that floats
+*above* content, which is also how Apple uses it: the floating tab bar, the
+sticky desktop header once the page scrolls under it, the drawer and bottom
+sheet, the install prompt, the controls sitting on poster art (watched,
+remove, Explore's mute), and the reason chips on the night pick. Content
+itself (cards, panels, posters, the vote row) stays opaque and square.
+
+That split is also the radius rule. `--radius-glass` (1.25rem) is the one
+soft corner in the system: "square is the screen, round is the lens".
+Controls sitting on glass take a soft corner too (`rounded-xl`); buttons on
+the plain ground stay at `--radius-ctl`. The earlier rule, circles for
+people and the mark only, is unchanged.
+
+**Contrast was solved, not eyeballed**, the same way as the palette. Glass
+is translucent, so its worst case is pure white directly behind it (a blown
+highlight in poster art), run through the backdrop `brightness()`, then the
+tint, then 2% for the rim:
+
+| Tier | Worst ground | Holds AA | Fails |
+|---|---|---|---|
+| `.glass` (lens) | rgb(85,85,86) | fg 7.45, marquee 5.84, white@75% 5.02 | fg-dim 2.30 |
+| `.glass-thick` | rgb(37,37,38) | fg 15.31, fg-dim 4.73, beams | fg-faint 3.87 |
+| `.glass` in a `<dialog>` | rgb(25,25,26) | fg 17.57, fg-dim 5.42 | fg-faint 4.44 |
+
+So the lens tier carries white and marquee only, which is why inactive tab
+labels went from `--fg-faint` to white at 75%, and the mute button's icon
+from `--fg-dim` to white. `--fg-faint` is never on glass; the header
+subtitle and the drawer's iOS install hint moved to `--fg-dim` for that
+reason. The tint is applied *after* `brightness()` darkens the backdrop,
+which is what lets the lens tier stay half-transparent and still hold 7:1.
+
+**Not built: SVG refraction.** `backdrop-filter: url(#displacement)` is
+applied by Chromium only, and adds a full-surface filter pass per scrolling
+frame on the mid-range Android phones this app mostly runs on. iOS, the
+platform the look is named after, would never see it. The rim (a 1px
+gradient border via a masked pseudo-element, since `border-image` ignores
+`border-radius`) and the specular top edge carry the effect, and render the
+same everywhere.
+
+**Fallbacks.** Without `backdrop-filter` support, and under
+`prefers-reduced-transparency: reduce`, both tiers become the opaque
+`--surface`. Checked with CDP media emulation: the tab bar's computed
+background goes from `rgba(11,11,13,0.5)` with the filter to `rgb(11,11,13)`
+with none.
+
+**Cost.** Ghost buttons got the look without the filter (`.glass-flat`):
+they sit on black, where blurring buys nothing. The poster overlay buttons
+already had `backdrop-blur-sm`, so making them glass added no new
+compositing layers to the grids.
+
+### The tab bar
+
+Floating, inset, lens-tier glass. It is 3.5rem tall and sits 0.5rem above
+the safe area, the same 4rem the docked bar took, so the spacer, Explore's
+height calc, `--mobile-nav-offset` and `--group-fab-offset` all still
+budget correctly with no change.
+
+The active tab is marked by a bright glass pill (the "lens") that slides
+between slots on a slightly overshooting curve and stretches sideways in
+flight. The stretch is a keyframe on an inner element re-keyed on every
+move, so it replays without fighting the outer element's translate
+transition. It moves on the tap, not when the next route has rendered,
+because waiting on the server made the tap look ignored. Discover, Stats,
+Inbox and Settings light More, since that's where they live. Pages that
+belong to no tab (a movie, a profile) fade the lens out rather than leaving
+it on the last tab.
+
+### Motion
+
+- **Route transitions**, via `app/template.tsx`: a 280ms opacity fade on
+  every route change, CSS only, so it runs from first paint and a failed
+  hydration can never leave a page invisible. Opacity only, with
+  `backwards` fill: a transform or filter on that wrapper would make it the
+  containing block for every `position: fixed` element inside a page (the
+  group FAB, the sheets) while it ran. Same-route searchParams navigations
+  (filter chips, the present picker) don't remount a template, which is
+  right: those already show `LinkPending` on the tapped chip. View
+  Transitions stay out for the reason recorded in the motion pass.
+- **Sheets** arrive with `lens-in`, a short scale-and-settle with overshoot.
+- **The landing page** reveals sections with a CSS scroll timeline
+  (`animation-timeline: view()`) behind `@supports`. That inverts
+  `ui/reveal.tsx`'s failure mode on purpose: a browser without scroll
+  timelines, a crawler, or a page whose JS never loads just shows the
+  content. `Reveal`'s SSR'd `opacity: 0` is fine inside the app, where JS is
+  always there; it is the wrong trade on the one page strangers and link
+  previewers see first.
+
+### The landing page
+
+`app/page.tsx` renders `components/landing/landing.tsx` when there are no
+claims, and the proxy lets exactly `/` through signed out (`LANDING_PATH`,
+not in `PUBLIC_PATHS`, which matches by prefix). Rendering it at `/` rather
+than rewriting to a `/welcome` route was deliberate: a proxy rewrite to a
+prerendered page makes `usePathname()` disagree between server and client
+(Next 16.2.12's own `use-pathname.md` warns about this), and both the tab
+bar and the footer read it. The tab bar, its spacer and the install prompt
+are hidden on the landing page by a `:has([data-landing])` rule; a browser
+without `:has()` shows a tab bar whose links go to `/login`, which still
+works.
+
+Every claim on it is something the app does today, in the recommender's
+own terms: the `0.7 × lowest + 0.3 × average` blend (illustrated with two
+films that average 0.70 and score 0.70 and 0.28), real explanation strings
+from `lib/recommend/explain.ts`, theatre mode, imports, share-to-app,
+export and delete. Two drafts were cut for overclaiming: "a taste profile
+only you can see" (two people in the same lobby can read each other's hype
+from the counts, per "Public-group nights" above, so "only you" isn't
+true), and "Meh won't sink a pick" (it scores 0.25, which does pull a pick
+down; it just can't rule a film out, which is what the copy now says).
+
+No film posters. The hero is three people's circles (circles, because they
+stand for people) blended with `plus-lighter` like the mark, with an
+abstract two-beam "poster" in the three-way overlap. Studio key art isn't
+ours to advertise with, and TMDB's terms cover displaying it in the service,
+not in marketing. The third person is white, not a new hue: the palette has
+no third colour, and violet is what the earlier entries were escaping.
+
+Its own contrast rule, because there is light behind almost everything:
+body copy is white at 80%, never `--fg-dim`, and every glow outside a
+clipped card is capped at 50% opacity. Scripted against each glow's peak:
+white@80% holds 6.44 on beam-a and 5.07 on beam-b at 50%, where `--fg-dim`
+would be 2.83 and 2.15. The first draft had glows at 60-70% under body
+text; that measured 3.15 on beam-b and was cut back.
+
+The vote demo (`components/landing/vote-demo.tsx`) is a local-state copy of
+`VoteControl`, because the real one writes through server actions that need
+a session. The two are commented to stay visually in step.
+
+### Launch metadata
+
+- `lib/site.ts`: `SITE_URL` is `NEXT_PUBLIC_SITE_URL`, else Vercel's
+  `VERCEL_PROJECT_PRODUCTION_URL`, so preview deployments point share cards
+  at production rather than at a URL that will be deleted.
+- Title template `%s · Venn`. `/` uses `absolute` for "Your list", because a
+  layout's template only applies to child segments and `/` shares the root
+  layout's. The movie page titles itself with the film; the group page with
+  the group's name read through RLS, so a non-member's tab says "Group" and
+  confirms nothing the page's `notFound()` doesn't.
+- `app/opengraph-image.tsx`, rendered once at build. Anton is bundled in
+  `assets/fonts/` (SIL OFL 1.1, licence alongside) rather than fetched at
+  build time, which would make deploys depend on Google Fonts being up. The
+  mark is SVG with a clip-path lens because Satori has no `plus-lighter`.
+  Satori also clips a long display line instead of wrapping it, so the
+  headline is two explicit lines; the first render cut "OVERLAP" off.
+- `robots.ts` allows everything except `/api/`, `/auth/` and `/share`. An
+  allow-list looked tidier and would have blocked Googlebot from `/_next/`
+  (it couldn't render the landing page) and Twitterbot from
+  `/opengraph-image` (share cards without images on X).
+- `app/favicon.ico` and `app/icon.svg` are the mark: the same 0.62/0.19
+  geometry and additive white lens as the PWA icons, on a rounded black
+  square so the lens still reads on a light browser tab.
+- The manifest gained `id`, `description` and `categories`. `id: "/"` equals
+  the identity browsers already computed from `start_url`, so installed
+  copies aren't treated as a new app.
+
+### Leaving a lobby
+
+Since public-group nights, joining a lobby is the consent step:
+`_assert_night_consent` lets the picker score a member only while they're
+an attendee. That consent could be given and not withdrawn. Someone who
+tapped "I'm in" by mistake stayed in the roster, with their taste in every
+pick and their hype readable from the counts, for up to 12 hours.
+
+`leave_movie_night(p_night_id)` removes the caller's own seat and nothing
+else (there's no user argument). A closed night refuses, because its roster
+is the record of who watched the pick, which confirmations and the digest
+read. An expired lobby may be left: it's inert, and refusing would only
+confuse. A non-attendee leaving is a no-op, not an error. The last one out
+deletes the lobby, for the same reasons the expiry migration deletes
+expired ones, and because an empty open lobby would hold the group's one
+lobby slot and hand the next person an empty room they aren't in.
+
+The night row is locked (`for update`) before the roster changes. Without
+it, the last two attendees leaving together each delete their own row,
+each still see the other's uncommitted one, and an empty lobby survives.
+`join_movie_night`'s insert takes a key-share lock on the same row for its
+foreign key, so a join racing the last leave waits too. The first draft
+took the lock after the delete, which doesn't serialise anything; caught on
+re-reading it, before any test ran.
+
+The lobby shows "Leave" where "I'm in" was. Leaving lands on the plain
+night page rather than refreshing `?night=`, because if you were the last
+one in, that lobby no longer exists.
+
+### Smaller fixes found on the way
+
+- **Hydration error on the landing page under reduced motion** (React #418).
+  The hero rendered the flash element only when `useReducedMotion()` was
+  false, and that hook can't know the preference on the server, so the
+  trees differed. It now uses `<MotionConfig reducedMotion="user">` and hides
+  the flash with `motion-reduce:hidden`, which server and client agree on.
+  `VoteControl` and the login page also call the hook, but only to choose
+  transition values, which don't change the rendered tree.
+- **401s in every signed-out visitor's console.** The tab bar's inbox badge
+  and the background import runner queried Supabase with no session on
+  public pages. Both now check `getSession()` (a local cookie read) first.
+  The import runner's was pre-existing on `/privacy`, `/terms` and `/about`.
+- **"1 of 2 are hyped for this"** now reads "1 of 2 is".
+- **The night pick was narrower than its column.** The page stacks it with
+  the log button in an `items-start` column, which shrank the frame to its
+  content. It's `w-full` now.
+- **The footer had no bottom padding on desktop** (`sm:pb-0`).
+- The login page has a way back to `/`, since it's no longer the front door.
+- `package.json` is 1.0.0.
+
+### Verification
+
+- `pnpm typecheck`, `pnpm lint`, `pnpm build`: clean.
+- `supabase db reset` applies every migration including the new one;
+  `supabase test db`: `plan(282)` → `plan(294)`, 294/294. With
+  `leave_movie_night` replaced by a no-op, six fail: the non-member refusal,
+  consent withdrawal, own-seat-only, last-one-out deletion, closed-night
+  refusal and the closed roster being intact.
+- Driven in Chromium against a production build and the local stack, signed
+  in through the real `/auth/confirm` magic-link route, with 12 films
+  seeded from real TMDB art:
+  - Landing at 360, 390 and 1280: no horizontal overflow, no page errors,
+    the hero sequence plays, the score chart and vote demo work.
+  - Signed in: the floating tab bar, the lens moving on tap, glass overlay
+    buttons over poster art, the sticky desktop header with posters
+    scrolling under it, the glass drawer and the group sheet, glass reason
+    chips on the night pick. Page titles on all eight tab destinations.
+  - Leaving, with two real users: Ben joins Asha's lobby (2 attendees);
+    Asha leaves and lands on the plain night page, which shows Ben's lobby
+    with 1 here; Ben leaves and the lobby is gone; the old `?night=` link
+    falls back to the normal page.
+  - `prefers-reduced-transparency: reduce` via CDP: glass becomes opaque.
+  - Reduced motion: the landing page renders fully, with no hydration error.
+- **Not verified here:** Explore and live availability, which need a real
+  TMDB key; this sandbox has none.
+
+### How this reaches production
+
+1. Apply `20261027120000_leave_movie_night.sql` to `vfkkpflenfpfrrygxmto`,
+   then rename the file to the version `apply_migration` stamps, as every
+   earlier migration was. Until it's applied, the "Leave" button answers
+   with an error and the migration-drift check on `main` fails; nothing
+   else depends on it.
+2. Deploy. Optionally set `NEXT_PUBLIC_SITE_URL` once there is a custom
+   domain; until then share cards point at `venn-roan.vercel.app`.
+
+### Still open, and not code
+
+- The SPEC §2 email to TMDB (a free public app on a developer key, and the
+  ML clause) is still unsent. It matters more now that the goal is
+  marketing to the public.
+- Vercel Hobby is non-commercial only. A free app with no revenue fits; the
+  day `NEXT_PUBLIC_ADS_ENABLED` goes on, Vercel Pro and TMDB's commercial
+  terms both apply (SPEC §2).
+- The "To do by hand" list in the previous entry (Turnstile, the Supabase
+  captcha switch, a PostHog alert) should be finished before strangers
+  arrive in numbers.

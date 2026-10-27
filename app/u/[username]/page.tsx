@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AppHeader, navLinkClass } from "@/components/app-header";
@@ -15,6 +16,11 @@ import { createClient } from "@/lib/supabase/server";
 type ProfilePageProps = {
   params: Promise<{ username: string }>;
 };
+
+export async function generateMetadata({ params }: ProfilePageProps): Promise<Metadata> {
+  const { username } = await params;
+  return { title: `@${decodeURIComponent(username)}` };
+}
 
 type ItemWithMovie = {
   list_id: string;

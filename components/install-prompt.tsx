@@ -38,14 +38,17 @@ export function InstallPrompt() {
   return (
     <div
       data-install-prompt
-      className="fixed inset-x-4 z-50 mx-auto flex max-w-md items-center gap-3 rounded-card border border-hairline bg-surface px-4 py-3"
+      // Thick glass: it floats over live content and carries `--fg-dim` body
+      // text, which the clear tier can't hold at AA (globals.css, GLASS).
+      className="glass-thick fixed inset-x-4 z-50 mx-auto flex max-w-md items-center gap-3 rounded-glass px-4 py-3 motion-safe:animate-lens-in"
       style={{
         bottom:
           "calc(env(safe-area-inset-bottom) + var(--mobile-nav-offset, 0px) + 1rem)",
       }}
     >
-      {/* On `bg-surface` (#0B0B0D), not a fill -- the mark blends additively
-          and needs a near-black backdrop to resolve. */}
+      {/* On dark glass, not a fill -- the mark blends additively and needs a
+          near-black backdrop to resolve. The thick tier's worst case is
+          rgb(37,37,38), still dark enough for the lens to read white. */}
       <VennMark size={28} />
       <div className="t-body min-w-0 flex-1 text-[14px]">
         {showIosSteps ? (
@@ -61,7 +64,7 @@ export function InstallPrompt() {
         <button
           type="button"
           onClick={install}
-          className="t-label bulb shrink-0 rounded-ctl bg-marquee px-3 py-2 text-on-beam"
+          className="t-label bulb shrink-0 rounded-lg bg-marquee px-3 py-2 text-on-beam transition motion-safe:active:scale-[0.96]"
         >
           Install
         </button>
@@ -70,7 +73,7 @@ export function InstallPrompt() {
         type="button"
         onClick={dismiss}
         aria-label="Dismiss"
-        className="shrink-0 rounded-ctl px-2 py-1.5 text-fg-faint transition-colors hover:bg-surface-2 hover:text-fg"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-white/[0.08] hover:text-fg"
       >
         ×
       </button>

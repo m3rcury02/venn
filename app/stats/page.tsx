@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppHeader, navLinkClass } from "@/components/app-header";
@@ -9,6 +10,8 @@ import { VennMark } from "@/components/venn-mark";
 import { provider, type MediaType } from "@/lib/providers";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
+
+export const metadata: Metadata = { title: "Stats" };
 
 type HypeHistoryRow = {
   movie_id: string;

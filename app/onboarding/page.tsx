@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { loadPopularOnboarding } from "@/app/onboarding/actions";
 import { AgeGate } from "@/components/age-gate";
@@ -8,6 +9,8 @@ import { VennMark } from "@/components/venn-mark";
 import { provider } from "@/lib/providers";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
+
+export const metadata: Metadata = { title: "Welcome" };
 
 export default async function OnboardingPage() {
   const supabase = await createClient();

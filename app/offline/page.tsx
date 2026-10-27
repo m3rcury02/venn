@@ -1,4 +1,7 @@
+import type { Metadata } from "next";
 import { VennMark } from "@/components/venn-mark";
+
+export const metadata: Metadata = { title: "Offline" };
 
 // Served by public/sw.js when a navigation fails with no network. Static and
 // data-free on purpose -- there is nothing here that can go stale or leak

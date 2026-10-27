@@ -59,7 +59,10 @@ export function explain(
     } else if (pick.hyped_count === present) {
       reasons.push(`All ${present} of you are hyped for this`);
     } else {
-      reasons.push(`${pick.hyped_count} of ${present} are hyped for this`);
+      // "1 of 2 is", not "1 of 2 are": the verb agrees with the count.
+      reasons.push(
+        `${pick.hyped_count} of ${present} ${pick.hyped_count === 1 ? "is" : "are"} hyped for this`,
+      );
     }
   }
 

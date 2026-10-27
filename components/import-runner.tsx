@@ -26,6 +26,15 @@ export function ImportRunner() {
       running = true;
 
       try {
+        // Signed-out pages ("/" as the landing page, /about, /privacy...)
+        // mount this too. No session means nothing to process, and asking
+        // anyway is a 401 in the console of every visitor. getSession() is
+        // a local cookie read, not a network call.
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session || cancelled) return;
+
         const { data: job } = await supabase
           .from("imports")
           .select("id")

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { AdSlot } from "@/components/ad-slot";
@@ -45,6 +46,17 @@ type MemberRow = {
 type GroupPageProps = {
   params: Promise<{ id: string }>;
 };
+
+// RLS decides what this can read, the same as the page: a non-member of an
+// invite-only group gets nothing back and the tab says "Group", so the title
+// can't confirm a group exists any more than the page's notFound() does.
+export async function generateMetadata({ params }: GroupPageProps): Promise<Metadata> {
+  const { id } = await params;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return { title: "Group" };
+  const supabase = await createClient();
+  const { data } = await supabase.from("groups").select("name").eq("id", id).maybeSingle();
+  return { title: data?.name ?? "Group" };
+}
 
 export default async function GroupPage({ params }: GroupPageProps) {
   const { id } = await params;

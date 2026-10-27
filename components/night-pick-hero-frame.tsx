@@ -96,7 +96,10 @@ export function NightPickHeroFrame({
       href={href}
       prefetch={false}
       aria-label={`View details for ${title}`}
-      className="relative block overflow-hidden rounded-card border border-hairline"
+      // w-full: the night page stacks this with the log button in an
+      // `items-start` column (so the button keeps its own width), which
+      // otherwise shrinks the whole frame to the width of its content.
+      className="relative block w-full overflow-hidden rounded-card border border-hairline"
     >
       <motion.div initial="hidden" animate="visible" variants={container}>
         {/* Letterbox, first in the sequence and z-raised so it stays on top of
@@ -177,9 +180,15 @@ export function NightPickHeroFrame({
             ) : null}
 
             {reasons.length > 0 ? (
-              <motion.ul variants={reasonsContainer} className="mt-5 flex flex-col gap-1.5">
+              // Each reason is a lens-tier glass chip over the film's own
+              // colour -- white text only, which this line already was.
+              <motion.ul variants={reasonsContainer} className="mt-5 flex flex-col items-start gap-2">
                 {reasons.map((reason) => (
-                  <motion.li key={reason} variants={reasonItem} className="t-body text-[15px] text-fg">
+                  <motion.li
+                    key={reason}
+                    variants={reasonItem}
+                    className="glass t-body rounded-xl px-3.5 py-2 text-[14px] text-fg"
+                  >
                     {reason}
                   </motion.li>
                 ))}

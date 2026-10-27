@@ -15,7 +15,7 @@ import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
-  title: "Notification Preferences — Venn",
+  title: "Notification Preferences",
   description: "Configure push and email notification preferences.",
 };
 

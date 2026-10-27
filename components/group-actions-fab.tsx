@@ -92,9 +92,12 @@ export function GroupActionsFab() {
         onClick={(event) => {
           if (event.target === event.currentTarget) closeSheet();
         }}
-        className="fixed inset-x-0 top-auto bottom-0 m-0 mx-auto w-full max-w-md max-h-none border-t border-hairline bg-surface p-0 text-fg backdrop:bg-black/80 backdrop:backdrop-blur-sm open:block motion-safe:open:animate-sheet-in"
+        // A floating glass sheet rather than one bolted to the screen edge.
+        // Glass inside a modal, so `--fg-dim` rows hold (globals.css, GLASS).
+        className="glass fixed inset-x-2 top-auto m-0 mx-auto w-auto max-w-md max-h-none rounded-glass p-0 text-fg backdrop:bg-black/80 backdrop:backdrop-blur-sm open:block motion-safe:open:animate-lens-in sm:inset-x-0 sm:w-full"
+        style={{ bottom: "calc(env(safe-area-inset-bottom) + 0.5rem)" }}
       >
-        <div className="flex flex-col px-5 pt-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)]">
+        <div className="flex flex-col px-5 pt-5 pb-5">
           {step === "menu" ? (
             <>
               <div className="flex items-center justify-between gap-4">
@@ -106,7 +109,7 @@ export function GroupActionsFab() {
                   autoFocus
                   aria-label="Close"
                   onClick={closeSheet}
-                  className="flex h-11 w-11 items-center justify-center rounded-ctl text-fg-dim transition-colors hover:bg-surface-2 hover:text-fg"
+                  className="flex h-11 w-11 items-center justify-center rounded-xl text-fg-dim transition-colors hover:bg-white/10 hover:text-fg"
                 >
                   <CloseIcon />
                 </button>
@@ -115,14 +118,14 @@ export function GroupActionsFab() {
                 <button
                   type="button"
                   onClick={() => setStep("create")}
-                  className="flex min-h-14 items-center justify-between border-b border-hairline px-1 text-left text-fg-dim transition-colors hover:text-fg"
+                  className="flex min-h-14 items-center justify-between border-b border-white/10 px-1 text-left text-fg-dim transition-colors hover:text-fg"
                 >
                   <span className="t-label">Start a group</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setStep("join")}
-                  className="flex min-h-14 items-center justify-between border-b border-hairline px-1 text-left text-fg-dim transition-colors hover:text-fg"
+                  className="flex min-h-14 items-center justify-between border-b border-white/10 px-1 text-left text-fg-dim transition-colors hover:text-fg"
                 >
                   <span className="t-label">Join with a code</span>
                 </button>
@@ -136,7 +139,7 @@ export function GroupActionsFab() {
                   autoFocus
                   aria-label="Back"
                   onClick={() => setStep("menu")}
-                  className="flex h-11 w-11 items-center justify-center rounded-ctl text-fg-dim transition-colors hover:bg-surface-2 hover:text-fg"
+                  className="flex h-11 w-11 items-center justify-center rounded-xl text-fg-dim transition-colors hover:bg-white/10 hover:text-fg"
                 >
                   <BackIcon />
                 </button>
@@ -147,7 +150,7 @@ export function GroupActionsFab() {
                   type="button"
                   aria-label="Close"
                   onClick={closeSheet}
-                  className="flex h-11 w-11 items-center justify-center rounded-ctl text-fg-dim transition-colors hover:bg-surface-2 hover:text-fg"
+                  className="flex h-11 w-11 items-center justify-center rounded-xl text-fg-dim transition-colors hover:bg-white/10 hover:text-fg"
                 >
                   <CloseIcon />
                 </button>

@@ -138,7 +138,9 @@ export function ExploreCardView({
               onClick={onToggleMute}
               aria-pressed={!muted}
               aria-label={muted ? "Unmute trailer" : "Mute trailer"}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-ctl border border-hairline bg-surface-2 text-fg-dim transition-colors hover:text-fg"
+              // Lens-tier glass over the film's own blurred colour, so white
+              // icon only (globals.css, GLASS rule 1).
+              className="glass flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-fg transition motion-safe:active:scale-[0.92]"
             >
               <svg
                 aria-hidden

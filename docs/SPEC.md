@@ -301,6 +301,7 @@ Generated from scoring components, no LLM:
 10. **Stats** — watch history, hype-vs-reality
 11. **Settings** — groups, ingest token + shortcut install, visibility toggles, notification matrix, blocks, export, delete account
 12. **Explore** (post-phase-9 feature) — full-screen vertical trailer feed at `/explore`: one film per screen, its YouTube trailer autoplaying muted, the app's vote controls beneath. Votes write `user_movie_status` exactly as search does, feeding `user_tag_weights` and therefore the group recommender. Distinct from screen 9 **Discover**: Discover is the phase-10 people directory (search users, browse public lists and groups); Explore is browsing films you don't already know the name of.
+13. **Landing** (launch pass) — what a signed-out visitor sees at `/`: what Venn does, how the picker decides, and a way in. Signed in, `/` is still My List. Every claim on it must be something the app does; see `docs/DECISIONS.md`, "Launch pass".
 
 **Movie-detail global percentages use current votes.** "Hyped" is
 `hyped | superhyped` divided by all non-null hype votes (including
@@ -350,6 +351,7 @@ Phases are built in order. **Do not build ahead of the current phase.** The curr
 | 10 | Public profiles, follows, visibility toggles, blocks | v2 |
 | 11 | Notification matrix, moderation, analytics, deletion + export, legal pages | v2 |
 | 12 | Hype-vs-reality stats, joinable groups, monetization | v3 |
+| — | Launch pass: public landing page, share metadata, liquid-glass chrome, leaving a lobby. Not a phase; recorded in `docs/DECISIONS.md`, "Launch pass". | v3 |
 13 make accessibility statement and add it to the footer
 ---
 

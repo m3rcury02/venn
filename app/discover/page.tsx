@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { AppHeader, navLinkClass } from "@/components/app-header";
 import { JoinPublicGroupButton } from "@/components/join-public-group-button";
@@ -7,6 +8,8 @@ import { Screen } from "@/components/ui/screen";
 import { UserSearchForm } from "@/components/user-search-form";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
+
+export const metadata: Metadata = { title: "Discover" };
 
 type PublicListRow = {
   id: string;

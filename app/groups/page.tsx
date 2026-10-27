@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppHeader, navLinkClass } from "@/components/app-header";
@@ -7,6 +8,8 @@ import { Screen } from "@/components/ui/screen";
 import { VennMark } from "@/components/venn-mark";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
+
+export const metadata: Metadata = { title: "Groups" };
 
 // No generated database.types.ts (see docs/DECISIONS.md phase 1a), so the
 // embed's cardinality is declared here. group_members.group_id -> groups.id is

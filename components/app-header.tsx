@@ -1,11 +1,16 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { HeaderShell } from "@/components/header-shell";
 import { VennMark } from "@/components/venn-mark";
 
 // `whitespace-nowrap` is load-bearing: without it "Movie night" and "Add
 // movies" break mid-label on a 390px viewport.
+//
+// The hover wash is translucent white rather than `--surface-2`: these links
+// sit on the header's glass once the page scrolls, where an opaque grey
+// block would punch a hole in it.
 export const navLinkClass =
-  "t-label relative flex min-h-11 items-center rounded-ctl px-3 py-2 whitespace-nowrap text-fg-dim transition-colors hover:bg-surface-2 hover:text-fg active:bg-surface-2 active:text-fg";
+  "t-label relative flex min-h-11 items-center rounded-lg px-3 py-2 whitespace-nowrap text-fg-dim transition-colors hover:bg-white/[0.07] hover:text-fg active:bg-white/[0.07] active:text-fg";
 
 type AppHeaderProps = {
   subtitle: string;
@@ -27,37 +32,41 @@ export function AppHeader({
   inboxCount,
 }: AppHeaderProps) {
   return (
-    <header className="flex flex-wrap items-center justify-between gap-4">
-      <div>
-        <Link href="/" className="inline-flex items-center gap-2.5">
-          <VennMark size={26} />
-          <span className="t-display text-[26px] text-fg">Venn</span>
-        </Link>
-        <p className="t-label mt-1.5 text-fg-faint">{subtitle}</p>
-      </div>
-      {actions || inboxCount !== undefined ? (
-        <nav className="hidden flex-wrap items-center justify-end gap-1 sm:flex">
-          {/* The link renders whenever the caller has a user; only the count is
-              conditional. Hiding the link at zero would make the Inbox appear
-              and vanish from the nav, which reads as a bug rather than a badge. */}
-          {inboxCount !== undefined ? (
-            <Link href="/inbox" className={navLinkClass}>
-              Inbox
-              {inboxCount > 0 ? (
-                <span className="t-data ml-1.5 rounded-ctl bg-marquee px-1.5 py-0.5 text-[10px] text-on-beam">
-                  {inboxCount}
-                </span>
-              ) : null}
-            </Link>
-          ) : null}
-          {actions}
-        </nav>
-      ) : null}
-      {mobileActions ? (
-        <nav className="flex w-full flex-wrap items-center gap-1 sm:hidden">
-          {mobileActions}
-        </nav>
-      ) : null}
-    </header>
+    <HeaderShell>
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <Link href="/" className="inline-flex items-center gap-2.5">
+            <VennMark size={26} />
+            <span className="t-display text-[26px] text-fg">Venn</span>
+          </Link>
+          {/* `--fg-dim`, not `--fg-faint`: once the page scrolls this sits on
+              the header's glass, where faint doesn't hold AA (globals.css). */}
+          <p className="t-label mt-1.5 text-fg-dim">{subtitle}</p>
+        </div>
+        {actions || inboxCount !== undefined ? (
+          <nav className="hidden flex-wrap items-center justify-end gap-1 sm:flex">
+            {/* The link renders whenever the caller has a user; only the count is
+                conditional. Hiding the link at zero would make the Inbox appear
+                and vanish from the nav, which reads as a bug rather than a badge. */}
+            {inboxCount !== undefined ? (
+              <Link href="/inbox" className={navLinkClass}>
+                Inbox
+                {inboxCount > 0 ? (
+                  <span className="t-data ml-1.5 rounded-ctl bg-marquee px-1.5 py-0.5 text-[10px] text-on-beam">
+                    {inboxCount}
+                  </span>
+                ) : null}
+              </Link>
+            ) : null}
+            {actions}
+          </nav>
+        ) : null}
+        {mobileActions ? (
+          <nav className="flex w-full flex-wrap items-center gap-1 sm:hidden">
+            {mobileActions}
+          </nav>
+        ) : null}
+      </header>
+    </HeaderShell>
   );
 }

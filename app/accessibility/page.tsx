@@ -5,7 +5,7 @@ import { Screen } from "@/components/ui/screen";
 import { CONTACT_EMAIL, LAST_UPDATED } from "@/lib/legal";
 
 export const metadata: Metadata = {
-  title: "Accessibility Statement — Venn",
+  title: "Accessibility Statement",
   description: "Accessibility commitment and standards for Venn shared movie lists.",
 };
 

@@ -3,7 +3,11 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { joinRemoteNight, startRemoteNight } from "@/app/groups/[id]/night/actions";
+import {
+  joinRemoteNight,
+  leaveRemoteNight,
+  startRemoteNight,
+} from "@/app/groups/[id]/night/actions";
 import { buttonClass } from "@/components/ui/button";
 import type { NightMode } from "@/components/present-picker";
 
@@ -32,10 +36,14 @@ export function NightLobby({
   attendees,
   isAttendee,
   nightId,
+  leaveHref,
 }: {
   attendees: { id: string; name: string }[];
   isAttendee: boolean;
   nightId: string;
+  /** The plain night page, where leaving lands you: if you were the last one
+   *  in, the lobby no longer exists for `?night=` to point at. */
+  leaveHref: string;
 }) {
   const router = useRouter();
   const [copied, setCopied] = useState(false);
@@ -56,6 +64,18 @@ export function NightLobby({
       // Clipboard is unavailable outside a secure context -- the link is
       // already on screen in the address bar either way.
     }
+  }
+
+  function handleLeave() {
+    setJoinError(null);
+    startJoin(async () => {
+      const res = await leaveRemoteNight(nightId);
+      if (res.ok) {
+        router.replace(leaveHref);
+      } else {
+        setJoinError(res.error ?? "Couldn't leave.");
+      }
+    });
   }
 
   function handleJoin() {
@@ -97,7 +117,18 @@ export function NightLobby({
           >
             {joinPending ? "Joining…" : "I'm in"}
           </button>
-        ) : null}
+        ) : (
+          // As easy to undo as "I'm in" was to tap: in a public group, being
+          // in the lobby is what lets the picker use your taste.
+          <button
+            type="button"
+            disabled={joinPending}
+            onClick={handleLeave}
+            className={buttonClass("ghost", "py-2.5 px-5 text-sm")}
+          >
+            {joinPending ? "Leaving…" : "Leave"}
+          </button>
+        )}
       </div>
       {joinError ? <p className="t-body text-xs text-beam-a">{joinError}</p> : null}
     </div>

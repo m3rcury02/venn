@@ -1,7 +1,8 @@
+import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { AdSlot } from "@/components/ad-slot";
 import { AppHeader, navLinkClass } from "@/components/app-header";
+import { Landing } from "@/components/landing/landing";
 import { ListFilter, matchesFilter, parseFilter, type Status } from "@/components/list-filter";
 import { MovieCard } from "@/components/movie-card";
 import { RemoveFromListButton } from "@/components/remove-from-list-button";
@@ -37,12 +38,23 @@ type HomeProps = {
   searchParams: Promise<{ filter?: string }>;
 };
 
+// Signed out, "/" is the landing page and takes the root layout's default
+// title and description, which are written for it. Signed in, it's My List.
+// `absolute`, because the layout's title template only applies to child
+// segments, and this page shares the root layout's segment.
+export async function generateMetadata(): Promise<Metadata> {
+  const { data } = await getClaims(await createClient());
+  return data?.claims ? { title: { absolute: "Your list · Venn" } } : {};
+}
+
 export default async function Home({ searchParams }: HomeProps) {
   const supabase = await createClient();
 
   // getClaims() verifies the JWT signature; never trust getSession() here.
+  // No session is the public landing page now, not a redirect to /login:
+  // lib/supabase/proxy.ts lets "/" through signed out for this.
   const { data } = await getClaims(supabase);
-  if (!data?.claims) redirect("/login");
+  if (!data?.claims) return <Landing />;
 
   // list and the inbox badge count are independent reads, run together rather
   // than serially -- only list_items below actually depends on list.

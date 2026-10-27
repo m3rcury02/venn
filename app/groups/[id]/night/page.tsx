@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -41,6 +42,8 @@ type NightPageProps = {
   params: Promise<{ id: string }>;
   searchParams: Promise<{ present?: string; exclude?: string; mode?: string; night?: string }>;
 };
+
+export const metadata: Metadata = { title: "Movie night" };
 
 function nightHref(
   groupId: string,
@@ -320,6 +323,7 @@ export default async function MovieNightPage({ params, searchParams }: NightPage
           attendees={members.filter((m) => present.includes(m.id))}
           isAttendee={present.includes(userId)}
           nightId={lobbyNightId!}
+          leaveHref={`/groups/${id}/night${mode === "theatre" ? "?mode=theatre" : ""}`}
         />
       ) : (
         <>

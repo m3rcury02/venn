@@ -5,7 +5,7 @@ import { Screen } from "@/components/ui/screen";
 import { CONTACT_EMAIL, LAST_UPDATED } from "@/lib/legal";
 
 export const metadata: Metadata = {
-  title: "Terms of Service — Venn",
+  title: "Terms of Service",
   description: "Terms of Service for Venn shared movie lists and recommendations.",
 };
 

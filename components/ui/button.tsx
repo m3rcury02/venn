@@ -20,20 +20,27 @@ const base =
 const variants: Record<ButtonVariant, string> = {
   marquee: "bulb bg-marquee text-on-beam hover:brightness-110",
   beam: "bulb-beam bg-beam-a text-on-beam hover:brightness-110",
-  ghost:
-    "border border-hairline text-fg hover:border-fg-dim hover:bg-surface-2",
+  // Glass without a backdrop filter: ghost buttons sit on the black ground,
+  // where there is nothing to blur (globals.css, `.glass-flat`).
+  ghost: "glass-flat text-fg hover:bg-white/[0.09]",
 };
 
 export function buttonClass(variant: ButtonVariant = "marquee", extra?: string) {
   return `${base} ${variants[variant]} ${extra ?? ""}`;
 }
 
-// The small square control that sits on top of a poster. Shared by add,
-// remove and watched so the three agree on size and weight. 44px is the
-// platform tap-target minimum (Apple HIG), not a size the poster composition
-// asked for.
+// The small control that sits on top of a poster. Shared by add, remove and
+// watched so the three agree on size and weight. 44px is the platform
+// tap-target minimum (Apple HIG), not a size the poster composition asked
+// for.
+//
+// Lens-tier glass, so poster art shows through it -- and therefore white
+// icons only (globals.css, GLASS rule 1). Soft-cornered because it is glass:
+// a lens sitting on the (square) screen. The transparent border is there so
+// a state class can colour it (`border-fg` when watched) without a layout
+// shift.
 export const overlayButtonClass =
-  "flex h-11 w-11 items-center justify-center rounded-ctl border border-hairline bg-ink/70 text-fg backdrop-blur-sm transition duration-200 active:brightness-[0.85] motion-safe:active:scale-[0.97] disabled:opacity-50";
+  "glass flex h-11 w-11 items-center justify-center rounded-xl border border-transparent text-fg transition duration-200 active:brightness-[0.85] motion-safe:active:scale-[0.94] disabled:opacity-50";
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;

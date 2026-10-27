@@ -19,7 +19,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(282);
+select plan(294);
 
 -- ------------------------------------------------------------- fixtures
 -- Run as postgres (bypasses RLS). Inserting into auth.users fires
@@ -2982,6 +2982,124 @@ select throws_ok(
   '42501',
   null,
   'anon cannot call consume_ip_rate_limit'
+);
+
+reset role;
+
+-- ------------------------------ leaving a lobby (20261027120000_leave_movie_night.sql)
+-- Joining a lobby is consent in a public group; leaving has to withdraw it.
+-- Reuses the public group above: C owns it, A is a member, D is not.
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+
+select lives_ok(
+  $$create temp table _leave_lobby as
+    select public.open_movie_night(
+      'b2000000-0000-0000-0000-000000000001', 'home') as night_id$$,
+  'control: C opens a fresh lobby (the expired one above is cleared)'
+);
+
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+select public.join_movie_night((select night_id from _leave_lobby));
+
+set local request.jwt.claims = '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+
+-- Positive control before the negative: with A in the lobby, C may count A.
+select lives_ok(
+  $$select * from public.recommend_movies(
+      'b2000000-0000-0000-0000-000000000001',
+      array['cccccccc-cccc-cccc-cccc-cccccccccccc',
+            '11111111-1111-1111-1111-111111111111']::uuid[])$$,
+  'control: while A is in the lobby, C''s picker can count A'
+);
+
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-dddd-dddd-dddddddddddd","role":"authenticated"}';
+
+select throws_ok(
+  $$select public.leave_movie_night((select night_id from _leave_lobby))$$,
+  '42501',
+  null,
+  'a non-member cannot call leave on another group''s lobby'
+);
+
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+select lives_ok(
+  $$select public.leave_movie_night((select night_id from _leave_lobby))$$,
+  'A leaves the lobby'
+);
+
+select lives_ok(
+  $$select public.leave_movie_night((select night_id from _leave_lobby))$$,
+  'leaving twice is a no-op, not an error'
+);
+
+set local request.jwt.claims = '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+
+select throws_ok(
+  $$select * from public.recommend_movies(
+      'b2000000-0000-0000-0000-000000000001',
+      array['cccccccc-cccc-cccc-cccc-cccccccccccc',
+            '11111111-1111-1111-1111-111111111111']::uuid[])$$,
+  '42501',
+  null,
+  'once A has left, C''s picker can no longer count A: consent is withdrawn'
+);
+
+select results_eq(
+  $$select user_id from movie_night_attendees
+    where movie_night_id = (select night_id from _leave_lobby)$$,
+  $$values ('cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid)$$,
+  'leaving removed only the leaver''s own seat'
+);
+
+select lives_ok(
+  $$select public.leave_movie_night((select night_id from _leave_lobby))$$,
+  'C, the last one in, leaves too'
+);
+
+reset role;
+
+select is(
+  (select count(*)::int from movie_nights where id = (select night_id from _leave_lobby)),
+  0,
+  'the last one out deletes the empty lobby, freeing the group''s lobby slot'
+);
+
+-- A closed night's roster is the record of who watched the pick, so it can't
+-- be left after the fact.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+
+create temp table _closed_lobby as
+  select public.open_movie_night('b2000000-0000-0000-0000-000000000001', 'home') as night_id;
+select public.close_movie_night(
+  (select night_id from _closed_lobby), 'b1000000-0000-0000-0000-000000000001', 'home');
+
+select throws_ok(
+  $$select public.leave_movie_night((select night_id from _closed_lobby))$$,
+  '42501',
+  null,
+  'a closed night cannot be left'
+);
+
+reset role;
+
+select is(
+  (select count(*)::int from movie_night_attendees
+   where movie_night_id = (select night_id from _closed_lobby)),
+  1,
+  'the closed night''s roster is untouched by the refused leave'
+);
+
+set local role anon;
+
+select throws_ok(
+  $$select public.leave_movie_night((select night_id from _closed_lobby))$$,
+  '42501',
+  null,
+  'anon cannot call leave_movie_night'
 );
 
 reset role;

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { AppHeader, navLinkClass } from "@/components/app-header";
 import { ExploreFeed } from "@/components/explore-feed";
@@ -6,6 +7,8 @@ import { withinRateLimit } from "@/lib/rate-limit";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
 import { VennMark } from "@/components/venn-mark";
+
+export const metadata: Metadata = { title: "Explore" };
 
 // The Explore trailer feed (post-phase-9 feature). Distinct from SPEC §7's
 // screen 9 "Discover" -- that is the phase-10 people directory (search users,

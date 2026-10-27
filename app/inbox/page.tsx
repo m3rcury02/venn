@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppHeader, navLinkClass } from "@/components/app-header";
@@ -10,6 +11,8 @@ import { extractCandidates } from "@/lib/ingest/extract";
 import { provider, type MediaType } from "@/lib/providers";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
+
+export const metadata: Metadata = { title: "Inbox" };
 
 // SPEC §7 screen 5. Everything here reads local rows: /api/ingest already
 // cached each candidate, so rendering this page costs zero provider calls even

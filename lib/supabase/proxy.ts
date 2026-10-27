@@ -41,6 +41,17 @@ import { getClaims } from "./claims";
 // caller has no session or isn't onboarded. Behind the redirect, a report
 // would be answered with /login HTML and silently lost. It guards itself: see
 // the route.
+// /accessibility was missing from this list while the footer linked to it on
+// every page, so a signed-out visitor following that link landed on /login.
+// It is a legal page like /privacy and /terms and belongs with them.
+//
+// /robots.txt, /sitemap.xml and /opengraph-image are read by crawlers and
+// link-preview bots, which never carry a session. Behind the
+// redirect, every shared link would preview as the login page and the
+// sitemap would be login HTML.
+//
+// "/" itself is handled separately below (LANDING_PATH), not listed here:
+// PUBLIC_PATHS matches by prefix, and "/" is a prefix of every path.
 // Bumped from "1" when the 18+ confirmation joined the onboarding gate; see
 // the comment in updateSession.
 const ONBOARDED_COOKIE_VALUE = "2";
@@ -60,7 +71,17 @@ const PUBLIC_PATHS = [
   "/privacy",
   "/terms",
   "/about",
+  "/accessibility",
+  "/robots.txt",
+  "/sitemap.xml",
+  "/opengraph-image",
 ];
+
+// Signed out, "/" is the public landing page (app/page.tsx renders it when
+// there are no claims). Signed in, it is My List and goes through the
+// onboarding gate like any other app route -- so this is deliberately not in
+// PUBLIC_PATHS, which would exempt it from that gate too.
+const LANDING_PATH = "/";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -105,7 +126,9 @@ export async function updateSession(request: NextRequest) {
   );
   const isOnboarding = request.nextUrl.pathname.startsWith("/onboarding");
 
-  if (!data?.claims && !isPublic) {
+  const isLanding = request.nextUrl.pathname === LANDING_PATH;
+
+  if (!data?.claims && !isPublic && !isLanding) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

@@ -10,7 +10,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 
 export const metadata: Metadata = {
-  title: "Moderation Queue — Venn",
+  title: "Moderation Queue",
   description: "Admin moderation reports queue.",
 };
 

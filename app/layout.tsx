@@ -7,6 +7,7 @@ import { Analytics } from "@/components/analytics";
 import { ErrorReporter } from "@/components/error-reporter";
 import { RegisterServiceWorker } from "@/components/register-service-worker";
 import { SiteFooter } from "@/components/site-footer";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site";
 import "./globals.css";
 
 // Two families, and the second one does three jobs. Archivo is variable on
@@ -26,18 +27,40 @@ const archivo = Archivo({
   axes: ["wdth"],
 });
 
+// Every page's tab reads "<page> · Venn"; the landing page (and anything that
+// sets no title) gets the default. The Open Graph and Twitter images come
+// from app/opengraph-image.tsx and app/twitter-image.tsx by file convention.
 export const metadata: Metadata = {
-  title: "Venn",
-  description: "Shared movie and TV lists for your group.",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: `${SITE_NAME} · ${SITE_TAGLINE}`,
+    template: `%s · ${SITE_NAME}`,
+  },
+  description: SITE_DESCRIPTION,
+  applicationName: SITE_NAME,
   manifest: "/manifest.webmanifest",
   icons: {
     apple: "/apple-touch-icon.png",
   },
   appleWebApp: {
     capable: true,
-    title: "Venn",
+    title: SITE_NAME,
     statusBarStyle: "black-translucent",
   },
+  openGraph: {
+    type: "website",
+    siteName: SITE_NAME,
+    title: `${SITE_NAME} · ${SITE_TAGLINE}`,
+    description: SITE_DESCRIPTION,
+    url: "/",
+    locale: "en_IN",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: `${SITE_NAME} · ${SITE_TAGLINE}`,
+    description: SITE_DESCRIPTION,
+  },
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = {

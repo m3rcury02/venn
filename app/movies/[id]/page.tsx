@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { Hype, Rating } from "@/app/status/actions";
@@ -45,6 +46,16 @@ type MovieDetailRow = {
 type MovieDetailPageProps = {
   params: Promise<{ id: string }>;
 };
+
+// The film's own title in the tab and in any link preview a signed-in user
+// sees. Same UUID guard as the page; a malformed id just gets the default.
+export async function generateMetadata({ params }: MovieDetailPageProps): Promise<Metadata> {
+  const { id } = await params;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return {};
+  const supabase = await createClient();
+  const { data } = await supabase.from("movies").select("title, year").eq("id", id).maybeSingle();
+  return data ? { title: data.year ? `${data.title} (${data.year})` : data.title } : {};
+}
 
 const WATCH_SECTIONS: {
   type: WatchProviderType;

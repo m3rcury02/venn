@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -17,6 +18,8 @@ import { Screen } from "@/components/ui/screen";
 import type { ListVisibility } from "@/app/settings/actions";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
+
+export const metadata: Metadata = { title: "Settings" };
 
 type SettingsPageProps = {
   searchParams: Promise<{ tileSetup?: string }>;

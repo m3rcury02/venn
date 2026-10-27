@@ -160,6 +160,27 @@ export async function joinRemoteNight(nightId: string): Promise<{ ok: boolean; e
   return { ok: true };
 }
 
+// The way back out of a lobby (20261027120000_leave_movie_night.sql). In a
+// group that has ever been public, being in the lobby is what lets the
+// picker use your taste, so leaving is how that consent is withdrawn.
+export async function leaveRemoteNight(nightId: string): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: claims } = await getClaims(supabase);
+  const me = claims?.claims?.sub;
+
+  if (typeof me !== "string") {
+    return { ok: false, error: "Not signed in." };
+  }
+
+  const { error } = await supabase.rpc("leave_movie_night", { p_night_id: nightId });
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  return { ok: true };
+}
+
 // SPEC §4.5: "None of these -- log it, useful signal." Best-effort and never
 // throws -- analytics must not break the reroll, the same reflex as
 // widenCandidates returning [] on provider failure rather than 500ing the

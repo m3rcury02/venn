@@ -1,8 +1,11 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { AppHeader, navLinkClass } from "@/components/app-header";
 import { SearchForm } from "@/components/search-form";
 import { Screen } from "@/components/ui/screen";
 import { createClient } from "@/lib/supabase/server";
+
+export const metadata: Metadata = { title: "Search" };
 
 type SearchPageProps = {
   searchParams: Promise<{ list?: string; q?: string }>;

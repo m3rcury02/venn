@@ -13,6 +13,24 @@ function isAppPath(pathname: string) {
   return pathname === "/" || APP_PATHS.some((path) => pathname.startsWith(path));
 }
 
+const TAB_COUNT = 5;
+const MORE_INDEX = 4;
+
+// Which of the five slots the lens sits under. Discover, Stats, Inbox and
+// Settings all live in the More drawer, so they light More. A movie page or
+// a profile belongs to no tab, and the lens fades out rather than claiming
+// one it isn't.
+function tabIndexFor(pathname: string): number | null {
+  if (pathname === "/") return 0;
+  if (pathname.startsWith("/explore")) return 1;
+  if (pathname.startsWith("/search")) return 2;
+  if (pathname.startsWith("/groups")) return 3;
+  if (["/inbox", "/settings", "/discover", "/stats"].some((path) => pathname.startsWith(path))) {
+    return MORE_INDEX;
+  }
+  return null;
+}
+
 function MyListIcon() {
   return (
     <svg aria-hidden viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-current">
@@ -68,32 +86,36 @@ function CloseIcon() {
   );
 }
 
-function ActiveLine({ active }: { active: boolean }) {
-  return active ? (
-    <span aria-hidden className="absolute inset-x-0 top-0 mx-auto h-0.5 w-6 bg-marquee" />
-  ) : null;
-}
+// Inactive tabs are white at 75%, not `--fg-faint`: the bar is lens-tier
+// glass, which carries `--fg` and `--marquee` only (globals.css, GLASS).
+// White at 75% measures 5.02:1 over that tier's worst-case ground.
+const tabClass =
+  "relative z-10 flex h-14 flex-col items-center justify-center gap-1 transition-colors motion-safe:active:scale-[0.92]";
 
 function TabLink({
   href,
   label,
   active,
+  onPress,
   children,
 }: {
   href: string;
   label: string;
   active: boolean;
+  onPress: () => void;
   children: ReactNode;
 }) {
   return (
     <Link
       href={href}
       aria-current={active ? "page" : undefined}
-      className={`relative flex min-h-16 flex-col items-center justify-center gap-1 transition-colors motion-safe:active:scale-[0.95] ${
-        active ? "text-fg" : "text-fg-faint hover:text-fg active:text-fg"
-      }`}
+      onClick={(event) => {
+        // A modified click opens a new tab; this one isn't going anywhere.
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+        onPress();
+      }}
+      className={`${tabClass} ${active ? "text-fg" : "text-fg/75 hover:text-fg active:text-fg"}`}
     >
-      <ActiveLine active={active} />
       {children}
       <span className="t-label text-[9px] tracking-[0.12em]">{label}</span>
     </Link>
@@ -110,6 +132,44 @@ function CountBadge({ count }: { count: number | null }) {
   );
 }
 
+// The lens: a bright glass pill under the active tab. The outer element
+// slides between slots on a slightly springy curve; the inner one is
+// remounted on every move (`key`) so its stretch keyframe replays -- it
+// smears sideways in flight and snaps back to shape when it lands, which is
+// what makes it read as liquid rather than as a sliding box. Neither runs
+// under reduced motion: the lens simply appears under the new tab.
+function Lens({ index }: { index: number | null }) {
+  const [lastIndex, setLastIndex] = useState(index ?? 0);
+  const [moves, setMoves] = useState(0);
+  // Storing the previous value in state, React's documented pattern for
+  // reacting to a prop change during render, not in an effect.
+  if (index !== null && index !== lastIndex) {
+    setLastIndex(index);
+    setMoves((count) => count + 1);
+  }
+  const shown = index ?? lastIndex;
+
+  return (
+    <span
+      aria-hidden
+      className={`pointer-events-none absolute inset-y-1 left-1 transition-opacity duration-300 motion-safe:transition-[transform,opacity] motion-safe:duration-[420ms] motion-safe:ease-[cubic-bezier(0.34,1.3,0.64,1)] ${
+        index === null ? "opacity-0" : "opacity-100"
+      }`}
+      style={{
+        width: `calc((100% - 0.5rem) / ${TAB_COUNT})`,
+        transform: `translateX(${shown * 100}%)`,
+      }}
+    >
+      <span
+        key={moves}
+        className={`glass-highlight block h-full w-full rounded-[0.95rem] ${
+          moves > 0 ? "motion-safe:animate-lens-stretch" : ""
+        }`}
+      />
+    </span>
+  );
+}
+
 export function MobileNavigation() {
   const pathname = usePathname();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -119,8 +179,23 @@ export function MobileNavigation() {
   const { canPrompt, promptInstall } = useDeferredInstallPrompt();
   const [showInstallRow, setShowInstallRow] = useState(false);
   const [showIosSteps, setShowIosSteps] = useState(false);
+  const [pendingIndex, setPendingIndex] = useState<number | null>(null);
+  const [pendingFor, setPendingFor] = useState(pathname);
+  if (pendingFor !== pathname) {
+    setPendingFor(pathname);
+    setPendingIndex(null);
+  }
 
   const fetchInboxCount = useCallback(async () => {
+    // "/" is also the signed-out landing page, where this component is
+    // mounted (and hidden by CSS). Without a session the query is a
+    // guaranteed 401 in every visitor's console. getSession() reads the
+    // local cookie, no network -- fine for "is there anyone to ask for", and
+    // RLS still decides what the count actually is.
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session) return null;
     const { count, error } = await supabase
       .from("ingest_inbox")
       .select("id", { count: "exact", head: true })
@@ -162,12 +237,13 @@ export function MobileNavigation() {
 
   if (!isAppPath(pathname)) return null;
 
-  const myListActive = pathname === "/";
-  const exploreActive = pathname.startsWith("/explore");
-  const searchActive = pathname.startsWith("/search");
-  const groupsActive = pathname.startsWith("/groups");
-  const moreActive =
-    moreOpen || pathname.startsWith("/inbox") || pathname.startsWith("/settings");
+  const routeIndex = tabIndexFor(pathname);
+  // The lens moves on the tap, not when the next route has finished
+  // rendering -- otherwise it would sit on the old tab for as long as the
+  // server takes, which reads as the tap not registering. `pendingIndex`
+  // is dropped again as soon as the pathname actually changes (above).
+  const lensIndex = moreOpen ? MORE_INDEX : (pendingIndex ?? routeIndex);
+  const moreActive = moreOpen || routeIndex === MORE_INDEX;
   const installVisible = showInstallRow && (canPrompt || showIosSteps);
 
   function openMore() {
@@ -187,42 +263,48 @@ export function MobileNavigation() {
     closeMore();
   }
 
+  // Rows inside the drawer. The drawer is glass, but inside a modal: the
+  // ::backdrop has already dimmed the page, so `--fg-dim` holds 5.42:1 there
+  // (globals.css, GLASS). `--fg-faint` would not, and isn't used.
+  const drawerRow =
+    "flex min-h-14 items-center border-b border-white/10 px-1 text-fg-dim transition-colors hover:text-fg active:text-fg";
+
   return (
     <>
-      <div aria-hidden className="h-16 shrink-0 sm:hidden" />
+      {/* Same 4rem the docked bar used to take, so nothing measured against
+          it moved: the floating bar is 3.5rem tall and sits 0.5rem above the
+          safe area. components/explore-feed.tsx, the install prompt's
+          --mobile-nav-offset and the group FAB's --group-fab-offset all
+          still budget exactly this. */}
+      <div aria-hidden data-mobile-nav-spacer className="h-16 shrink-0 sm:hidden" />
       <nav
         data-mobile-nav
         aria-label="Primary navigation"
-        className="fixed inset-x-0 bottom-0 z-40 border-t border-hairline bg-ink/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md sm:hidden"
+        className="glass fixed inset-x-3 z-40 mx-auto max-w-md rounded-glass sm:hidden"
+        style={{ bottom: "calc(env(safe-area-inset-bottom) + 0.5rem)" }}
       >
-        <div className="mx-auto grid max-w-lg grid-cols-5">
-          <TabLink href="/" label="My list" active={myListActive}>
+        <div className="relative grid grid-cols-5 px-1">
+          <Lens index={lensIndex} />
+          <TabLink href="/" label="My list" active={routeIndex === 0} onPress={() => setPendingIndex(0)}>
             <MyListIcon />
           </TabLink>
-          <TabLink href="/explore" label="Explore" active={exploreActive}>
+          <TabLink href="/explore" label="Explore" active={routeIndex === 1} onPress={() => setPendingIndex(1)}>
             <ExploreIcon />
           </TabLink>
-          <TabLink href="/search" label="Search" active={searchActive}>
+          <TabLink href="/search" label="Search" active={routeIndex === 2} onPress={() => setPendingIndex(2)}>
             <SearchIcon />
           </TabLink>
-          <TabLink href="/groups" label="Groups" active={groupsActive}>
+          <TabLink href="/groups" label="Groups" active={routeIndex === 3} onPress={() => setPendingIndex(3)}>
             <GroupsIcon />
           </TabLink>
           <button
             type="button"
-            aria-current={
-              pathname.startsWith("/inbox") || pathname.startsWith("/settings")
-                ? "page"
-                : undefined
-            }
+            aria-current={routeIndex === MORE_INDEX ? "page" : undefined}
             aria-expanded={moreOpen}
             aria-controls="mobile-more-menu"
             onClick={openMore}
-            className={`relative flex min-h-16 flex-col items-center justify-center gap-1 transition-colors motion-safe:active:scale-[0.95] ${
-              moreActive ? "text-fg" : "text-fg-faint hover:text-fg active:text-fg"
-            }`}
+            className={`${tabClass} ${moreActive ? "text-fg" : "text-fg/75 hover:text-fg active:text-fg"}`}
           >
-            <ActiveLine active={moreActive} />
             <span className="relative">
               <MoreIcon />
               {inboxCount && inboxCount > 0 ? (
@@ -245,9 +327,9 @@ export function MobileNavigation() {
         onClick={(event) => {
           if (event.target === event.currentTarget) closeMore();
         }}
-        className="fixed inset-y-0 right-0 left-auto m-0 h-dvh max-h-none w-[min(84vw,320px)] max-w-none border-l border-hairline bg-surface p-0 text-fg backdrop:bg-black/80 backdrop:backdrop-blur-sm open:block motion-safe:open:animate-drawer-in sm:hidden"
+        className="glass fixed top-[calc(env(safe-area-inset-top)+0.5rem)] right-2 bottom-[calc(env(safe-area-inset-bottom)+0.5rem)] left-auto m-0 h-auto max-h-none w-[min(84vw,320px)] max-w-none rounded-glass p-0 text-fg backdrop:bg-black/80 backdrop:backdrop-blur-sm open:block motion-safe:open:animate-drawer-in sm:hidden"
       >
-        <div className="flex h-full flex-col px-5 pt-[calc(env(safe-area-inset-top)+1.25rem)] pb-[calc(env(safe-area-inset-bottom)+1.25rem)]">
+        <div className="flex h-full flex-col px-5 pt-5 pb-5">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-2.5">
               <VennMark size={24} />
@@ -260,7 +342,7 @@ export function MobileNavigation() {
               autoFocus
               aria-label="Close menu"
               onClick={closeMore}
-              className="flex h-11 w-11 items-center justify-center rounded-ctl text-fg-dim transition-colors hover:bg-surface-2 hover:text-fg active:bg-surface-2 active:text-fg motion-safe:active:scale-[0.95]"
+              className="flex h-11 w-11 items-center justify-center rounded-xl text-fg-dim transition-colors hover:bg-white/10 hover:text-fg active:bg-white/10 active:text-fg motion-safe:active:scale-[0.92]"
             >
               <CloseIcon />
             </button>
@@ -271,7 +353,7 @@ export function MobileNavigation() {
               href="/discover"
               aria-current={pathname.startsWith("/discover") ? "page" : undefined}
               onClick={closeMore}
-              className="flex min-h-14 items-center border-b border-hairline px-1 text-fg-dim transition-colors hover:text-fg active:text-fg"
+              className={drawerRow}
             >
               <span className="t-label">Discover</span>
             </Link>
@@ -279,7 +361,7 @@ export function MobileNavigation() {
               href="/stats"
               aria-current={pathname.startsWith("/stats") ? "page" : undefined}
               onClick={closeMore}
-              className="flex min-h-14 items-center border-b border-hairline px-1 text-fg-dim transition-colors hover:text-fg active:text-fg"
+              className={drawerRow}
             >
               <span className="t-label">Stats</span>
             </Link>
@@ -287,7 +369,7 @@ export function MobileNavigation() {
               href="/inbox"
               aria-current={pathname.startsWith("/inbox") ? "page" : undefined}
               onClick={closeMore}
-              className="flex min-h-14 items-center justify-between border-b border-hairline px-1 text-fg-dim transition-colors hover:text-fg active:text-fg"
+              className={`${drawerRow} justify-between`}
             >
               <span className="t-label">Inbox</span>
               <CountBadge count={inboxCount} />
@@ -296,23 +378,19 @@ export function MobileNavigation() {
               href="/settings"
               aria-current={pathname.startsWith("/settings") ? "page" : undefined}
               onClick={closeMore}
-              className="flex min-h-14 items-center border-b border-hairline px-1 text-fg-dim transition-colors hover:text-fg active:text-fg"
+              className={drawerRow}
             >
               <span className="t-label">Settings</span>
             </Link>
             {installVisible ? (
               canPrompt ? (
-                <button
-                  type="button"
-                  onClick={install}
-                  className="flex min-h-14 items-center border-b border-hairline px-1 text-left text-fg-dim transition-colors hover:text-fg active:text-fg"
-                >
+                <button type="button" onClick={install} className={`${drawerRow} text-left`}>
                   <span className="t-label">Install app</span>
                 </button>
               ) : (
-                <div className="flex min-h-14 flex-col justify-center border-b border-hairline px-1 text-fg-dim">
+                <div className="flex min-h-14 flex-col justify-center border-b border-white/10 px-1 text-fg-dim">
                   <span className="t-label">Install app</span>
-                  <span className="t-body mt-1 text-[13px] text-fg-faint">
+                  <span className="t-body mt-1 text-[13px] text-fg-dim">
                     Tap Share, then Add to Home Screen
                   </span>
                 </div>

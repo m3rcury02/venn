@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useEffect, useState } from "react";
 import { motion, useReducedMotion, type Variants } from "motion/react";
 import { createClient } from "@/lib/supabase/client";
@@ -147,6 +148,15 @@ export default function LoginPage() {
         style={{ transformOrigin: "bottom" }}
         className="absolute inset-x-0 bottom-0 h-6 bg-ink sm:h-9"
       />
+
+      {/* The way back to the landing page. Sign-in used to be the front door;
+          now "/" is, and arriving here from it shouldn't be one-way. */}
+      <Link
+        href="/"
+        className="t-label absolute top-9 left-3 z-10 flex min-h-11 items-center gap-2 rounded-lg px-2 text-fg-dim transition-colors hover:text-fg sm:top-12 sm:left-6"
+      >
+        <span aria-hidden>&larr;</span> Venn
+      </Link>
 
       <div className="w-full max-w-sm">
         {/* Fixed footprint the size of the mark (size=64 -> 16 * 4px), so its

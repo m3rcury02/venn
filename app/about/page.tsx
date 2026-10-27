@@ -6,7 +6,7 @@ import { Screen } from "@/components/ui/screen";
 import { LAST_UPDATED } from "@/lib/legal";
 
 export const metadata: Metadata = {
-  title: "About — Venn",
+  title: "About",
   description: "Learn about Venn, shared movie lists, and our recommendation engine.",
 };
 

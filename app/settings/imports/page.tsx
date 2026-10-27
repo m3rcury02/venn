@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppHeader, navLinkClass } from "@/components/app-header";
@@ -13,6 +14,8 @@ import { Screen } from "@/components/ui/screen";
 import { provider } from "@/lib/providers";
 import { getClaims } from "@/lib/supabase/claims";
 import { createClient } from "@/lib/supabase/server";
+
+export const metadata: Metadata = { title: "Import your history" };
 
 type ImportJob = {
   id: string;

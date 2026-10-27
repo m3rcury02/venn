@@ -6,7 +6,7 @@ import { Screen } from "@/components/ui/screen";
 import { CONTACT_EMAIL, LAST_UPDATED } from "@/lib/legal";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy — Venn",
+  title: "Privacy Policy",
   description: "Privacy Policy for Venn shared movie lists and recommendations.",
 };
 
